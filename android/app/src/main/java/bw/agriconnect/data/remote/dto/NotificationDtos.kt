@@ -27,3 +27,11 @@ data class DeviceTokenRequest(
     /** Defaults to the only platform this client targets. */
     val platform: String = "android",
 )
+
+/** `PATCH /notifications/{id}/read` returns the updated row nested under `notification`. */
+@Serializable
+data class NotificationResponse(val notification: NotificationDto)
+
+/** `POST /notifications/read-all` returns the count of rows marked read. */
+@Serializable
+data class UpdatedCountResponse(val updated: Int = 0)

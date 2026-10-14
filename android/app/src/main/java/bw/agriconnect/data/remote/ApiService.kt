@@ -11,6 +11,7 @@ import bw.agriconnect.data.remote.dto.CreateOrderRequest
 import bw.agriconnect.data.remote.dto.CreateSaleRequest
 import bw.agriconnect.data.remote.dto.DeletionRequestBody
 import bw.agriconnect.data.remote.dto.DeletionRequestDto
+import bw.agriconnect.data.remote.dto.DeletionRequestResponse
 import bw.agriconnect.data.remote.dto.DeviceTokenRequest
 import bw.agriconnect.data.remote.dto.ExpenseDto
 import bw.agriconnect.data.remote.dto.UpdateExpenseRequest
@@ -29,8 +30,10 @@ import bw.agriconnect.data.remote.dto.MeResponse
 import bw.agriconnect.data.remote.dto.MessageResponse
 import bw.agriconnect.data.remote.dto.NdviDto
 import bw.agriconnect.data.remote.dto.NdviRequest
+import bw.agriconnect.data.remote.dto.NdviResponse
 import bw.agriconnect.data.remote.dto.NotificationDto
 import bw.agriconnect.data.remote.dto.NotificationPreferencesDto
+import bw.agriconnect.data.remote.dto.NotificationResponse
 import bw.agriconnect.data.remote.dto.OrderDto
 import bw.agriconnect.data.remote.dto.PageDto
 import bw.agriconnect.data.remote.dto.PublicDeletionRequest
@@ -49,7 +52,7 @@ import bw.agriconnect.data.remote.dto.UpdateListingRequest
 import bw.agriconnect.data.remote.dto.UpdateLivestockRequest
 import bw.agriconnect.data.remote.dto.UpdateProfileRequest
 import bw.agriconnect.data.remote.dto.UpdateSaleRequest
-import bw.agriconnect.data.remote.dto.UserDto
+import bw.agriconnect.data.remote.dto.UpdatedCountResponse
 import bw.agriconnect.data.remote.dto.VerifyCodeRequest
 import bw.agriconnect.data.remote.dto.EmployerLinkRequest
 import kotlinx.serialization.json.JsonObject
@@ -126,10 +129,10 @@ interface ApiService {
     /* --------------------------------- users ------------------------------- */
 
     @GET("users/me")
-    suspend fun getMe(): UserDto
+    suspend fun getMe(): MeResponse
 
     @PATCH("users/me")
-    suspend fun patchMe(@Body body: UpdateProfileRequest): UserDto
+    suspend fun patchMe(@Body body: UpdateProfileRequest): MeResponse
 
     @POST("users/me/password")
     suspend fun changePassword(@Body body: ChangePasswordRequest): MessageResponse
@@ -137,30 +140,32 @@ interface ApiService {
     @PUT("users/me/notification-preferences")
     suspend fun putNotificationPreferences(
         @Body body: NotificationPreferencesDto,
-    ): NotificationPreferencesDto
+    ): MeResponse
 
     /** Multipart image upload (≤ 2 MB, jpeg/png/webp). */
     @Multipart
     @POST("users/me/avatar")
-    suspend fun uploadAvatar(@Part avatar: MultipartBody.Part): UserDto
+    suspend fun uploadAvatar(@Part avatar: MultipartBody.Part): MeResponse
 
     @GET("users/me/export")
     suspend fun export(): JsonObject
 
     /** Link a FARM_EMPLOYEE to their employing farmer (migration 005). */
     @POST("users/me/employer-link")
-    suspend fun employerLink(@Body body: EmployerLinkRequest): UserDto
+    suspend fun employerLink(@Body body: EmployerLinkRequest): MeResponse
 
     /* ------------------------- account deletion (§2.3) --------------------- */
 
+    /** `POST` returns the newly-created request as a bare object. */
     @POST("users/me/deletion-request")
     suspend fun createDeletionRequest(@Body body: DeletionRequestBody): DeletionRequestDto
 
+    /** `GET` nests the (possibly absent) request under `request`. */
     @GET("users/me/deletion-request")
-    suspend fun getDeletionRequest(): DeletionRequestDto
+    suspend fun getDeletionRequest(): DeletionRequestResponse
 
     @POST("users/me/deletion-request/cancel")
-    suspend fun cancelDeletionRequest(): DeletionRequestDto
+    suspend fun cancelDeletionRequest(): DeletionRequestResponse
 
     /** Store-required public deletion page; always `202` and generic. */
     @POST("public/account-deletion")
@@ -271,10 +276,14 @@ interface ApiService {
     suspend fun computeNdvi(@Body body: NdviRequest): NdviDto
 
     @GET("satellite/ndvi")
-    suspend fun listNdvi(@Query("plotId") plotId: String): ItemsResponse<NdviDto>
+    suspend fun listNdvi(
+        @Query("plotId") plotId: String,
+        @Query("page") page: Int? = null,
+        @Query("pageSize") pageSize: Int? = null,
+    ): PageDto<NdviDto>
 
     @GET("satellite/ndvi/latest")
-    suspend fun latestNdvi(@Query("plotId") plotId: String): NdviDto
+    suspend fun latestNdvi(@Query("plotId") plotId: String): NdviResponse
 
     @GET("satellite/ndvi/{id}")
     suspend fun getNdvi(@Path("id") id: String): NdviDto
@@ -296,7 +305,10 @@ interface ApiService {
     suspend fun getListing(@Path("id") id: String): ListingDto
 
     @GET("marketplace/my-listings")
-    suspend fun myListings(): ItemsResponse<ListingDto>
+    suspend fun myListings(
+        @Query("page") page: Int? = null,
+        @Query("pageSize") pageSize: Int? = null,
+    ): PageDto<ListingDto>
 
     @POST("marketplace/listings")
     suspend fun createListing(@Body body: CreateListingRequest): ListingDto
@@ -325,7 +337,7 @@ interface ApiService {
     suspend fun listOrders(
         @Query("page") page: Int? = null,
         @Query("pageSize") pageSize: Int? = null,
-    ): ItemsResponse<OrderDto>
+    ): PageDto<OrderDto>
 
     @GET("orders/{id}")
     suspend fun getOrder(@Path("id") id: String): OrderDto
@@ -345,16 +357,24 @@ interface ApiService {
     /* ------------------------------ notifications -------------------------- */
 
     @GET("notifications")
-    suspend fun listNotifications(@Query("unreadOnly") unreadOnly: Boolean? = null): ItemsResponse<NotificationDto>
+    suspend fun listNotifications(
+        @Query("unreadOnly") unreadOnly: Boolean? = null,
+        @Query("page") page: Int? = null,
+        @Query("pageSize") pageSize: Int? = null,
+    ): PageDto<NotificationDto>
 
     @PATCH("notifications/{id}/read")
-    suspend fun markRead(@Path("id") id: String): NotificationDto
+    suspend fun markRead(@Path("id") id: String): NotificationResponse
 
     @POST("notifications/read-all")
-    suspend fun markAllRead(): MessageResponse
+    suspend fun markAllRead(): UpdatedCountResponse
 
-    @POST("devices")
-    suspend fun registerDevice(@Body body: DeviceTokenRequest): MessageResponse
+    /**
+     * Registers the FCM token. The server responds `204 No Content`, so the empty
+     * body is modelled as `Response<Unit>` and never run through the JSON parser.
+     */
+    @POST("notifications/devices")
+    suspend fun registerDevice(@Body body: DeviceTokenRequest): Response<Unit>
 
     /* --------------------------------- sync -------------------------------- */
 

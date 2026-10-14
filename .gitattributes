@@ -1,0 +1,61 @@
+# Normalise line endings in the repository, regardless of the developer's
+# core.autocrlf setting. Text is stored with LF; Windows-only scripts get CRLF.
+#
+# Why this matters here: the project is developed on Windows and built on Linux
+# (CI). Without this, a stray CRLF in a shell script or a Gradle wrapper breaks the
+# Linux build, and every Windows checkout shows spurious whole-file diffs.
+
+* text=auto
+
+# Explicit text, LF in the repository.
+*.kt          text
+*.kts         text
+*.java        text
+*.gradle      text
+*.properties  text
+*.xml         text
+*.json        text
+*.md          text
+*.js          text
+*.cjs         text
+*.mjs         text
+*.sql         text
+*.yml         text
+*.yaml        text
+*.toml        text
+*.html        text
+*.css         text
+*.env.example text
+
+# Shell scripts must stay LF to be executable on Linux/macOS and in CI.
+*.sh          text eol=lf
+gradlew       text eol=lf
+
+# Windows scripts are consumed by cmd.exe/PowerShell and require CRLF.
+*.bat         text eol=crlf
+*.cmd         text eol=crlf
+*.ps1         text eol=crlf
+
+# Binary assets: never touch, never diff as text.
+*.png         binary
+*.jpg         binary
+*.jpeg        binary
+*.gif         binary
+*.webp        binary
+*.ico         binary
+*.ttf         binary
+*.otf         binary
+*.jar         binary
+*.zip         binary
+*.docx        binary
+*.xlsx        binary
+*.pdf         binary
+
+# Build outputs and caches are ignored by .gitignore; mark them binary anyway so a
+# force-added artefact is never line-ending-converted.
+*.apk         binary
+*.aab         binary
+*.so          binary
+
+# Keep language stats honest for generated/vendored trees.
+docs/account-deletion.html linguist-documentation

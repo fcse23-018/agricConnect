@@ -37,3 +37,11 @@ data class NdviRequest(
     val plotId: String,
     val geoJsonBoundary: JsonElement,
 )
+
+/**
+ * `GET /satellite/ndvi/latest` returns the newest observation nested under `ndvi`,
+ * or `ndvi: null` when the plot has no observation yet. The explicit null lets the
+ * UI render an empty state instead of treating it as an error.
+ */
+@Serializable
+data class NdviResponse(val ndvi: NdviDto? = null)

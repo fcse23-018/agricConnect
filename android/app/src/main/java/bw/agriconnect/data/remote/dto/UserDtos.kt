@@ -49,12 +49,12 @@ data class ChangePasswordRequest(
 )
 
 /**
- * An employee links to exactly one employing farmer (migration 005). The endpoint
- * is not enumerated in the contract document, so the body is intentionally the
- * minimal, unambiguous handle the owner can supply.
+ * An employee links to exactly one employing farmer (migration 005). The server
+ * resolves the employer by *phone number* (`employerPhone`), so the body carries the
+ * owner's phone handle — the employee cannot supply an arbitrary farmer id.
  */
 @Serializable
-data class EmployerLinkRequest(val employerFarmerId: String)
+data class EmployerLinkRequest(val employerPhone: String)
 
 /**
  * The personal-data export is an open-ended document whose shape is owned by the
@@ -95,3 +95,11 @@ data class RetentionItemDto(
     val justification: String,
     val retainUntil: String? = null,
 )
+
+/**
+ * `GET`/`POST .../cancel` on the deletion request return the request nested under
+ * `request`; the key is explicitly `null` when no request exists (so the client can
+ * distinguish "none pending" from a transport failure).
+ */
+@Serializable
+data class DeletionRequestResponse(val request: DeletionRequestDto? = null)

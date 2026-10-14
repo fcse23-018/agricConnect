@@ -83,14 +83,19 @@ jobs:
 
       - uses: android-actions/setup-android@v3
 
-      # No Gradle wrapper is committed, so setup-gradle provides the `gradle`
-      # executable directly (AGP 8.7 requires Gradle 8.9+).
+      # Pin the exact SDK components the build compiles against (compileSdk 35).
+      - name: Install Android SDK components
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      # The Gradle wrapper is committed (Gradle 8.9, required by AGP 8.7), so the
+      # build runs through ./gradlew. setup-gradle only adds dependency/build caching.
       - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
+
+      - name: Make wrapper executable
+        run: chmod +x gradlew
 
       - name: Assemble debug APK
-        run: gradle :app:assembleDebug --stacktrace
+        run: ./gradlew :app:assembleDebug --stacktrace
 
       - name: Run unit tests
-        run: gradle :app:testDebugUnitTest --stacktrace
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
