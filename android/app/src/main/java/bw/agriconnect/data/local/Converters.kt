@@ -38,70 +38,70 @@ class Converters {
     fun fromUserRole(value: UserRole?): String? = value?.name
 
     @TypeConverter
-    fun toUserRole(value: String?): UserRole? = decodeEnum(value)
+    fun toUserRole(value: String?): UserRole? = decodeEnum<UserRole>(value)
 
     // --- AccountStatus ------------------------------------------------------
     @TypeConverter
     fun fromAccountStatus(value: AccountStatus?): String? = value?.name
 
     @TypeConverter
-    fun toAccountStatus(value: String?): AccountStatus? = decodeEnum(value)
+    fun toAccountStatus(value: String?): AccountStatus? = decodeEnum<AccountStatus>(value)
 
     // --- SyncStatus ---------------------------------------------------------
     @TypeConverter
     fun fromSyncStatus(value: SyncStatus?): String? = value?.name
 
     @TypeConverter
-    fun toSyncStatus(value: String?): SyncStatus? = decodeEnum(value)
+    fun toSyncStatus(value: String?): SyncStatus? = decodeEnum<SyncStatus>(value)
 
     // --- SyncOperation ------------------------------------------------------
     @TypeConverter
     fun fromSyncOperation(value: SyncOperation?): String? = value?.name
 
     @TypeConverter
-    fun toSyncOperation(value: String?): SyncOperation? = decodeEnum(value)
+    fun toSyncOperation(value: String?): SyncOperation? = decodeEnum<SyncOperation>(value)
 
     // --- ListingStatus ------------------------------------------------------
     @TypeConverter
     fun fromListingStatus(value: ListingStatus?): String? = value?.name
 
     @TypeConverter
-    fun toListingStatus(value: String?): ListingStatus? = decodeEnum(value)
+    fun toListingStatus(value: String?): ListingStatus? = decodeEnum<ListingStatus>(value)
 
     // --- OrderStatus --------------------------------------------------------
     @TypeConverter
     fun fromOrderStatus(value: OrderStatus?): String? = value?.name
 
     @TypeConverter
-    fun toOrderStatus(value: String?): OrderStatus? = decodeEnum(value)
+    fun toOrderStatus(value: String?): OrderStatus? = decodeEnum<OrderStatus>(value)
 
     // --- StressLevel --------------------------------------------------------
     @TypeConverter
     fun fromStressLevel(value: StressLevel?): String? = value?.name
 
     @TypeConverter
-    fun toStressLevel(value: String?): StressLevel? = decodeEnum(value)
+    fun toStressLevel(value: String?): StressLevel? = decodeEnum<StressLevel>(value)
 
     // --- NdviProcessingStatus ----------------------------------------------
     @TypeConverter
     fun fromNdviProcessingStatus(value: NdviProcessingStatus?): String? = value?.name
 
     @TypeConverter
-    fun toNdviProcessingStatus(value: String?): NdviProcessingStatus? = decodeEnum(value)
+    fun toNdviProcessingStatus(value: String?): NdviProcessingStatus? = decodeEnum<NdviProcessingStatus>(value)
 
     // --- Unit (aliased to avoid clashing with kotlin.Unit) ------------------
     @TypeConverter
     fun fromUnit(value: DomainUnit?): String? = value?.name
 
     @TypeConverter
-    fun toUnit(value: String?): DomainUnit? = decodeEnum(value)
+    fun toUnit(value: String?): DomainUnit? = decodeEnum<DomainUnit>(value)
 
     // --- DeletionRequestStatus (account-deletion cache) ---------------------
     @TypeConverter
     fun fromDeletionRequestStatus(value: DeletionRequestStatus?): String? = value?.name
 
     @TypeConverter
-    fun toDeletionRequestStatus(value: String?): DeletionRequestStatus? = decodeEnum(value)
+    fun toDeletionRequestStatus(value: String?): DeletionRequestStatus? = decodeEnum<DeletionRequestStatus>(value)
 
     // --- NotificationPreferences -------------------------------------------
     // Stored as a compact "orders:1,sync:1,satellite:0,marketplace:1" string. This keeps

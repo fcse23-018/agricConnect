@@ -17,6 +17,7 @@ import bw.agriconnect.data.remote.dto.ResetPasswordRequest
 import bw.agriconnect.data.remote.dto.UpdateProfileRequest
 import bw.agriconnect.data.remote.dto.VerifyCodeRequest
 import bw.agriconnect.data.remote.dto.toAuthTokens
+import bw.agriconnect.data.remote.dto.toDomain
 import bw.agriconnect.data.session.AuthTokens
 import bw.agriconnect.data.session.SessionManager
 import bw.agriconnect.data.session.TokenStore
@@ -91,7 +92,7 @@ internal class DefaultAuthRepository @Inject constructor(
     override suspend fun register(
         fullName: String,
         phoneNumber: String,
-        email: String? = null,
+        email: String?,
         password: String,
         role: UserRole,
         acceptTerms: Boolean,
@@ -109,7 +110,7 @@ internal class DefaultAuthRepository @Inject constructor(
             val fields = mapOf("password" to passErr)
             return AppResult.Failure(validationError(passErr, fields))
         }
-        val emailErr = FormValidator.validateEmail(email, required = false)
+        val emailErr = FormValidator.validateEmail(email.orEmpty(), required = false)
         if (emailErr != null && !email.isNullOrBlank()) {
             return AppResult.Failure(validationError(emailErr, mapOf("email" to emailErr)))
         }
@@ -152,7 +153,7 @@ internal class DefaultAuthRepository @Inject constructor(
     override suspend fun logout(): AppResult<Unit> {
         val rt = tokenStore.refreshToken()
         val body = LogoutRequest(refreshToken = rt)
-        return runCatchingApi(errorParser::parse) {
+        val result = runCatchingApi(errorParser::parse) {
             val resp = api.logout(body)
             if (resp.isSuccessful) {
                 sessionManager.signOut()
@@ -160,15 +161,18 @@ internal class DefaultAuthRepository @Inject constructor(
             } else {
                 throw retrofit2.HttpException(resp)
             }
-        }.onFailure {
-            if (it.code == AppError.UNAUTHENTICATED || it.code == AppError.NETWORK) {
-                sessionManager.signOut()
-            }
         }
+        if (result is AppResult.Failure &&
+            (result.error.code == AppError.UNAUTHENTICATED ||
+                result.error.code == AppError.NETWORK)
+        ) {
+            sessionManager.signOut()
+        }
+        return result
     }
 
     override suspend fun logoutAll(): AppResult<Unit> {
-        return runCatchingApi(errorParser::parse) {
+        val result = runCatchingApi(errorParser::parse) {
             val resp = api.logoutAll()
             if (resp.isSuccessful) {
                 sessionManager.signOut()
@@ -176,11 +180,14 @@ internal class DefaultAuthRepository @Inject constructor(
             } else {
                 throw retrofit2.HttpException(resp)
             }
-        }.onFailure {
-            if (it.code == AppError.UNAUTHENTICATED || it.code == AppError.NETWORK) {
-                sessionManager.signOut()
-            }
         }
+        if (result is AppResult.Failure &&
+            (result.error.code == AppError.UNAUTHENTICATED ||
+                result.error.code == AppError.NETWORK)
+        ) {
+            sessionManager.signOut()
+        }
+        return result
     }
 
     override suspend fun refresh(): AppResult<AuthTokens> {

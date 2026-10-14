@@ -66,7 +66,7 @@ object DateFormatters {
             minutes < 60 * 24 -> "${minutes / 60} h ago"
             minutes < 60 * 48 -> "Yesterday"
             minutes < 60 * 24 * 7 -> "${minutes / (60 * 24)} days ago"
-            else -> formatDate(isoTimestamp.take(10))
+            else -> formatDate(isoTimestamp?.take(10))
         }
     }
 

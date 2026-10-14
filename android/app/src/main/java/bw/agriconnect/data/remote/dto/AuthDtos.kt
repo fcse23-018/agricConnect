@@ -3,7 +3,7 @@ package bw.agriconnect.data.remote.dto
 import kotlinx.serialization.Serializable
 
 /**
- * Wire types for `/auth/*` (docs/02-API-CONTRACT.md §2.1).
+ * Wire types for authentication endpoints (docs/02-API-CONTRACT.md §2.1).
  *
  * They are kept dumb: plain data with defaults so a newer server can add fields
  * without breaking an older client (`ignoreUnknownKeys` on the shared `Json`).

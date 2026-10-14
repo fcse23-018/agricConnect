@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
@@ -84,11 +85,11 @@ fun AgriSnackbarHost(hostState: SnackbarHostState, modifier: Modifier = Modifier
             contentColor = MaterialTheme.colorScheme.inverseOnSurface,
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(AgriSpacing.sm)) {
-                val icon = when (data.visuals.icon) {
-                    null -> Icons.Filled.Info
-                    else -> Icons.Filled.Info
-                }
-                Icon(icon, contentDescription = null, modifier = Modifier.width(18.dp))
+                Icon(
+                    Icons.Filled.Info,
+                    contentDescription = null,
+                    modifier = Modifier.width(18.dp)
+                )
                 Text(data.visuals.message, style = MaterialTheme.typography.bodyMedium)
             }
         }
