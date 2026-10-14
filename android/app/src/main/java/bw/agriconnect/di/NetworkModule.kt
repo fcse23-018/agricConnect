@@ -54,6 +54,7 @@ object NetworkModule {
      */
     @Provides
     @Singleton
+    @RefreshClient
     fun provideRefreshClient(): OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -67,7 +68,7 @@ object NetworkModule {
         tokenStore: TokenStore,
         baseUrl: HttpUrl,
         json: Json,
-        refreshClient: OkHttpClient,
+        @RefreshClient refreshClient: OkHttpClient,
     ): OkHttpClient {
         // Verbose body logging is a debug-only affordance; the interceptor redacts
         // credentials at every level, so it is safe to install in any build.
