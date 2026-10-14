@@ -1,0 +1,1977 @@
+openapi: 3.0.3
+
+info:
+  title: AgriConnect API
+  version: 1.0.0
+  description: |
+    AgriConnect REST API v1 — offline-first farm management, satellite NDVI crop
+    insights and a produce marketplace for smallholder farmers in Botswana.
+
+    Authoritative narrative contract: [`docs/02-API-CONTRACT.md`](../docs/02-API-CONTRACT.md).
+
+    **Conventions**
+
+    - Base path: `/api/v1` (URL-versioned). Breaking changes require `/api/v2`.
+    - Transport: HTTPS only. Payloads are JSON (GeoJSON for plot boundaries).
+    - Auth: JWT bearer — short-lived access token (15 min) + rotating refresh token (30 days).
+    - Money is **BWP**, `NUMERIC(14,2)`, serialised as a JSON number with 2 decimals.
+    - Idempotency-Key is honoured on `POST /auth/register`, `POST /orders` and `POST /sync/push`.
+    - Errors never leak internals. Codes: `VALIDATION_ERROR 400`, `UNAUTHENTICATED 401`,
+      `INVALID_CREDENTIALS 401`, `TOKEN_EXPIRED 401`, `ACCOUNT_UNVERIFIED 403`,
+      `ACCOUNT_SUSPENDED 403`, `FORBIDDEN 403`, `NOT_FOUND 404`, `CONFLICT 409`,
+      `DUPLICATE_ACCOUNT 409`, `RATE_LIMITED 429`, `INTERNAL 500`.
+
+    This spec is also served at runtime: interactive docs at `/api-docs` and the raw
+    document at `/openapi.json`.
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: /api/v1
+    description: Same-origin (relative to the host that serves the API)
+  - url: http://localhost:4000/api/v1
+    description: Local development
+
+tags:
+  - name: Health
+  - name: Auth
+  - name: Profile
+  - name: Account
+  - name: Farms
+  - name: Farm records
+  - name: Finance
+  - name: Satellite
+  - name: Marketplace
+  - name: Orders
+  - name: Notifications
+  - name: Sync
+
+security:
+  - bearerAuth: []
+
+paths:
+  /version:
+    get:
+      tags: [Health]
+      summary: API version banner
+      security: []
+      responses:
+        '200':
+          description: Version information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version: { type: string, example: 1.0.0 }
+                  apiVersion: { type: string, example: v1 }
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new account
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '201':
+          description: Account created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthSession' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '409':
+          description: Duplicate phone number or email
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Log in with phone number or email
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthSession' }
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Rotate a refresh token
+      description: Each refresh returns a new refresh token and revokes the old one.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '200':
+          description: New token pair
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Revoke a single refresh token
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refreshToken: { type: string, nullable: true }
+      responses:
+        '204': { description: Revoked }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/logout-all:
+    post:
+      tags: [Auth]
+      summary: Revoke every refresh token for the caller
+      responses:
+        '204': { description: Revoked }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: The authenticated user
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/password/forgot:
+    post:
+      tags: [Auth]
+      summary: Request a password-reset code
+      description: Always generic so it cannot disclose whether an account exists.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IdentifierRequest' }
+      responses:
+        '202':
+          description: Accepted (generic)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Message' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/password/verify:
+    post:
+      tags: [Auth]
+      summary: Verify a password-reset code
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VerifyCodeRequest' }
+      responses:
+        '200':
+          description: Short-lived reset token
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [resetToken]
+                properties:
+                  resetToken: { type: string }
+        '400': { $ref: '#/components/responses/ValidationError' }
+
+  /auth/password/reset:
+    post:
+      tags: [Auth]
+      summary: Reset the password with a reset token
+      description: On success every refresh token for the user is revoked.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [resetToken, newPassword]
+              properties:
+                resetToken: { type: string }
+                newPassword: { type: string, minLength: 8 }
+      responses:
+        '200':
+          description: Password reset
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Message' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+
+  /auth/verification/request:
+    post:
+      tags: [Auth]
+      summary: Request an account-verification code
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/IdentifierRequest' }
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Message' }
+
+  /auth/verification/confirm:
+    post:
+      tags: [Auth]
+      summary: Confirm an account-verification code
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VerifyCodeRequest' }
+      responses:
+        '200':
+          description: Verified
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Message' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+
+  /users/me:
+    get:
+      tags: [Profile]
+      summary: Full profile of the signed-in user
+      responses:
+        '200':
+          description: Profile
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [Profile]
+      summary: Update the caller's own profile
+      description: |
+        `fullName` and/or `email`. Changing the email sets `accountStatus` to
+        `UNVERIFIED` and issues a verification code. `role` is ignored/rejected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fullName: { type: string }
+                email: { type: string, format: email, nullable: true }
+      responses:
+        '200':
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user: { $ref: '#/components/schemas/User' }
+                  devVerificationCode:
+                    type: string
+                    nullable: true
+                    description: Development-only; present only when EXPOSE_DEV_CODES is set.
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '409':
+          description: Email already in use
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /users/me/password:
+    post:
+      tags: [Profile]
+      summary: Change the password
+      description: Revokes other sessions; optionally keeps the caller's own refresh token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword: { type: string }
+                newPassword: { type: string, minLength: 8 }
+                keepRefreshToken: { type: string, nullable: true }
+      responses:
+        '200':
+          description: Password changed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Message' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /users/me/notification-preferences:
+    put:
+      tags: [Profile]
+      summary: Update notification preferences
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NotificationPreferences' }
+      responses:
+        '200':
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user: { $ref: '#/components/schemas/User' }
+
+  /users/me/avatar:
+    post:
+      tags: [Profile]
+      summary: Upload an avatar image
+      description: Multipart image ≤ 2 MB (jpeg/png/webp) in the `avatar` field.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [avatar]
+              properties:
+                avatar: { type: string, format: binary }
+      responses:
+        '200':
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+
+  /users/me/export:
+    get:
+      tags: [Profile]
+      summary: Machine-readable personal-data export
+      responses:
+        '200':
+          description: Export document
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Open-ended document owned by the backend; contains the user, plots, records, orders and notifications.
+                additionalProperties: true
+
+  /users/me/employer-link:
+    post:
+      tags: [Profile]
+      summary: Link a FARM_EMPLOYEE to their employing farmer
+      description: |
+        Not enumerated in the narrative contract; added by migration 005. The
+        employee supplies the employer's phone number.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employerPhone]
+              properties:
+                employerPhone: { type: string, example: '+2677xxxxxxx' }
+      responses:
+        '200':
+          description: Linked
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user: { $ref: '#/components/schemas/User' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /users/me/deletion-request:
+    post:
+      tags: [Account]
+      summary: Request account deletion (re-authentication required)
+      description: |
+        Sets `accountStatus` to `PENDING_DELETION`, revokes all sessions and starts
+        the grace period. Returns `202` when a new request is created, `200` when
+        returning an existing pending request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password: { type: string }
+                reason: { type: string, maxLength: 500, nullable: true }
+      responses:
+        '200':
+          description: Existing request returned
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeletionRequest' }
+        '202':
+          description: Grace period started
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeletionRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    get:
+      tags: [Account]
+      summary: Current deletion request
+      responses:
+        '200':
+          description: The current request (or `null`)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  request: { $ref: '#/components/schemas/DeletionRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /users/me/deletion-request/cancel:
+    post:
+      tags: [Account]
+      summary: Cancel a pending deletion during the grace period
+      responses:
+        '200':
+          description: Cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  request: { $ref: '#/components/schemas/DeletionRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Grace period ended or already completed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /public/account-deletion:
+    post:
+      tags: [Account]
+      summary: Store-required public account-deletion page
+      description: Unauthenticated. Always returns the same generic `202`.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [identifier]
+              properties:
+                identifier: { type: string }
+                reason: { type: string, maxLength: 500, nullable: true }
+      responses:
+        '202':
+          description: Accepted (generic)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Message' }
+
+  /farms/plots:
+    get:
+      tags: [Farms]
+      summary: The farmer's own plots
+      responses:
+        '200':
+          description: Plots, newest first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/FarmPlot' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Farms]
+      summary: Create (or replay) a plot
+      description: |
+        Idempotent on `clientId`: a replayed `clientId` updates the existing row and
+        lifts any soft delete, returning `200`; a new row returns `201`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/FarmPlotCreate' }
+      responses:
+        '200':
+          description: Replayed update
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FarmPlot' }
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FarmPlot' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /farms/plots/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Farms]
+      summary: Get one owned plot
+      responses:
+        '200':
+          description: Plot
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FarmPlot' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Farms]
+      summary: Update an owned plot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                plotName: { type: string }
+                areaHectares: { type: number, nullable: true }
+                geoJsonBoundary: { type: object, nullable: true }
+                notes: { type: string, nullable: true }
+      responses:
+        '200':
+          description: Updated plot
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FarmPlot' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Farms]
+      summary: Soft-delete an owned plot
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /farm/harvests:
+    get:
+      tags: [Farm records]
+      summary: List harvest records
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+        - name: cropType
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Paginated harvest records
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageMeta'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/HarvestRecord' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Farm records]
+      summary: Create (or replay) a harvest record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HarvestCreate' }
+      responses:
+        '200':
+          description: Replayed update
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HarvestRecord' }
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HarvestRecord' }
+
+  /farm/harvests/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Farm records]
+      summary: Get one harvest record
+      responses:
+        '200':
+          description: Harvest record
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HarvestRecord' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Farm records]
+      summary: Update a harvest record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HarvestCreate' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HarvestRecord' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Farm records]
+      summary: Delete a harvest record
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /farm/livestock:
+    get:
+      tags: [Farm records]
+      summary: List livestock counts
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Paginated livestock counts
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageMeta'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/LivestockCount' }
+    post:
+      tags: [Farm records]
+      summary: Create (or replay) a livestock count
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LivestockCreate' }
+      responses:
+        '200':
+          description: Replayed update
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LivestockCount' }
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LivestockCount' }
+
+  /farm/livestock/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Farm records]
+      summary: Get one livestock count
+      responses:
+        '200':
+          description: Livestock count
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LivestockCount' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Farm records]
+      summary: Update a livestock count
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LivestockCreate' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LivestockCount' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Farm records]
+      summary: Delete a livestock count
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /finance/sales:
+    get:
+      tags: [Finance]
+      summary: List sales (farmer only)
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Paginated sales
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageMeta'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/SaleTransaction' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Finance]
+      summary: Create (or replay) a sale
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SaleCreate' }
+      responses:
+        '200':
+          description: Replayed update
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SaleTransaction' }
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SaleTransaction' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /finance/sales/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Finance]
+      summary: Get one sale
+      responses:
+        '200':
+          description: Sale
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SaleTransaction' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Finance]
+      summary: Update a sale
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SaleCreate' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SaleTransaction' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Finance]
+      summary: Delete a sale
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /finance/expenses:
+    get:
+      tags: [Finance]
+      summary: List expenses (farmer only)
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Paginated expenses
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageMeta'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Expense' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Finance]
+      summary: Create (or replay) an expense
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExpenseCreate' }
+      responses:
+        '200':
+          description: Replayed update
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Expense' }
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Expense' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /finance/expenses/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Finance]
+      summary: Get one expense
+      responses:
+        '200':
+          description: Expense
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Expense' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Finance]
+      summary: Update an expense
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExpenseCreate' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Expense' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Finance]
+      summary: Delete an expense
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /finance/summary:
+    get:
+      tags: [Finance]
+      summary: Sales/expense totals and monthly series (farmer only)
+      parameters:
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Financial summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FinanceSummary' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /satellite/ndvi:
+    post:
+      tags: [Satellite]
+      summary: Request an NDVI computation for a plot (farmer only)
+      description: |
+        A cloud-covered observation returns `201` with `status: FAILED` and
+        `meanNdviValue: null` — never a fabricated value.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plotId]
+              properties:
+                plotId: { type: string, format: uuid }
+                geoJsonBoundary: { type: object, nullable: true }
+      responses:
+        '201':
+          description: NDVI record (possibly FAILED)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NdviRecord' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    get:
+      tags: [Satellite]
+      summary: NDVI history for a plot (farmer only)
+      parameters:
+        - name: plotId
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Paginated NDVI history, newest first
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageMeta'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/NdviRecord' }
+
+  /satellite/ndvi/latest:
+    get:
+      tags: [Satellite]
+      summary: Latest NDVI for a plot (farmer only)
+      description: Not enumerated in the narrative contract; convenience endpoint.
+      parameters:
+        - name: plotId
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Latest record (or `null`)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ndvi: { $ref: '#/components/schemas/NdviRecord' }
+
+  /satellite/ndvi/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Satellite]
+      summary: Get one NDVI record (farmer only)
+      responses:
+        '200':
+          description: NDVI record
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/NdviRecord' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /marketplace/listings:
+    get:
+      tags: [Marketplace]
+      summary: Browse published listings
+      parameters:
+        - name: search
+          in: query
+          schema: { type: string }
+        - name: crop
+          in: query
+          schema: { type: string }
+        - name: minPrice
+          in: query
+          schema: { type: number }
+        - name: maxPrice
+          in: query
+          schema: { type: number }
+        - name: sort
+          in: query
+          schema: { type: string, enum: [price_asc, price_desc, recent] }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Paginated published listings
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageMeta'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/ProduceListing' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Marketplace]
+      summary: Create a draft listing (farmer only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ListingCreate' }
+      responses:
+        '201':
+          description: Draft created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProduceListing' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /marketplace/my-listings:
+    get:
+      tags: [Marketplace]
+      summary: The farmer's own listings in every state
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Paginated own listings
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageMeta'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/ProduceListing' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /marketplace/listings/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Marketplace]
+      summary: Get a listing (published, or the owner's own in any state)
+      responses:
+        '200':
+          description: Listing
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProduceListing' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Marketplace]
+      summary: Update an owned listing (farmer only)
+      description: Status changes flow exclusively through publish/archive.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                produce: { type: string }
+                description: { type: string, nullable: true }
+                quantity: { type: number }
+                unit: { type: string }
+                price: { type: number }
+                imageUrl: { type: string, nullable: true }
+                locationText: { type: string, nullable: true }
+      responses:
+        '200':
+          description: Updated listing
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProduceListing' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /marketplace/listings/{id}/publish:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    post:
+      tags: [Marketplace]
+      summary: Publish a draft listing (farmer only)
+      description: A listing with no stock cannot be published. Publishing is idempotent.
+      responses:
+        '200':
+          description: Published (or already published)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProduceListing' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Not publishable from its current state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /marketplace/listings/{id}/archive:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    post:
+      tags: [Marketplace]
+      summary: Archive (unpublish) a listing (farmer only)
+      description: Returns the listing to `DRAFT`; the row and stock history are preserved.
+      responses:
+        '200':
+          description: Archived
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProduceListing' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /orders:
+    post:
+      tags: [Orders]
+      summary: Place an order (buyer only)
+      description: Transactional stock check; over-ordering returns `409`. Idempotent.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [listingId, quantity]
+              properties:
+                listingId: { type: string, format: uuid }
+                quantity: { type: number, exclusiveMinimum: 0 }
+                note: { type: string, nullable: true }
+      responses:
+        '201':
+          description: Order placed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: Insufficient stock
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    get:
+      tags: [Orders]
+      summary: List own orders (buyer) or orders on own listings (farmer)
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Paginated orders
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageMeta'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Order' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /orders/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Orders]
+      summary: Get one order (its buyer or its farmer)
+      responses:
+        '200':
+          description: Order
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /orders/{id}/confirm:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    post:
+      tags: [Orders]
+      summary: Confirm a pending order (farmer owner)
+      responses:
+        '200':
+          description: Confirmed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Not pending
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /orders/{id}/reject:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    post:
+      tags: [Orders]
+      summary: Reject a pending order (farmer owner)
+      description: Stock is restored to the listing.
+      responses:
+        '200':
+          description: Rejected
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '409':
+          description: Not pending
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /orders/{id}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    post:
+      tags: [Orders]
+      summary: Cancel a pending order (buyer owner)
+      responses:
+        '200':
+          description: Cancelled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '409':
+          description: Not pending
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /orders/{id}/complete:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    post:
+      tags: [Orders]
+      summary: Complete a confirmed order (farmer owner)
+      responses:
+        '200':
+          description: Completed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '409':
+          description: Not confirmed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /notifications:
+    get:
+      tags: [Notifications]
+      summary: The caller's notification feed, newest first
+      parameters:
+        - name: unreadOnly
+          in: query
+          schema: { type: string, enum: ['true', 'false'] }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Paginated notifications
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageMeta'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Notification' }
+
+  /notifications/{id}/read:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    patch:
+      tags: [Notifications]
+      summary: Mark one owned notification as read
+      responses:
+        '200':
+          description: Updated notification
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  notification: { $ref: '#/components/schemas/Notification' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /notifications/read-all:
+    post:
+      tags: [Notifications]
+      summary: Mark every unread notification as read
+      responses:
+        '200':
+          description: Count of updated rows
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updated: { type: integer }
+
+  /notifications/devices:
+    post:
+      tags: [Notifications]
+      summary: Register a push-notification token
+      description: |
+        Idempotent on `(userId, token)`. Note: the Android `ApiService` currently
+        posts to `/devices`, which does not exist — the live path is
+        `/notifications/devices`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string, maxLength: 4096 }
+                platform: { type: string, default: android, maxLength: 40 }
+      responses:
+        '204': { description: Registered }
+
+  /sync/push:
+    post:
+      tags: [Sync]
+      summary: Push a batch of queued local writes
+      description: |
+        Always returns `200` — the batch was accepted regardless of individual item
+        outcomes. One transaction per item, processed in order. Conflicts follow
+        Last-Write-Wins: the newer server copy is returned rather than overwritten.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SyncPushRequest' }
+      responses:
+        '200':
+          description: Per-item outcomes
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SyncPushResponse' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /sync/pull:
+    get:
+      tags: [Sync]
+      summary: Pull server-authoritative deltas since a timestamp
+      parameters:
+        - name: since
+          in: query
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: Changes for the caller's scope
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SyncPullResponse' }
+
+  /health:
+    servers:
+      - url: /
+    get:
+      tags: [Health]
+      summary: Liveness/readiness probe
+      description: Unauthenticated. Lives at the host root, not under `/api/v1`.
+      security: []
+      responses:
+        '200':
+          description: Healthy
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+        '503':
+          description: Database unreachable (degraded)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    ResourceId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      name: pageSize
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema: { type: string }
+      description: Repeated calls with the same key return the original result.
+
+  responses:
+    Unauthorized:
+      description: Missing, invalid or expired credentials
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Forbidden:
+      description: Role, ownership or account-status check failed
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    NotFound:
+      description: Resource not found (also used to hide others' resources)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    ValidationError:
+      description: Request failed validation
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    RateLimited:
+      description: Too many requests
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  schemas:
+    Health:
+      type: object
+      properties:
+        status: { type: string, enum: [ok, degraded] }
+        version: { type: string, example: 1.0.0 }
+        time: { type: string, format: date-time }
+
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              example: VALIDATION_ERROR
+            message: { type: string }
+            details:
+              type: array
+              nullable: true
+              items:
+                type: object
+                properties:
+                  field: { type: string }
+                  message: { type: string }
+        requestId: { type: string }
+
+    Message:
+      type: object
+      required: [message]
+      properties:
+        message: { type: string }
+
+    NotificationPreferences:
+      type: object
+      properties:
+        orders: { type: boolean }
+        sync: { type: boolean }
+        satellite: { type: boolean }
+        marketplace: { type: boolean }
+
+    User:
+      type: object
+      required: [userId, fullName, phoneNumber, role, accountStatus, createdAt, updatedAt]
+      properties:
+        userId: { type: string, format: uuid }
+        fullName: { type: string }
+        phoneNumber: { type: string }
+        email: { type: string, nullable: true }
+        role: { type: string, enum: [FARMER, FARM_EMPLOYEE, BUYER] }
+        accountStatus:
+          type: string
+          enum: [REGISTERED, UNVERIFIED, VERIFIED, SUSPENDED, PENDING_DELETION, DELETED]
+        avatarUrl: { type: string, nullable: true }
+        notificationPreferences: { $ref: '#/components/schemas/NotificationPreferences' }
+        verifiedAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    RegisterRequest:
+      type: object
+      required: [fullName, phoneNumber, password, role]
+      properties:
+        fullName: { type: string }
+        phoneNumber: { type: string }
+        email: { type: string, format: email, nullable: true }
+        password: { type: string, minLength: 8 }
+        role: { type: string, enum: [FARMER, FARM_EMPLOYEE, BUYER] }
+        acceptTerms: { type: boolean, default: true }
+        acceptPrivacy: { type: boolean, default: true }
+
+    LoginRequest:
+      type: object
+      required: [identifier, password]
+      properties:
+        identifier: { type: string, description: Phone number or email }
+        password: { type: string }
+
+    IdentifierRequest:
+      type: object
+      required: [identifier]
+      properties:
+        identifier: { type: string }
+
+    VerifyCodeRequest:
+      type: object
+      required: [identifier, code]
+      properties:
+        identifier: { type: string }
+        code: { type: string }
+
+    TokenPair:
+      type: object
+      required: [accessToken, refreshToken, expiresIn]
+      properties:
+        accessToken: { type: string }
+        refreshToken: { type: string }
+        expiresIn: { type: integer, description: Access-token lifetime in seconds }
+
+    AuthSession:
+      allOf:
+        - $ref: '#/components/schemas/TokenPair'
+        - type: object
+          required: [user]
+          properties:
+            user: { $ref: '#/components/schemas/User' }
+            devVerificationCode:
+              type: string
+              nullable: true
+              description: Development-only; present only when EXPOSE_DEV_CODES is set.
+
+    DeletionRequest:
+      type: object
+      properties:
+        requestId: { type: string, format: uuid }
+        status: { type: string, enum: [PENDING, PROCESSING, COMPLETED, CANCELLED] }
+        reason: { type: string, nullable: true }
+        requestedAt: { type: string, format: date-time, nullable: true }
+        effectiveAt: { type: string, format: date-time, nullable: true }
+        anonymisedAt: { type: string, format: date-time, nullable: true }
+        completedAt: { type: string, format: date-time, nullable: true }
+        cancelledAt: { type: string, format: date-time, nullable: true }
+        retention:
+          type: array
+          items: { $ref: '#/components/schemas/RetentionItem' }
+
+    RetentionItem:
+      type: object
+      properties:
+        dataCategory: { type: string }
+        justification: { type: string }
+        retainUntil: { type: string, format: date, nullable: true }
+
+    FarmPlot:
+      type: object
+      properties:
+        plotId: { type: string, format: uuid }
+        clientId: { type: string, nullable: true }
+        farmerId: { type: string, format: uuid }
+        plotName: { type: string }
+        areaHectares: { type: number, nullable: true }
+        geoJsonBoundary: { type: string, nullable: true, description: GeoJSON stored as a string }
+        centroidLat: { type: number, nullable: true }
+        centroidLng: { type: number, nullable: true }
+        notes: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    FarmPlotCreate:
+      type: object
+      required: [plotName]
+      properties:
+        plotName: { type: string }
+        areaHectares: { type: number, nullable: true }
+        geoJsonBoundary: { type: object, nullable: true }
+        notes: { type: string, nullable: true }
+        clientId: { type: string, nullable: true }
+
+    HarvestRecord:
+      type: object
+      properties:
+        harvestId: { type: string, format: uuid }
+        clientId: { type: string, nullable: true }
+        farmerId: { type: string, format: uuid }
+        plotId: { type: string, format: uuid, nullable: true }
+        cropType: { type: string }
+        quantityKg: { type: number, nullable: true }
+        harvestDate: { type: string, format: date, nullable: true }
+        notes: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    HarvestCreate:
+      type: object
+      required: [cropType, quantityKg, harvestDate]
+      properties:
+        cropType: { type: string }
+        quantityKg: { type: number }
+        harvestDate: { type: string, format: date }
+        plotId: { type: string, format: uuid, nullable: true }
+        notes: { type: string, nullable: true }
+        clientId: { type: string, nullable: true }
+
+    LivestockCount:
+      type: object
+      properties:
+        countId: { type: string, format: uuid }
+        clientId: { type: string, nullable: true }
+        farmerId: { type: string, format: uuid }
+        animalType: { type: string }
+        headCount: { type: integer, nullable: true }
+        recordDate: { type: string, format: date, nullable: true }
+        notes: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    LivestockCreate:
+      type: object
+      required: [animalType, headCount, recordDate]
+      properties:
+        animalType: { type: string }
+        headCount: { type: integer, minimum: 0 }
+        recordDate: { type: string, format: date }
+        notes: { type: string, nullable: true }
+        clientId: { type: string, nullable: true }
+
+    SaleTransaction:
+      type: object
+      properties:
+        transactionId: { type: string, format: uuid }
+        clientId: { type: string, nullable: true }
+        farmerId: { type: string, format: uuid }
+        item: { type: string }
+        quantity: { type: number, nullable: true }
+        unitPrice: { type: number, nullable: true }
+        amount: { type: number }
+        currency: { type: string, example: BWP }
+        buyerName: { type: string, nullable: true }
+        date: { type: string, format: date, nullable: true }
+        notes: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    SaleCreate:
+      type: object
+      required: [item, amount, date]
+      properties:
+        item: { type: string }
+        quantity: { type: number, nullable: true }
+        unitPrice: { type: number, nullable: true }
+        amount: { type: number }
+        buyerName: { type: string, nullable: true }
+        date: { type: string, format: date }
+        notes: { type: string, nullable: true }
+        clientId: { type: string, nullable: true }
+
+    Expense:
+      type: object
+      properties:
+        expenseId: { type: string, format: uuid }
+        clientId: { type: string, nullable: true }
+        farmerId: { type: string, format: uuid }
+        category: { type: string }
+        description: { type: string, nullable: true }
+        amount: { type: number }
+        currency: { type: string, example: BWP }
+        expenseDate: { type: string, format: date, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    ExpenseCreate:
+      type: object
+      required: [category, amount, expenseDate]
+      properties:
+        category: { type: string }
+        description: { type: string, nullable: true }
+        amount: { type: number }
+        expenseDate: { type: string, format: date }
+        clientId: { type: string, nullable: true }
+
+    FinanceSummary:
+      type: object
+      properties:
+        totalSales: { type: number }
+        totalExpenses: { type: number }
+        netBalance: { type: number }
+        currency: { type: string, example: BWP }
+        series:
+          type: array
+          items:
+            type: object
+            properties:
+              period: { type: string, example: '2026-01' }
+              sales: { type: number }
+              expenses: { type: number }
+
+    NdviRecord:
+      type: object
+      properties:
+        ndviId: { type: string, format: uuid }
+        plotId: { type: string, format: uuid, nullable: true }
+        farmerId: { type: string, format: uuid }
+        satelliteDate: { type: string, format: date, nullable: true }
+        meanNdviValue: { type: number, nullable: true }
+        stressLevel: { type: string, nullable: true }
+        status: { type: string, example: COMPLETED }
+        failureReason: { type: string, nullable: true }
+        cloudCover: { type: number, nullable: true }
+        compressedVectorJson: { type: string, nullable: true }
+        isCached: { type: boolean }
+        source: { type: string, example: mock }
+        createdAt: { type: string, format: date-time }
+      description: |
+        `status` may be `FAILED` (for example cloud cover > 80%) with
+        `meanNdviValue: null`. NDVI is not presented as a definitive agronomic
+        diagnosis.
+
+    ProduceListing:
+      type: object
+      properties:
+        listingId: { type: string, format: uuid }
+        farmerId: { type: string, format: uuid }
+        produce: { type: string }
+        description: { type: string, nullable: true }
+        quantity: { type: number }
+        reservedQty: { type: number }
+        soldQty: { type: number }
+        availableQty: { type: number }
+        unit: { type: string }
+        price: { type: number }
+        currency: { type: string, example: BWP }
+        status:
+          type: string
+          enum: [DRAFT, PENDING_PUBLISH, SYNCING, RETRY, PUBLISHED, SOLD]
+        imageUrl: { type: string, nullable: true }
+        locationText: { type: string, nullable: true }
+        publishedAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        farmerName: { type: string }
+
+    ListingCreate:
+      type: object
+      required: [produce, quantity, unit, price]
+      properties:
+        produce: { type: string }
+        description: { type: string, nullable: true }
+        quantity: { type: number }
+        unit: { type: string }
+        price: { type: number }
+        imageUrl: { type: string, nullable: true }
+        locationText: { type: string, nullable: true }
+
+    Order:
+      type: object
+      properties:
+        orderId: { type: string, format: uuid }
+        listingId: { type: string, format: uuid }
+        buyerId: { type: string, format: uuid }
+        farmerId: { type: string, format: uuid }
+        quantity: { type: number }
+        unitPrice: { type: number }
+        totalPrice: { type: number }
+        currency: { type: string, example: BWP }
+        status:
+          type: string
+          enum: [PENDING, CONFIRMED, REJECTED, CANCELLED, COMPLETED]
+        note: { type: string, nullable: true }
+        buyerContact: { type: string, nullable: true }
+        farmerDecisionAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        produce: { type: string }
+        buyerName: { type: string }
+
+    Notification:
+      type: object
+      properties:
+        notificationId: { type: string, format: uuid }
+        userId: { type: string, format: uuid }
+        type: { type: string }
+        title: { type: string }
+        body: { type: string }
+        relatedEntityType: { type: string, nullable: true }
+        relatedEntityId: { type: string, nullable: true }
+        isRead: { type: boolean }
+        createdAt: { type: string, format: date-time }
+
+    PageMeta:
+      type: object
+      required: [items, page, pageSize, total, hasMore]
+      properties:
+        items: { type: array, items: {} }
+        page: { type: integer }
+        pageSize: { type: integer }
+        total: { type: integer }
+        hasMore: { type: boolean }
+
+    SyncPushRequest:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/SyncItem' }
+        deviceId: { type: string, nullable: true }
+
+    SyncItem:
+      type: object
+      required: [queueId, entityType, operation, clientTimestamp]
+      properties:
+        queueId: { type: string, description: Client-generated UUID; the idempotency key per item }
+        entityType:
+          type: string
+          description: Registered synchronisable entity, e.g. SaleTransaction, HarvestRecord, FarmPlot.
+        entityId: { type: string, nullable: true }
+        operation: { type: string, enum: [CREATE, UPDATE, DELETE] }
+        payload:
+          oneOf:
+            - type: string
+              description: JSON-encoded object
+            - type: object
+        clientTimestamp: { type: string, format: date-time }
+        retryCount: { type: integer, default: 0 }
+
+    SyncPushResponse:
+      type: object
+      properties:
+        serverTime: { type: string, format: date-time }
+        results:
+          type: array
+          items: { $ref: '#/components/schemas/SyncResult' }
+
+    SyncResult:
+      type: object
+      properties:
+        queueId: { type: string }
+        status: { type: string, enum: [SYNCED, CONFLICT, FAILED] }
+        serverEntityId: { type: string, nullable: true }
+        serverUpdatedAt: { type: string, format: date-time, nullable: true }
+        serverEntity:
+          type: object
+          nullable: true
+          description: Present on CONFLICT — the newer authoritative server copy.
+        reason:
+          type: string
+          nullable: true
+          enum: [FORBIDDEN, VALIDATION_ERROR, UNKNOWN_ENTITY_TYPE, NOT_FOUND, INTERNAL]
+
+    SyncPullResponse:
+      type: object
+      properties:
+        serverTime: { type: string, format: date-time }
+        changes:
+          type: object
+          properties:
+            plots: { type: array, items: { $ref: '#/components/schemas/FarmPlot' } }
+            harvests: { type: array, items: { $ref: '#/components/schemas/HarvestRecord' } }
+            livestock: { type: array, items: { $ref: '#/components/schemas/LivestockCount' } }
+            sales: { type: array, items: { $ref: '#/components/schemas/SaleTransaction' } }
+            expenses: { type: array, items: { $ref: '#/components/schemas/Expense' } }
+            listings: { type: array, items: { $ref: '#/components/schemas/ProduceListing' } }
+            orders: { type: array, items: { $ref: '#/components/schemas/Order' } }
+            notifications: { type: array, items: { $ref: '#/components/schemas/Notification' } }
+            ndvi: { type: array, items: { $ref: '#/components/schemas/NdviRecord' } }
