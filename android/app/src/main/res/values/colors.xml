@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="agri_forest_green">#FF174D32</color>
+    <color name="agri_deep_green">#FF103B27</color>
+    <color name="agri_warm_white">#FFF8F8F3</color>
+    <color name="agri_pure_white">#FFFFFFFF</color>
+    <color name="agri_soil_brown">#FFA66A3F</color>
+    <color name="agri_text_main">#FF202720</color>
+    <color name="agri_border">#FFE1E6DF</color>
+</resources>

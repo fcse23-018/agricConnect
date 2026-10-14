@@ -1,0 +1,44 @@
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.iml
+
+# ---- Secrets (NEVER commit) ----
+.env
+.env.*
+!.env.example
+*.keystore
+*.jks
+keystore.properties
+service-account*.json
+*.pem
+secrets/
+
+# ---- Node / backend ----
+node_modules/
+npm-debug.log*
+coverage/
+dist/
+backend/.env
+
+# ---- Android / Gradle ----
+.gradle/
+build/
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.ap_
+output.json
+
+# ---- Java ----
+*.class
+
+# ---- Logs / temp ----
+*.log
+tmp/
+.tooling/

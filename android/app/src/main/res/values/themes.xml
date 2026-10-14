@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Base theme: Material 3, no action bar (Compose owns the UI). -->
+    <style name="Theme.AgriConnect" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@color/agri_warm_white</item>
+        <item name="android:navigationBarColor">@color/agri_warm_white</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">true</item>
+        <item name="android:windowBackground">@color/agri_warm_white</item>
+    </style>
+
+    <!-- Splash: shows the AgriConnect mark on the warm-white brand background. -->
+    <style name="Theme.AgriConnect.Splash" parent="Theme.AgriConnect">
+        <item name="android:windowBackground">@drawable/splash_background</item>
+    </style>
+</resources>
