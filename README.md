@@ -110,6 +110,9 @@ never the enforcement point.
 
 ## Honest status
 
+> **New here?** Read [`PROGRESS.md`](PROGRESS.md) first — a file-by-file map of what is
+> implemented, what is stubbed or mocked, and what is still missing.
+
 This repository is built to be reviewable and runnable, but **not every claim is verified**.
 [`docs/05-TEST-REPORT.md`](docs/05-TEST-REPORT.md) lists exactly what was executed, what passed,
 what failed and what could not be run, and
