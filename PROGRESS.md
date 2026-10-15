@@ -28,11 +28,11 @@
 | **Android data + domain layer** | 🟢 Room, Retrofit, sync engine, session, 11 repositories |
 | **Android app shell** | 🟢 `AgriConnectApp`, `MainActivity`, Hilt modules, nav host all present |
 | **Android UI** | 🟢 26 Compose screens, role-based navigation, offline/sync affordances |
-| **Android build** | 🟢 `:app:assembleDebug` produces a 23 MB APK |
-| **Android unit tests** | 🟢 12/12 pass (`:app:testDebugUnitTest`) |
+| **Android build** | 🟢 `:app:assembleDebug` produces a 22.3 MB APK (re-run 2026-10-16) |
+| **Android unit tests** | 🟢 12/12 pass (`:app:testDebugUnitTest`, re-run 2026-10-16) |
 | **Android runtime** | 🟡 Never launched on a device/emulator — no instrumented test run |
 | **External providers** | 🔴 SMS/email, Earth Engine and push are not configured |
-| **Docs / deliverables** | 🟡 1 of the referenced docs is still missing (`docs/05-TEST-REPORT.md`) |
+| **Docs / deliverables** | 🟢 All referenced docs present — `docs/05-TEST-REPORT.md` added 2026-10-16 |
 
 ---
 
@@ -177,7 +177,7 @@ Role-based bottom navigation: **FARMER** home/farms/finance/market/profile ·
 | — | `02-API-CONTRACT.md` | ✅ |
 | — | `03-DATA-RETENTION-AND-DELETION.md` | ✅ |
 | — | `04-TRACEABILITY-MATRIX.md` | ✅ |
-| 7 | `05-TEST-REPORT.md` | ❌ **Missing** (README links to it) |
+| 7 | `05-TEST-REPORT.md` | ✅ (added 2026-10-16) |
 | — | `06-STORE-READINESS-CHECKLIST.md` | ✅ |
 | — | `07-EXTERNAL-CREDENTIALS.md` | ✅ |
 | — | `08-KNOWN-LIMITATIONS-AND-UNVERIFIED.md` | ✅ |
@@ -187,7 +187,7 @@ Role-based bottom navigation: **FARMER** home/farms/finance/market/profile ·
 | 14 | `account-deletion.html` | ✅ |
 | 3 | `backend/openapi.yaml` | ✅ |
 
-One dead link remains in the README deliverable index (`05-TEST-REPORT.md`).
+No dead links remain in the README deliverable index.
 
 ---
 
@@ -195,7 +195,7 @@ One dead link remains in the README deliverable index (`05-TEST-REPORT.md`).
 
 | Item | Status | Notes |
 |------|--------|-------|
-| `README.md`, `LICENSE` (MIT), `CONTRIBUTING.md` | ✅ | README has 1 dead link (§4) |
+| `README.md`, `LICENSE` (MIT), `CONTRIBUTING.md` | ✅ | Deliverable index fully resolves (no dead links) |
 | GitHub Actions CI | ✅ | `.github/workflows/ci.yml` — backend tests + Android build/test |
 | Gradle wrapper | ✅ | `gradlew`, `gradlew.bat`, `gradle/wrapper/*` committed |
 | Room schema export | ✅ | `app/schemas/bw.agriconnect.data.local.AgriDatabase/1.json` |
@@ -248,9 +248,11 @@ cd android
 $env:JAVA_HOME="C:\Users\src.president\agri-tooling\jdk"
 .\gradlew.bat :app:assembleDebug :app:testDebugUnitTest --console=plain
 ```
-Verified in this environment: **BUILD SUCCESSFUL**, 52 tasks, 12/12 unit tests,
-`app/build/outputs/apk/debug/app-debug.apk` (23 MB). Debug builds point at
-`http://10.0.2.2:4000/api/v1/`; release at `https://api.agriconnect.bw/api/v1/`.
+Verified in this environment: **BUILD SUCCESSFUL**, 12/12 unit tests,
+`app/build/outputs/apk/debug/app-debug.apk`. The API base URL defaults to
+`http://10.0.2.2:4000/api/v1/` (debug) and `https://api.agriconnect.bw/api/v1/` (release),
+and can be overridden with `-PapiBaseUrl=…`, `local.properties`, or the auto-detected
+Codespaces forwarded port — see the README.
 
 ---
 
@@ -278,7 +280,7 @@ Verified in this environment: **BUILD SUCCESSFUL**, 52 tasks, 12/12 unit tests,
    walk every role — this is the largest remaining unknown (§3.5).
 3. **Add database-backed API tests** (`tests/api/`) for auth lifecycle, sync push/pull
    and order transitions — the highest-risk untested server logic.
-4. **Write `docs/05-TEST-REPORT.md`** and fix the README link.
+4. ~~Write `docs/05-TEST-REPORT.md`~~ — **done 2026-10-16**; the dead README link is fixed.
 5. **Wire real providers** (SMS/email, Earth Engine, push) per
    [`docs/07-EXTERNAL-CREDENTIALS.md`](docs/07-EXTERNAL-CREDENTIALS.md).
 6. **Add instrumented UI tests** (`androidTest/`) for at least login and the offline
