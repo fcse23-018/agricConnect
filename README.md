@@ -90,6 +90,27 @@ cd android
 The release build requires `android/keystore.properties` (never committed — see
 [`docs/06-STORE-READINESS-CHECKLIST.md`](docs/06-STORE-READINESS-CHECKLIST.md)).
 
+**Pointing the app at your backend.** The app talks to the URL compiled into
+`API_BASE_URL` (`android/app/build.gradle.kts`). Its defaults — release:
+`https://api.agriconnect.bw/api/v1/`, debug: `http://10.0.2.2:4000/api/v1/` — only
+work once that server exists, or from an emulator. Override it at build time:
+
+```bash
+# Recommended in a Codespace: it is detected automatically (make port 4000
+# "Public" in the Ports tab), so a plain build already points at the backend.
+# To be explicit, or anywhere else, pass the URL:
+cd android
+./gradlew :app:assembleDebug -PapiBaseUrl=https://<host>/api/v1/
+
+# Persistently, and never committed (local.properties is git-ignored)
+echo "apiBaseUrl=https://<host>/api/v1/" >> local.properties
+```
+
+Cleartext HTTP is permitted in **debug** builds (via
+`android/app/src/debug/AndroidManifest.xml`, so an emulator or LAN device can reach
+a plain-`http` dev server); **release** builds are HTTPS-only. Login and sign-up
+cannot succeed until the app can reach a running backend.
+
 ---
 
 ## Roles at a glance

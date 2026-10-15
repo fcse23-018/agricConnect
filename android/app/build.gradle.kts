@@ -18,6 +18,40 @@ val keystoreProps = Properties().apply {
     if (keystorePropsFile.exists()) keystorePropsFile.inputStream().use { load(it) }
 }
 
+// --- API base URL ------------------------------------------------------------
+// Priority for the compiled-in URL:
+//   1. -PapiBaseUrl=...            (explicit, wins everywhere)
+//   2. apiBaseUrl=... in local.properties  (persistent, git-ignored)
+//   3. the Codespace-forwarded port (auto-detected; see below)
+//   4. the per-build-type default passed by the caller
+//
+// local.properties.example:
+//   apiBaseUrl=https://my-host.example/api/v1/
+//
+// Codespace detection: GitHub Codespaces exports CODESPACE_NAME and
+// GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN, so a build run there can reach the
+// backend on its forwarded port without any manual URL. Make port 4000 "Public"
+// in the Ports tab for the device to connect.
+val localProps = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+
+fun codespaceApiBaseUrl(): String? {
+    val name = System.getenv("CODESPACE_NAME") ?: return null
+    val domain = System.getenv("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN") ?: return null
+    val port = System.getenv("API_PORT") ?: "4000"
+    return "https://$name-$port.$domain/api/v1/"
+}
+
+fun apiBaseUrl(default: String): String {
+    val raw = (project.findProperty("apiBaseUrl") as String?)
+        ?: localProps.getProperty("apiBaseUrl")
+        ?: codespaceApiBaseUrl()
+        ?: default
+    return if (raw.endsWith("/")) raw else "$raw/"
+}
+
 // Room schemas are exported so migrations can be diffed and verified in review.
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
@@ -42,14 +76,14 @@ android {
         resourceConfigurations += listOf("en")
 
         // Base URL is injected per build type; debug points at the local dev server.
-        buildConfigField("String", "API_BASE_URL", "\"https://api.agriconnect.bw/api/v1/\"")
+        buildConfigField("String", "API_BASE_URL", "\"${apiBaseUrl("https://api.agriconnect.bw/api/v1/")}\"")
     }
 
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
             isMinifyEnabled = false
-            buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:4000/api/v1/\"")
+            buildConfigField("String", "API_BASE_URL", "\"${apiBaseUrl("http://10.0.2.2:4000/api/v1/")}\"")
             buildConfigField("boolean", "VERBOSE_LOGGING", "true")
         }
         release {
