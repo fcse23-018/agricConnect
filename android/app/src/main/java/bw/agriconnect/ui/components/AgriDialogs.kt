@@ -128,6 +128,7 @@ fun ErrorBanner(
     message: String,
     modifier: Modifier = Modifier,
     onRetry: (() -> Unit)? = null,
+    onDismiss: (() -> Unit)? = null,
 ) {
     Row(
         modifier = modifier
@@ -141,6 +142,9 @@ fun ErrorBanner(
         Text(message, style = MaterialTheme.typography.bodyMedium, color = AgriColors.ErrorRed, modifier = Modifier.weight(1f))
         if (onRetry != null) {
             TextButton(onClick = onRetry) { Text("Retry", color = AgriColors.ErrorRed) }
+        }
+        if (onDismiss != null && onRetry == null) {
+            TextButton(onClick = onDismiss) { Text("Dismiss", color = AgriColors.ErrorRed) }
         }
     }
 }

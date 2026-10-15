@@ -4,14 +4,19 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Agriculture
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Grass
+import androidx.compose.material.icons.filled.Pets
+import androidx.compose.material.icons.filled.ReceiptLong
+import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.Icon
@@ -19,62 +24,66 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import bw.agriconnect.core.util.MoneyFormat
+import bw.agriconnect.domain.model.UserRole
+import bw.agriconnect.ui.chrome.MainScaffold
 import bw.agriconnect.ui.components.AgriCard
 import bw.agriconnect.ui.components.AgriPrimaryButton
-import bw.agriconnect.ui.components.AgriScaffold
-import bw.agriconnect.ui.components.AgriSecondaryButton
+import bw.agriconnect.ui.components.AgriSettingsRow
 import bw.agriconnect.ui.components.RoleBadge
+import bw.agriconnect.ui.components.SectionHeader
 import bw.agriconnect.ui.components.StatTile
+import bw.agriconnect.ui.navigation.Routes
+import bw.agriconnect.ui.theme.AgriColors
 import bw.agriconnect.ui.theme.AgriSpacing
 
 /**
- * Minimal post-login shell.
+ * Role-aware home screen.
  *
- * It intentionally shows only what the wired graph can actually back today:
- * identity, connectivity and outbox depth. The brief's feature screens (farms,
- * finance, satellite, marketplace, orders, notifications, settings) have models,
- * DAOs and API methods in place but no UI yet — tracked in PROGRESS.md.
+ * The three roles get materially different summaries and shortcuts, sourced only from the
+ * offline cache so the screen is useful immediately and honest when a value is unavailable
+ * (the finance tile simply does not render until a summary has been fetched).
  */
 @Composable
 fun DashboardScreen(
     onLoggedOut: () -> Unit,
+    onNavigate: (String) -> Unit,
     viewModel: DashboardViewModel = hiltViewModel(),
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     val isOnline by viewModel.isOnline.collectAsStateWithLifecycle()
     val pending by viewModel.pendingCount.collectAsStateWithLifecycle()
+    val unread by viewModel.unreadNotifications.collectAsStateWithLifecycle()
+    val plots by viewModel.plots.collectAsStateWithLifecycle()
+    val harvests by viewModel.harvests.collectAsStateWithLifecycle()
+    val livestock by viewModel.livestock.collectAsStateWithLifecycle()
+    val orders by viewModel.orders.collectAsStateWithLifecycle()
+    val netBalance by viewModel.netBalance.collectAsStateWithLifecycle()
 
-    // A failed silent refresh (or an explicit sign-out elsewhere) clears the
-    // session; bounce to login rather than render a shell with no identity.
-    LaunchedEffect(session) {
-        if (session == null) onLoggedOut()
-    }
+    val role = session?.role
+    val activeOrders = orders.count { it.status.name == "PENDING" || it.status.name == "CONFIRMED" }
 
-    AgriScaffold(
-        title = "Dashboard",
-        subtitle = session?.fullName,
+    MainScaffold(
+        title = "Home",
         showBrand = true,
-        offline = !isOnline,
-        pendingSyncCount = if (isOnline) pending else 0,
+        onBack = null,
         topBarActions = {
+            IconButton(onClick = { viewModel.refreshNotifications() }) {
+                Icon(Icons.Filled.CloudUpload, contentDescription = "Refresh", tint = AgriColors.ForestGreen)
+            }
             IconButton(onClick = { viewModel.logout(onLoggedOut) }) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.Logout,
-                    contentDescription = "Sign out",
-                )
+                Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "Sign out")
             }
         },
     ) { padding ->
         Column(
             modifier = Modifier
-                .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(AgriSpacing.lg),
@@ -83,14 +92,10 @@ fun DashboardScreen(
             session?.let { current ->
                 AgriCard {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(modifier = Modifier.weight(1f)) {
+                        Column(Modifier.weight(1f)) {
+                            Text(current.fullName, style = MaterialTheme.typography.titleLarge)
                             Text(
-                                text = current.fullName,
-                                style = MaterialTheme.typography.titleLarge,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
-                            Text(
-                                text = "Signed in on this device",
+                                "Welcome back",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -100,7 +105,13 @@ fun DashboardScreen(
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(AgriSpacing.lg)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(AgriSpacing.md)) {
+                StatTile(
+                    label = if (role == UserRole.BUYER) "Active orders" else "Farm plots",
+                    value = if (role == UserRole.BUYER) activeOrders.toString() else plots.size.toString(),
+                    modifier = Modifier.weight(1f),
+                    icon = if (role == UserRole.BUYER) Icons.Filled.ReceiptLong else Icons.Filled.Agriculture,
+                )
                 StatTile(
                     label = "Waiting to sync",
                     value = pending.toString(),
@@ -108,32 +119,85 @@ fun DashboardScreen(
                     icon = Icons.Filled.CloudUpload,
                     caption = if (pending == 0) "All caught up" else "Saved locally",
                 )
-                StatTile(
-                    label = "Connection",
-                    value = if (isOnline) "Online" else "Offline",
-                    modifier = Modifier.weight(1f),
-                    icon = if (isOnline) Icons.Filled.Wifi else Icons.Filled.WifiOff,
-                )
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(AgriSpacing.md)) {
+                if (role == UserRole.BUYER) {
+                    StatTile(
+                        label = "Alerts",
+                        value = unread.toString(),
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Filled.ReceiptLong,
+                    )
+                } else {
+                    StatTile(
+                        label = "Harvests",
+                        value = harvests.size.toString(),
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Filled.Grass,
+                    )
+                    StatTile(
+                        label = "Livestock",
+                        value = livestock.sumOf { it.headCount }.toString(),
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Filled.Pets,
+                    )
+                }
+            }
+
+            if (role != UserRole.BUYER && netBalance != null) {
+                AgriCard {
+                    Column {
+                        Text("Net balance", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(AgriSpacing.xs))
+                        Text(
+                            MoneyFormat.pula(netBalance ?: 0.0),
+                            style = MaterialTheme.typography.headlineMedium,
+                            color = if ((netBalance ?: 0.0) >= 0) AgriColors.SuccessGreen else AgriColors.ErrorRed,
+                        )
+                        Text("From your finance records", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
             }
 
             AgriPrimaryButton(
-                text = "Sync now",
+                text = if (isOnline) "Sync now" else "You're offline",
                 onClick = viewModel::syncNow,
                 enabled = isOnline,
             )
 
-            AgriSecondaryButton(
-                text = "Sign out",
-                onClick = { viewModel.logout(onLoggedOut) },
-            )
+            SectionHeader(title = "Shortcuts")
+            AgriCard {
+                Column {
+                    when (role) {
+                        UserRole.FARMER, UserRole.FARM_EMPLOYEE -> {
+                            AgriSettingsRow(title = "My farms", icon = Icons.Filled.Agriculture, onClick = { onNavigate(Routes.FARMS) })
+                            AgriSettingsRow(title = "Harvests", icon = Icons.Filled.Grass, onClick = { onNavigate(Routes.HARVESTS) })
+                            AgriSettingsRow(title = "Livestock", icon = Icons.Filled.Pets, onClick = { onNavigate(Routes.LIVESTOCK) })
+                        }
+                        else -> Unit
+                    }
+                    if (role == UserRole.FARMER) {
+                        AgriSettingsRow(title = "Finance", icon = Icons.Filled.AccountBalanceWallet, onClick = { onNavigate(Routes.FINANCE) })
+                    }
+                    AgriSettingsRow(title = "Marketplace", icon = Icons.Filled.Storefront, onClick = { onNavigate(Routes.MARKETPLACE) })
+                    AgriSettingsRow(title = "Orders", icon = Icons.Filled.ReceiptLong, onClick = { onNavigate(Routes.ORDERS) })
+                    AgriSettingsRow(title = "Alerts", icon = Icons.Filled.ReceiptLong, onClick = { onNavigate(Routes.NOTIFICATIONS) })
+                }
+            }
 
-            Spacer(Modifier.height(AgriSpacing.xs))
-            Text(
-                text = "More screens (farms, finances, satellite health, marketplace and orders) " +
-                    "are on the way. Their data layer is already in place.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(AgriSpacing.md), verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    if (isOnline) Icons.Filled.Wifi else Icons.Filled.WifiOff,
+                    contentDescription = null,
+                    tint = if (isOnline) AgriColors.SuccessGreen else AgriColors.WarningAmber,
+                )
+                Text(
+                    if (isOnline) "Connected — records sync automatically." else "Offline — records are saved on this device.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

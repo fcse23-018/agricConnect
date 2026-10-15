@@ -156,18 +156,15 @@ internal class DefaultAuthRepository @Inject constructor(
         val result = runCatchingApi(errorParser::parse) {
             val resp = api.logout(body)
             if (resp.isSuccessful) {
-                sessionManager.signOut()
                 Unit
             } else {
                 throw retrofit2.HttpException(resp)
             }
         }
-        if (result is AppResult.Failure &&
-            (result.error.code == AppError.UNAUTHENTICATED ||
-                result.error.code == AppError.NETWORK)
-        ) {
-            sessionManager.signOut()
-        }
+        // Server-side revocation is best-effort, but the local session always ends:
+        // otherwise "Sign out" would navigate to the login form while a cold start
+        // restored the old session and signed the user straight back in.
+        sessionManager.signOut()
         return result
     }
 
@@ -175,18 +172,13 @@ internal class DefaultAuthRepository @Inject constructor(
         val result = runCatchingApi(errorParser::parse) {
             val resp = api.logoutAll()
             if (resp.isSuccessful) {
-                sessionManager.signOut()
                 Unit
             } else {
                 throw retrofit2.HttpException(resp)
             }
         }
-        if (result is AppResult.Failure &&
-            (result.error.code == AppError.UNAUTHENTICATED ||
-                result.error.code == AppError.NETWORK)
-        ) {
-            sessionManager.signOut()
-        }
+        // Best-effort server revocation, guaranteed local sign-out — see logout().
+        sessionManager.signOut()
         return result
     }
 

@@ -4,15 +4,17 @@
 > stubbed or mocked, and what is still missing — so a developer joining the project
 > can orient in minutes and know exactly where to start.
 >
-> **Last updated:** 2026-10-14 · **Baseline commit:** `d637a0d`
+> **Last updated:** 2026-10-15 · **Baseline commit:** `c3f6878` (+ uncommitted work
+> described below) · **Platform:** Windows, JDK 17, Node 24, PostgreSQL 17
 >
 > **How to read the status markers**
-> ✅ **Done** — implemented and, where noted, verified · 🟡 **Partial / unverified** —
-> code exists but is incomplete, mocked, or not executed · ❌ **Missing** — not present.
+> ✅ **Done** — implemented and actually executed/verified in this environment ·
+> 🟡 **Partial / unverified** — code exists but is incomplete, mocked, or was not
+> executed · ❌ **Missing** — not present.
 >
-> Nothing here should be read as a claim that something *works*. Where a result was
-> not actually executed it is marked 🟡. See also
-> [`docs/08-KNOWN-LIMITATIONS-AND-UNVERIFIED.md`](docs/08-KNOWN-LIMITATIONS-AND-UNVERIFIED.md).
+> Nothing here should be read as a claim that something *works on a device*. The
+> Android app has been **compiled and unit-tested**, but has **not been run on an
+> emulator or physical device** in this environment. See §7 and §9.
 
 ---
 
@@ -20,18 +22,17 @@
 
 | Area | State |
 |------|-------|
-| **Backend REST API** | 🟢 Largely complete — every endpoint in the contract is implemented |
-| **Backend tests** | 🟡 5 unit tests only; no API/integration tests |
-| **Android data + domain layer** | 🟢 Substantially complete (Room, Retrofit, sync engine, session) |
-| **Android UI (app shell)** | 🔴 **Not buildable** — no `MainActivity`, no `Application` class, no DI, no screens/navigation |
-| **Android repository layer** | 🔴 Only a helper exists; no concrete repositories |
-| **Docs / deliverables** | 🟡 9 of 14+ written deliverables present; 4 referenced files missing |
-| **CI / DevOps** | 🟢 GitHub Actions added; no Gradle wrapper, no lockfile |
-
-**The single most important fact:** the Android app **does not currently compile into a
-runnable app**. `AndroidManifest.xml` declares `android:name=".AgriConnectApp"` and an
-activity `.MainActivity`, but **neither class exists**. Closing that gap (plus Hilt
-modules) is the critical path for the mobile side. The backend is much further along.
+| **Backend REST API** | 🟢 Every endpoint in the contract is implemented |
+| **Backend tests** | 🟢 73/73 pass (`npm test`, exit 0) — unit + HTTP smoke |
+| **Backend ↔ Supabase schema** | 🟢 `backend/supabase-update.sql` verified against PostgreSQL 17 (§6) |
+| **Android data + domain layer** | 🟢 Room, Retrofit, sync engine, session, 11 repositories |
+| **Android app shell** | 🟢 `AgriConnectApp`, `MainActivity`, Hilt modules, nav host all present |
+| **Android UI** | 🟢 26 Compose screens, role-based navigation, offline/sync affordances |
+| **Android build** | 🟢 `:app:assembleDebug` produces a 23 MB APK |
+| **Android unit tests** | 🟢 12/12 pass (`:app:testDebugUnitTest`) |
+| **Android runtime** | 🟡 Never launched on a device/emulator — no instrumented test run |
+| **External providers** | 🔴 SMS/email, Earth Engine and push are not configured |
+| **Docs / deliverables** | 🟡 1 of the referenced docs is still missing (`docs/05-TEST-REPORT.md`) |
 
 ---
 
@@ -40,9 +41,9 @@ modules) is the critical path for the mobile side. The backend is much further a
 ```
 agriConnect/
 ├─ android/    Native Android app (Kotlin · Jetpack Compose · Room · Hilt · WorkManager)
-├─ backend/    Node.js/Express REST API + PostgreSQL migrations
+├─ backend/    Node.js/Express REST API + PostgreSQL migrations + Supabase update script
 ├─ docs/       Written deliverables (requirements, design, API contract, …)
-├─ .github/    CI workflow (added)
+├─ .github/    CI workflow
 ├─ README.md   Project overview + deliverable index
 ├─ CONTRIBUTING.md
 ├─ LICENSE     MIT
@@ -54,7 +55,7 @@ agriConnect/
 ## 2. Backend (`backend/`) — Node.js / Express / PostgreSQL
 
 **Stack:** native ESM (`"type": "module"`), Express 4, PostgreSQL (`pg`), Zod validation,
-JWT auth, Helmet/CORS/compression, Swagger UI.
+JWT auth, Helmet/CORS/compression, Swagger UI, Jest.
 
 ### 2.1 What is done ✅
 
@@ -63,122 +64,107 @@ JWT auth, Helmet/CORS/compression, Swagger UI.
 | App bootstrap, security headers, CORS, request IDs | `src/app.js` | Versioned at `/api/v1`; health at `/health` |
 | Config (env-driven) + production secret assertions | `src/config/index.js` | Refuses to boot in prod with dev secrets |
 | DB pool, transactions, healthcheck | `src/db/index.js` | |
-| Migrations (5, ordered) + runner + seed | `backend/migrations/`, `src/db/migrate.js`, `src/db/seed.js` | `001_init`, `002_domain`, `003_marketplace`, `004_sync_notifications_retention`, `005_employee_link` |
-| Auth middleware (JWT bearer) | `src/middleware/auth.js` | |
-| Role guard (RBAC, 3 roles) | `src/middleware/roles.js` | UI is never the enforcement point |
-| Validation + error envelope | `src/middleware/errorHandler.js` | Never leaks stack traces |
-| Rate limiting | `src/middleware/rateLimit.js` | auth / sync / public tiers |
-| Idempotency | `src/middleware/idempotency.js` | `register`, `orders`, `sync/push` |
+| Migrations (5, ordered) + runner + seed | `backend/migrations/`, `src/db/migrate.js`, `src/db/seed.js` | `001_init` … `005_employee_link` |
+| Auth middleware (JWT bearer) + role guard (RBAC, 3 roles) | `src/middleware/auth.js`, `roles.js` | UI is never the enforcement point |
+| Validation + error envelope + rate limiting + idempotency | `src/middleware/` | Never leaks stack traces |
 | Auth module (register→login→refresh→reset→verify) | `src/modules/auth/` | Full token lifecycle |
-| Profile + avatar + export + employee-link | `src/modules/users/` | |
-| Account deletion lifecycle | `src/modules/account/`, `src/modules/public/` | Re-auth, grace period, retention ledger |
-| Farms & plots (GeoJSON) | `src/modules/farms/` | |
-| Harvests & livestock | `src/modules/farm/` | |
+| Profile, avatar, export, employee-link, deletion lifecycle | `src/modules/users/`, `account/`, `public/` | Re-auth, grace period, retention ledger |
+| Farms/plots, harvests, livestock | `src/modules/farms/`, `farm/` | GeoJSON boundaries |
 | Sales, expenses, financial summary | `src/modules/finance/` | Farmer-only |
-| Satellite NDVI (mock + real GEE path) | `src/modules/satellite/`, `src/services/gee.js`, `src/services/ndvi.js` | |
-| Marketplace listings | `src/modules/marketplace/` | DRAFT→PUBLISHED lifecycle |
-| Orders workflow | `src/modules/orders/` | Transactional stock, no payments |
-| Notifications feed + device tokens | `src/modules/notifications/` | In-app only |
-| Sync push/pull engine | `src/modules/sync/` | Per-item txn, Last-Write-Wins |
-| Audit log | `src/services/audit.js` | |
-| OpenAPI 3 spec | `backend/openapi.yaml` | **Added** — 53 paths; drives `/api-docs` |
-| Dockerfile + docker-compose | `backend/Dockerfile`, `backend/docker-compose.yml` | Postgres + migrate + api |
-
-**Every endpoint documented in [`docs/02-API-CONTRACT.md`](docs/02-API-CONTRACT.md) §2.1–§2.10
-is implemented.** No documented endpoint is missing.
-
-Undocumented-but-implemented endpoints (should be reconciled into the contract):
-`GET /api/v1/version`, `GET /satellite/ndvi/latest`, `POST /users/me/employer-link`.
+| Satellite NDVI (mock + real GEE path) | `src/modules/satellite/`, `services/gee.js`, `services/ndvi.js` | NDVI arithmetic unit-tested |
+| Marketplace listings + orders workflow | `src/modules/marketplace/`, `orders/` | Transactional stock, no payments |
+| Notifications feed + sync push/pull + audit log | `src/modules/notifications/`, `sync/`, `services/audit.js` | In-app only |
+| Tests | `tests/unit/*` (5 files), `tests/api/smoke.test.js` | **73 tests, all passing** |
+| OpenAPI 3 spec, Dockerfile, docker-compose | `backend/openapi.yaml`, `Dockerfile`, `docker-compose.yml` | |
+| ESLint config, lockfile | `eslint.config.js`, `package-lock.json` | |
+| Supabase schema update script | `backend/supabase-update.sql` | Idempotent; **verified** — see §6 |
 
 ### 2.2 What is partial / mocked 🟡
 
 | Item | File | Reality |
 |------|------|---------|
-| Email/SMS delivery | `src/services/delivery.js` | `SMTP` and `Twilio` **throw "not configured"**. Only `NONE`/`OUTBOX` work, writing to `message_outbox`. Codes never actually sent. |
-| Earth Engine / Sentinel-2 | `src/services/gee.js` | Real GEE path is written but unverified; default runs a **deterministic mock** (`GEE_ENABLED=false`). Results tagged with `source`. |
-| Push notifications | `src/modules/notifications/` | In-app feed works; **no FCM/APNs** delivery. `device_tokens` are stored but unused. |
-| Integration tests | `backend/tests/` | Only `tests/unit/*` (5 files). `npm run test:api` points at a non-existent `tests/api/`. |
+| Email/SMS delivery | `src/services/delivery.js` | `SMTP`/`Twilio` **throw "not configured"**. Only `NONE`/`OUTBOX` work (writes to `message_outbox`). Codes are never actually sent. |
+| Earth Engine / Sentinel-2 | `src/services/gee.js` | Real GEE path written but **unverified**; default is a deterministic mock (`GEE_ENABLED=false`), tagged with `source`. |
+| Push notifications | `src/modules/notifications/` | In-app feed works; **no FCM/APNs**. `device_tokens` are stored but unused. |
+| Database-backed integration tests | `tests/api/` | Only an HTTP smoke suite (health/version/404/401/request-id) — **no test exercises real rows** (auth lifecycle, sync, orders). |
 
 ### 2.3 What is missing ❌
 
-- `package-lock.json` — CI uses `npm install`; a lockfile is recommended.
-- ESLint config — `npm run lint` (`eslint src tests`) has **no config file** and would fail.
-- `tests/api/` integration suite (referenced by `package.json`).
 - Real provider credentials — see [`docs/07-EXTERNAL-CREDENTIALS.md`](docs/07-EXTERNAL-CREDENTIALS.md).
+- End-to-end tests against a live PostgreSQL (the runner supports them; the suite does not exist).
 
 ---
 
 ## 3. Android (`android/`) — Kotlin / Compose / Hilt / Room
 
-**Stack:** Kotlin 2.0.21, AGP 8.7.3, Jetpack Compose (Material 3), Room, Hilt, WorkManager,
-Retrofit + kotlinx.serialization, Coil, osmdroid, Vico. JDK 17, `compileSdk` 35, `minSdk` 24.
+**Stack:** Kotlin 2.0.21, AGP 8.7.3, Jetpack Compose (Material 3), Room, Hilt,
+WorkManager, Retrofit + kotlinx.serialization, Coil, osmdroid. JDK 17,
+`compileSdk` 35, `minSdk` 24. Charts are hand-rolled (`AgriBarChart`) — **no Vico**.
 
 ### 3.1 What is done ✅
 
-| Layer | Files | Notes |
-|-------|-------|-------|
-| Build config | `android/build.gradle.kts`, `android/app/build.gradle.kts`, `android/settings.gradle.kts`, `gradle/libs.versions.toml` | Version catalog; per-buildType `API_BASE_URL` |
-| Manifest | `android/app/src/main/AndroidManifest.xml` | Permissions, FileProvider, WorkManager-via-Hilt |
-| Domain models | `domain/model/{User,Enums,FarmModels}.kt` | Framework-free |
-| Local DB (Room) | `data/local/AgriDatabase.kt`, `Converters.kt`, `DatabaseProvider.kt` | |
-| Entities + DAOs | `data/local/entity/*`, `data/local/dao/*` | Plots, harvests, livestock, sales, expenses, listings, orders, notifications, NDVI, sync queue |
-| Networking | `data/remote/ApiService.kt` | Declares the **entire** REST surface |
-| HTTP plumbing | `AuthInterceptor.kt`, `TokenAuthenticator.kt`, `NetworkErrorParser.kt` | Silent refresh; no recursion |
-| DTOs + mappers | `data/remote/dto/*` | |
-| Session / tokens | `data/session/{TokenStore,SessionManager}.kt` | Encrypted token storage |
-| Sync engine | `data/sync/{SyncEngine,SyncQueue,SyncApplier,ConflictResolver,SyncScheduler,SyncWorker}.kt` | WorkManager-based, offline-first |
-| Core utilities | `core/{result/AppResult,util/*}` | Result type, connectivity, validators, money/NDVI formatting |
-| Design system | `ui/theme/*` (Color, Type, Shape, Theme) | |
-| Reusable components | `ui/components/*` (9 files) | Buttons, chips, text fields, dialogs, surfaces, state views, status, scaffold, logo |
-| Unit tests | `app/src/test/.../{AgriDatabaseTest,AuthApiTest,SyncApiTest,TokenAuthenticatorTest}.kt` | 4 files |
-| Resources | Icons, splash, themes, strings, backup rules | |
+| Layer | Location | Notes |
+|-------|----------|-------|
+| App entry points | `AgriConnectApp.kt` (`@HiltAndroidApp`), `MainActivity.kt` (`@AndroidEntryPoint`) | |
+| DI | `di/AppModule.kt`, `DatabaseModule.kt`, `NetworkModule.kt`, `RefreshClient.kt` | Provides Room, Retrofit, `ApiService`, session, sync, repositories |
+| Build config | `android/build.gradle.kts`, `app/build.gradle.kts`, `gradle/libs.versions.toml` | Per-buildType `API_BASE_URL`; `proguard-rules.pro` present |
+| Manifest, resources, splash, backup rules | `app/src/main/AndroidManifest.xml`, `res/` | |
+| Domain models | `domain/model/{User,Enums,FarmModels}.kt` | `Session`, `UserRole`, `OrderStatus`, `ListingStatus`, `Unit.label` |
+| Local DB (Room) | `data/local/` | Entities + DAOs for plots, harvests, livestock, sales, expenses, listings, orders, notifications, NDVI, sync queue |
+| Networking | `data/remote/` | `ApiService` declares the full REST surface; `AuthInterceptor`, `TokenAuthenticator` (silent refresh, no recursion), `NetworkErrorParser` |
+| DTO envelopes | `data/remote/dto/` | `MeResponse`, `NdviResponse`, `DeletionRequestResponse`, paginated `{items,…}` — the old contract mismatches are fixed |
+| Session / tokens | `data/session/` | Encrypted token storage |
+| Sync engine | `data/sync/` | `SyncEngine`, `SyncQueue`, `SyncApplier`, `ConflictResolver`, `SyncScheduler`, `SyncWorker` (WorkManager) |
+| Repositories | `data/repository/` (11) | Auth, FarmPlot, Harvest, Livestock, Finance, Marketplace, Order, Notification, Satellite, Account |
+| Result type | `core/result/AppResult.kt` | `AppResult.Success/Failure`, `AppError.message/isNetwork` |
+| Design system | `ui/theme/` | Tokens match [`docs/01-DESIGN-SYSTEM.md`](docs/01-DESIGN-SYSTEM.md) |
+| Reusable components | `ui/components/` (14 files) | Scaffold, surfaces, buttons, dialogs, state views, chips, segmented control, chart, badges, settings rows, logo |
+| Navigation | `ui/AgriConnectRoot.kt`, `ui/navigation/` | Root `NavHost`, `MainScaffold` chrome, `AgriNavItems.forRole`, `homeRouteFor` |
+| Screens | `ui/**` (26 `*Screen.kt`) | See §3.2 |
+| Unit tests | `app/src/test/...` (4 files) | **12/12 passing** |
+| Instrumented test scaffold | `app/src/androidTest/.../HiltTestRunner.kt` | Runner exists; no test classes yet |
 
-### 3.2 What is missing ❌ — **this is the critical path**
+### 3.2 Implemented screens ✅
 
-These gaps mean the app **cannot launch** and likely cannot be assembled into a
-runnable APK:
+Splash · Welcome · Onboarding · Login · Register · Forgot password · Dashboard ·
+Farm (plots) · Farm detail · Harvests · Livestock · Satellite insights · Finance ·
+Marketplace · Listing detail · Create listing · Orders · Order detail ·
+Notifications · Profile · Settings · Notification preferences · Privacy & consent ·
+Account deletion · Offline & sync · Help.
 
-| Missing piece | Declared / referenced by | Why it matters |
-|---------------|--------------------------|----------------|
-| **`AgriConnectApp`** (`@HiltAndroidApp` Application) | `AndroidManifest.xml` line 28 | App has no entry point; crashes on start |
-| **`MainActivity`** (`@AndroidEntryPoint`, `setContent { … }`) | `AndroidManifest.xml` line 40 | No UI host |
-| **Hilt DI modules** (`di/`) | build.gradle applies Hilt/KSP | Nothing provides `AgriDatabase`, `Retrofit`, `ApiService`, `SessionManager`, etc. |
-| **Navigation graph** | README claims `ui/navigation` | No route structure |
-| **Screens** (`ui/screens/`) | README claims `ui/screens` | No login, dashboard, plots, finance, marketplace, orders, notifications, profile, sync UI |
-| **ViewModels** | — | No state holders / business logic binding |
-| **Repository layer** | `data/repository/` (only `RepositorySupport.kt`) | `ApiService` + Room are not wired to the UI |
-| **`proguard-rules.pro`** | `app/build.gradle.kts` release block | Release build references a file that does not exist |
-| **`androidTest/` + `HiltTestRunner`** | `testInstrumentationRunner` in build.gradle | Instrumented tests cannot run |
-| **Room schema export dir** (`app/schemas/`) | `ksp { room.schemaLocation }` | Generated at build; should be committed for migration review |
-| **Gradle wrapper** (`gradlew`, `gradlew.bat`, `gradle/wrapper/`) | README quick-start (`./gradlew …`) | Local builds need a system Gradle |
-| **Push wiring** (FCM) | — | Matches docs L6: notifications are in-app only |
+Role-based bottom navigation: **FARMER** home/farms/finance/market/profile ·
+**FARM_EMPLOYEE** home/farms/alerts/profile · **BUYER** market/orders/alerts/profile.
 
-> **Bottom line:** the Android **data/domain layers and design system are strong**, but
-> the **application shell and UI are absent**. A developer should expect to build
-> `AgriConnectApp`, Hilt modules, repositories, ViewModels and the Compose screens.
+### 3.3 Behaviour that is deliberately honest 🟡
 
-### 3.3 Client ⇄ server mismatches (latent bugs) 🟡
+- **Offline-first writes** (plots, harvests, livestock, sales, expenses) go to Room and
+  queue; reads fall back to cached rows flagged `isFromCache`.
+- **Listings and orders are server-authoritative** — create/publish/archive/update and
+  every order transition go over REST and are **not** queued. Orders are never mutated
+  optimistically; the UI re-reads the server's state. The domain enum is only
+  `PENDING, CONFIRMED, COMPLETED, CANCELLED` (a rejected order becomes `CANCELLED`).
+- **Satellite NDVI is never fabricated** on the client; an unavailable/unfabricated
+  result shows an honest empty state, and `cloudCover` is shown verbatim (its scale is
+  not documented by the backend).
+- **Sign out** always clears the local session, even when the server call fails (§8).
+- Notification taps route only on a **known** `relatedEntityType`; anything unknown is
+  ignored rather than guessed.
 
-These are not yet exercised because the repository layer is unimplemented, but they
-will bite as soon as it is:
+### 3.4 Fixed in the latest pass ✅
 
-1. **Path mismatch** — `ApiService` calls `POST devices`; the backend serves device
-   registration at `POST /notifications/devices`. The call as written returns `404`.
-2. **Response-envelope mismatches** — the client expects bare DTOs where the server
-   returns a wrapper:
+| Fix | File |
+|-----|------|
+| Legal consents (`acceptTerms`, `acceptPrivacy`) were dropped by kotlinx.serialization defaults → `@EncodeDefault(ALWAYS)` | `data/remote/dto/AuthDtos.kt` |
+| Profile / Settings "Sign out" navigated but **never ended the session** → VMs now call `AuthRepository.logout()` | `ui/profile/ProfileViewModel.kt`, `ui/settings/SettingsViewModel.kt`, matching screens |
+| `AuthRepository.logout/logoutAll` only cleared the session on some error codes → local session is always cleared | `data/repository/AuthRepository.kt` |
 
-   | Client declaration | Server actually returns |
-   |--------------------|-------------------------|
-   | `getMe()`, `patchMe()`, `uploadAvatar()`, `employerLink()` → `UserDto` | `{ user: … }` |
-   | `putNotificationPreferences()` → prefs | `{ user: … }` |
-   | `markRead()` → `NotificationDto` | `{ notification: … }` |
-   | `markAllRead()` → `MessageResponse` | `{ updated: n }` |
-   | `latestNdvi()` → `NdviDto` | `{ ndvi: … }` |
-   | deletion create/get/cancel → `DeletionRequestDto` | `{ request: … }` |
-   | `listNdvi()`, `myListings()`, `listNotifications()` → `ItemsResponse` | paginated `{ items, page, … }` |
+### 3.5 Not verified ❌
 
-   Fix by aligning the DTOs/wrappers on one side (server envelope is the source of truth
-   in [`docs/02-API-CONTRACT.md`](docs/02-API-CONTRACT.md) and `backend/openapi.yaml`).
+- The app has **not been launched**. No emulator/device smoke test, no screenshot, no
+  instrumented test. Compose layout/visual fidelity to the design reference is
+  therefore **unverified** — only the code paths were reviewed and compiled.
+- Location permission flows, avatar upload and the export endpoint are wired but
+  never exercised against a live backend.
 
 ---
 
@@ -191,17 +177,17 @@ will bite as soon as it is:
 | — | `02-API-CONTRACT.md` | ✅ |
 | — | `03-DATA-RETENTION-AND-DELETION.md` | ✅ |
 | — | `04-TRACEABILITY-MATRIX.md` | ✅ |
-| 7 | `05-TEST-REPORT.md` | ❌ **Missing** (README + `docs/08` link to it) |
+| 7 | `05-TEST-REPORT.md` | ❌ **Missing** (README links to it) |
 | — | `06-STORE-READINESS-CHECKLIST.md` | ✅ |
 | — | `07-EXTERNAL-CREDENTIALS.md` | ✅ |
 | — | `08-KNOWN-LIMITATIONS-AND-UNVERIFIED.md` | ✅ |
-| 11 | `09-DEPLOYMENT.md` | ❌ **Missing** (README links to it) |
+| 11 | `09-DEPLOYMENT.md` | ✅ |
 | 12 | `privacy-policy.md` | ✅ |
-| 13 | `terms-of-service.md` | ❌ **Missing** (README links to it) |
-| 14 | `account-deletion.html` | ❌ **Missing** (README links to it) |
-| 3 | `backend/openapi.yaml` | ✅ **Added** |
+| 13 | `terms-of-service.md` | ✅ |
+| 14 | `account-deletion.html` | ✅ |
+| 3 | `backend/openapi.yaml` | ✅ |
 
-The four missing files are linked from the README deliverable index → **broken links**.
+One dead link remains in the README deliverable index (`05-TEST-REPORT.md`).
 
 ---
 
@@ -209,36 +195,38 @@ The four missing files are linked from the README deliverable index → **broken
 
 | Item | Status | Notes |
 |------|--------|-------|
-| `README.md` | ✅ | Deliverable index (4 dead links), quick-start |
-| `LICENSE` (MIT) | ✅ | Added |
-| `CONTRIBUTING.md` | ✅ | Added |
+| `README.md`, `LICENSE` (MIT), `CONTRIBUTING.md` | ✅ | README has 1 dead link (§4) |
 | GitHub Actions CI | ✅ | `.github/workflows/ci.yml` — backend tests + Android build/test |
-| `.gitattributes` | ❌ | No line-ending normalisation |
-| `package-lock.json` | ❌ | Dependency versions unpinned |
-| Gradle wrapper | ❌ | See §3.2 |
-| Secrets hygiene | ✅ | `.gitignore` covers `.env`, keystores, `local.properties` |
+| Gradle wrapper | ✅ | `gradlew`, `gradlew.bat`, `gradle/wrapper/*` committed |
+| Room schema export | ✅ | `app/schemas/bw.agriconnect.data.local.AgriDatabase/1.json` |
+| `proguard-rules.pro`, `package-lock.json`, ESLint config | ✅ | |
+| Secrets hygiene | 🟡 | `.gitignore` covers `.env`, keystores, `local.properties` — but see §8 |
 
 ---
 
-## 6. Suggested next steps (priority order)
+## 6. Supabase schema update
 
-1. **Make the Android app runnable** *(blocking everything mobile)*
-   - Add `AgriConnectApp` (`@HiltAndroidApp`) and `MainActivity` (`@AndroidEntryPoint`).
-   - Add Hilt modules providing Room, Retrofit/`ApiService`, `SessionManager`, sync deps.
-   - Add a minimal `NavHost` + a login and dashboard screen to prove the wiring.
-2. **Build the repository layer** and reconcile the client/server envelope & path
-   mismatches in §3.3 (fix `POST /devices`, unwrap `{ user }`/`{ request }`/`{ ndvi }`).
-3. **Fix release build**: create `proguard-rules.pro` (or drop it from `proguardFiles`).
-4. **Add the Gradle wrapper** (`gradle wrapper --gradle-version 8.9`) so `./gradlew` works
-   and CI can use it.
-5. **Write the missing docs**: `05-TEST-REPORT.md`, `09-DEPLOYMENT.md`,
-   `terms-of-service.md`, `account-deletion.html`; fix the README links.
-6. **Add backend integration tests** (`tests/api/`) against a real Postgres.
-7. **Add `package-lock.json`, an ESLint config, and `.gitattributes`.**
-8. **Reconcile the API contract** with the three undocumented endpoints, then keep
-   `openapi.yaml`, `docs/02-API-CONTRACT.md` and `ApiService.kt` in sync.
-9. **Wire real external providers** (SMS/email, Earth Engine, push) per
-   [`docs/07-EXTERNAL-CREDENTIALS.md`](docs/07-EXTERNAL-CREDENTIALS.md).
+`backend/supabase-update.sql` is a single, **idempotent** script that brings a Supabase
+database to the state described by `migrations/001…005`. Run it in the Supabase SQL
+editor; it ends with verification queries. It also records the five migration filenames
+in `schema_migrations`, so a later `npm run migrate` skips them rather than failing with
+"already exists".
+
+**Verified** on a throwaway PostgreSQL 17 cluster in this environment:
+
+| Check | Result |
+|-------|--------|
+| Runs cleanly on an empty database | ✅ |
+| Re-runnable (3 consecutive runs, no error) | ✅ |
+| Schema identical to the official migrations (columns, enums, indexes, constraints, triggers, functions) | ✅ (only expected extra: `schema_migrations`) |
+| Bookkeeping records all 5 migrations | ✅ |
+| RLS enabled on all 20 tables; `FORCE` never used | ✅ |
+| Functional: `set_updated_at` fires; self-employment is rejected | ✅ |
+
+It ends by enabling **Row Level Security** on every table with no policies. The Express
+API connects as the table owner (`postgres`), which is exempt from RLS, so the API is
+unaffected while Supabase's PostgREST/anon key is locked out. Do **not** add `FORCE ROW
+LEVEL SECURITY`, or the API itself will be denied.
 
 ---
 
@@ -249,22 +237,58 @@ The four missing files are linked from the README deliverable index → **broken
 cd backend
 cp .env.example .env          # fill in DB + secrets
 npm install
-npm run migrate
-npm test                      # runs tests/unit/* only
+npm run migrate               # or paste backend/supabase-update.sql into Supabase
+npm test                      # 73 tests — unit + HTTP smoke (no database needed)
 npm start                     # http://localhost:4000  ·  docs at /api-docs
 ```
 
-### Android
-```bash
+### Android (PowerShell, JDK 17)
+```powershell
 cd android
-./gradlew :app:assembleDebug   # ⚠️ no wrapper committed — use a system Gradle 8.9+ for now
-./gradlew :app:testDebugUnitTest
+$env:JAVA_HOME="C:\Users\src.president\agri-tooling\jdk"
+.\gradlew.bat :app:assembleDebug :app:testDebugUnitTest --console=plain
 ```
-> Expect the current tree to require the §3.2 additions before the app launches.
+Verified in this environment: **BUILD SUCCESSFUL**, 52 tasks, 12/12 unit tests,
+`app/build/outputs/apk/debug/app-debug.apk` (23 MB). Debug builds point at
+`http://10.0.2.2:4000/api/v1/`; release at `https://api.agriconnect.bw/api/v1/`.
 
 ---
 
-## 8. Contract of honesty
+## 8. Security findings to action
+
+1. **A real database password was committed** to `backend/.env.example` and is present
+   in git history (`c6763e5`, `c3f6878`). The working tree now carries a placeholder and
+   a warning, but **the credential must be rotated in Supabase** — removing it from the
+   file does not remove it from history. Rotate the database password (and any token
+   derived from it) before treating this repository as trustworthy.
+2. The `.env.example` still names a real Supabase **host**. That is a resource
+   identifier, not a credential, but consider replacing it with a placeholder if the
+   repo is ever made public.
+3. **Sign out now always clears the local session.** Residual risk: if the server-side
+   revocation call fails (e.g. a 5xx), the refresh token remains valid server-side until
+   it expires; only the device's copy is discarded. Documented rather than hidden.
+
+---
+
+## 9. Suggested next steps (priority order)
+
+1. **Rotate the leaked Supabase database password** (§8) and scrub
+   `backend/.env.example` of real infrastructure identifiers.
+2. **Run the app once on an emulator** with the backend locally (`10.0.2.2:4000`) and
+   walk every role — this is the largest remaining unknown (§3.5).
+3. **Add database-backed API tests** (`tests/api/`) for auth lifecycle, sync push/pull
+   and order transitions — the highest-risk untested server logic.
+4. **Write `docs/05-TEST-REPORT.md`** and fix the README link.
+5. **Wire real providers** (SMS/email, Earth Engine, push) per
+   [`docs/07-EXTERNAL-CREDENTIALS.md`](docs/07-EXTERNAL-CREDENTIALS.md).
+6. **Add instrumented UI tests** (`androidTest/`) for at least login and the offline
+   sync queue; the Hilt runner is already in place.
+7. Keep `openapi.yaml`, [`docs/02-API-CONTRACT.md`](docs/02-API-CONTRACT.md) and
+   `ApiService.kt` in sync as endpoints evolve.
+
+---
+
+## 10. Contract of honesty
 
 This document is deliberately pessimistic: unexecuted work is marked 🟡 even when code
 exists, and missing files are called out even where the README implies they are present.

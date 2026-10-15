@@ -1,0 +1,163 @@
+package bw.agriconnect.ui.farms
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Grass
+import androidx.compose.material.icons.filled.Pets
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import bw.agriconnect.ui.chrome.MainScaffold
+import bw.agriconnect.ui.components.AgriCard
+import bw.agriconnect.ui.components.AgriPrimaryButton
+import bw.agriconnect.ui.components.AgriSecondaryButton
+import bw.agriconnect.ui.components.AgriSettingsRow
+import bw.agriconnect.ui.components.AgriTextField
+import bw.agriconnect.ui.components.EmptyState as AgriEmptyState
+import bw.agriconnect.ui.components.SyncStatusBadge
+import bw.agriconnect.ui.theme.AgriColors
+import bw.agriconnect.ui.theme.AgriSpacing
+import java.text.NumberFormat
+
+/**
+ * Farm management: the list of plots plus shortcuts into the record books (harvests,
+ * livestock). Plots are read from the offline cache; adding a plot writes locally and
+ * enqueues a sync, so it works with no signal.
+ */
+@Composable
+fun FarmScreen(
+    onPlotClick: (String) -> Unit,
+    onOpenHarvests: () -> Unit,
+    onOpenLivestock: () -> Unit,
+    viewModel: FarmViewModel = hiltViewModel(),
+) {
+    val plots by viewModel.plots.collectAsStateWithLifecycle()
+    val form by viewModel.form.collectAsStateWithLifecycle()
+
+    LaunchedEffect(Unit) { viewModel.refresh() }
+
+    MainScaffold(
+        title = "Farms",
+        onBack = null,
+        floatingActionButton = {
+            FloatingActionButton(onClick = { viewModel.showForm(true) }, containerColor = AgriColors.ForestGreen) {
+                Icon(Icons.Filled.Add, contentDescription = "Add plot", tint = AgriColors.PureWhite)
+            }
+        },
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.padding(padding).padding(horizontal = AgriSpacing.lg),
+            verticalArrangement = Arrangement.spacedBy(AgriSpacing.md),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = AgriSpacing.lg),
+        ) {
+            item {
+                AgriCard {
+                    Column {
+                        AgriSettingsRow(title = "Harvest records", subtitle = "Crops collected per plot", icon = Icons.Filled.Grass, onClick = onOpenHarvests)
+                        AgriSettingsRow(title = "Livestock", subtitle = "Head counts over time", icon = Icons.Filled.Pets, onClick = onOpenLivestock)
+                    }
+                }
+            }
+
+            if (plots.isEmpty()) {
+                item {
+                    AgriEmptyState(
+                        title = "No plots yet",
+                        message = "Add a plot to start tracking crops and satellite vegetation health.",
+                        actionLabel = "Add plot",
+                        onAction = { viewModel.showForm(true) },
+                    )
+                }
+            } else {
+                items(plots, key = { it.plotId }) { plot ->
+                    AgriCard(onClick = { onPlotClick(plot.plotId) }) {
+                        Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    plot.plotName,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                SyncStatusBadge(status = plot.syncStatus)
+                            }
+                            Spacer(Modifier.height(AgriSpacing.xs))
+                            plot.areaHectares?.let {
+                                Text(
+                                    "${NumberFormat.getInstance().format(it)} ha",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            if (plot.centroidLat != null && plot.centroidLng != null) {
+                                Text(
+                                    "Location: ${plot.centroidLat}, ${plot.centroidLng}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            plot.notes?.takeIf { it.isNotBlank() }?.let {
+                                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (form.showForm) {
+        AlertDialog(
+            onDismissRequest = { viewModel.showForm(false) },
+            title = { Text("Add plot") },
+            text = {
+                Column {
+                    AgriTextField(value = form.name, onValueChange = viewModel::onNameChange, label = "Plot name")
+                    Spacer(Modifier.height(AgriSpacing.sm))
+                    AgriTextField(value = form.area, onValueChange = viewModel::onAreaChange, label = "Area (ha)", keyboardType = KeyboardType.Number)
+                    Spacer(Modifier.height(AgriSpacing.sm))
+                    AgriTextField(value = form.lat, onValueChange = viewModel::onLatChange, label = "Latitude (optional)", keyboardType = KeyboardType.Number)
+                    Spacer(Modifier.height(AgriSpacing.sm))
+                    AgriTextField(value = form.lng, onValueChange = viewModel::onLngChange, label = "Longitude (optional)", keyboardType = KeyboardType.Number)
+                    Spacer(Modifier.height(AgriSpacing.sm))
+                    AgriTextField(value = form.notes, onValueChange = viewModel::onNotesChange, label = "Notes (optional)")
+                    if (form.error != null) {
+                        Spacer(Modifier.height(AgriSpacing.sm))
+                        Text(form.error.orEmpty(), color = AgriColors.ErrorRed)
+                    }
+                }
+            },
+            confirmButton = {
+                AgriPrimaryButton(
+                    text = "Save",
+                    onClick = viewModel::savePlot,
+                    loading = form.isSaving,
+                    fillWidth = false,
+                )
+            },
+            dismissButton = {
+                AgriSecondaryButton(text = "Cancel", onClick = { viewModel.showForm(false) }, fillWidth = false)
+            },
+        )
+    }
+}

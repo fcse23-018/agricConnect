@@ -37,6 +37,8 @@ captures/
 *.aab
 *.ap_
 output.json
+# Kotlin compiler session/daemon state (not source).
+.kotlin/
 
 # ---- Java ----
 *.class

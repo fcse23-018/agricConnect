@@ -4,10 +4,18 @@ import android.content.Context
 import bw.agriconnect.core.util.AndroidConnectivityObserver
 import bw.agriconnect.core.util.ConnectivityObserver
 import bw.agriconnect.data.remote.NetworkErrorParser
+import bw.agriconnect.data.repository.AccountRepository
 import bw.agriconnect.data.repository.AuthRepository
+import bw.agriconnect.data.repository.DefaultAccountRepository
 import bw.agriconnect.data.repository.DefaultAuthRepository
 import bw.agriconnect.data.repository.DefaultFarmPlotRepository
+import bw.agriconnect.data.repository.DefaultFinanceRepository
+import bw.agriconnect.data.repository.DefaultHarvestRepository
+import bw.agriconnect.data.repository.DefaultLivestockRepository
 import bw.agriconnect.data.repository.FarmPlotRepository
+import bw.agriconnect.data.repository.FinanceRepository
+import bw.agriconnect.data.repository.HarvestRepository
+import bw.agriconnect.data.repository.LivestockRepository
 import bw.agriconnect.data.session.EncryptedTokenStore
 import bw.agriconnect.data.session.SessionManager
 import bw.agriconnect.data.session.TokenStore
@@ -88,4 +96,20 @@ internal abstract class BindingsModule {
     @Binds
     @Singleton
     internal abstract fun bindFarmPlotRepository(impl: DefaultFarmPlotRepository): FarmPlotRepository
+
+    @Binds
+    @Singleton
+    internal abstract fun bindHarvestRepository(impl: DefaultHarvestRepository): HarvestRepository
+
+    @Binds
+    @Singleton
+    internal abstract fun bindLivestockRepository(impl: DefaultLivestockRepository): LivestockRepository
+
+    @Binds
+    @Singleton
+    internal abstract fun bindFinanceRepository(impl: DefaultFinanceRepository): FinanceRepository
+
+    @Binds
+    @Singleton
+    internal abstract fun bindAccountRepository(impl: DefaultAccountRepository): AccountRepository
 }

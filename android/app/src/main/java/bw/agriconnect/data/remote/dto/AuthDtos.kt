@@ -1,5 +1,7 @@
 package bw.agriconnect.data.remote.dto
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 
 /**
@@ -11,6 +13,7 @@ import kotlinx.serialization.Serializable
  * with a defensive fallback so an unknown value can never crash the app.
  */
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 data class RegisterRequest(
     val fullName: String,
@@ -19,7 +22,14 @@ data class RegisterRequest(
     val password: String,
     /** One of `FARMER`, `FARM_EMPLOYEE`, `BUYER`. Never a privileged flag. */
     val role: String,
+    /**
+     * Consent flags are part of the register contract and must always reach the
+     * server, so they are encoded even when they hold their default value
+     * (the shared `Json` does not set `encodeDefaults`).
+     */
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val acceptTerms: Boolean = true,
+    @EncodeDefault(EncodeDefault.Mode.ALWAYS)
     val acceptPrivacy: Boolean = true,
 )
 

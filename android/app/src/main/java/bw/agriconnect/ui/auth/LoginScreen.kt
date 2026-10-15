@@ -35,6 +35,8 @@ import bw.agriconnect.ui.theme.AgriSpacing
 @Composable
 fun LoginScreen(
     onLoggedIn: () -> Unit,
+    onForgotPassword: () -> Unit = {},
+    onRegister: () -> Unit = {},
     viewModel: LoginViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -103,5 +105,21 @@ fun LoginScreen(
             enabled = state.canSubmit,
             loading = state.isSubmitting,
         )
+
+        Spacer(Modifier.height(AgriSpacing.md))
+
+        AgriTextFieldButton(text = "Forgot password?", onClick = onForgotPassword, enabled = !state.isSubmitting)
+
+        Spacer(Modifier.height(AgriSpacing.xs))
+
+        AgriTextFieldButton(text = "Create an account", onClick = onRegister, enabled = !state.isSubmitting)
+    }
+}
+
+/** A centred text link styled as a low-emphasis action. */
+@Composable
+private fun AgriTextFieldButton(text: String, onClick: () -> Unit, enabled: Boolean) {
+    androidx.compose.material3.TextButton(onClick = onClick, enabled = enabled) {
+        Text(text, color = AgriColors.ForestGreen)
     }
 }

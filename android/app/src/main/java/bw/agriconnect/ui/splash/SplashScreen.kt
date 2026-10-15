@@ -20,6 +20,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import bw.agriconnect.data.repository.AuthRepository
+import bw.agriconnect.domain.model.Session
 import bw.agriconnect.ui.components.BrandLogo
 import bw.agriconnect.ui.theme.AgriSpacing
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -30,7 +31,8 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
- * Restores the session once, then reports whether the user is signed in.
+ * Restores the session once, then reports the resolved [Session] (or null when signed
+ * out) so the navigation host can pick the correct role-based landing destination.
  *
  * Restoring only needs the persisted identity and the presence of a refresh token
  * (see [bw.agriconnect.data.session.SessionManager.restore]); no network call is
@@ -41,28 +43,34 @@ class SplashViewModel @Inject constructor(
     private val authRepository: AuthRepository,
 ) : ViewModel() {
 
-    private val _signedIn = MutableStateFlow<Boolean?>(null)
+    private val _resolved = MutableStateFlow<ResolveState>(ResolveState.Resolving)
 
-    /** `null` while resolving; `true`/`false` once the session state is known. */
-    val signedIn: StateFlow<Boolean?> = _signedIn.asStateFlow()
+    /** [ResolveState.Resolving] until the session state is known. */
+    val resolved: StateFlow<ResolveState> = _resolved.asStateFlow()
 
     init {
         viewModelScope.launch {
-            val session = authRepository.restoreSession()
-            _signedIn.value = session != null
+            _resolved.value = ResolveState.Resolved(authRepository.restoreSession())
         }
+    }
+
+    sealed interface ResolveState {
+        data object Resolving : ResolveState
+        data class Resolved(val session: Session?) : ResolveState
     }
 }
 
 @Composable
 fun SplashScreen(
-    onResolved: (Boolean) -> Unit,
+    onResolved: (Session?) -> Unit,
     viewModel: SplashViewModel = hiltViewModel(),
 ) {
-    val signedIn by viewModel.signedIn.collectAsStateWithLifecycle()
+    val resolved by viewModel.resolved.collectAsStateWithLifecycle()
 
-    LaunchedEffect(signedIn) {
-        signedIn?.let(onResolved)
+    LaunchedEffect(resolved) {
+        if (resolved is SplashViewModel.ResolveState.Resolved) {
+            onResolved((resolved as SplashViewModel.ResolveState.Resolved).session)
+        }
     }
 
     Column(
