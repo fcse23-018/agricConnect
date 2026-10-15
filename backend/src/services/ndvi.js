@@ -29,9 +29,18 @@ export const StressLevel = Object.freeze({
  * non-finite inputs or the degenerate NIR+RED = 0 case (which would divide by
  * zero) so callers never record a NaN NDVI as if it were a reading.
  */
+function toFiniteNumber(value) {
+  // `Number(null)` is 0 and `Number('')` is 0, which would silently produce a
+  // plausible-looking NDVI from missing data. Only accept real numbers and
+  // non-empty numeric strings (PostgreSQL hands numeric columns back as strings).
+  if (value === null || value === undefined || value === '' || typeof value === 'boolean') return Number.NaN;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : Number.NaN;
+}
+
 export function computeNdviFromBands(nir, red) {
-  const n = Number(nir);
-  const r = Number(red);
+  const n = toFiniteNumber(nir);
+  const r = toFiniteNumber(red);
   if (!Number.isFinite(n) || !Number.isFinite(r)) return null;
   if (n + r === 0) return null;
   return Number(((n - r) / (n + r)).toFixed(4));
