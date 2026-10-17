@@ -24,7 +24,7 @@ import bw.agriconnect.domain.model.UserRole
 import bw.agriconnect.ui.components.AgriPasswordField
 import bw.agriconnect.ui.components.AgriPrimaryButton
 import bw.agriconnect.ui.components.AgriTextField
-import bw.agriconnect.ui.components.BrandLogo
+import bw.agriconnect.ui.components.AuthScaffold
 import bw.agriconnect.ui.theme.AgriColors
 import bw.agriconnect.ui.theme.AgriSpacing
 
@@ -35,14 +35,7 @@ fun RegisterScreen(
     viewModel: RegisterViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-            .padding(horizontal = AgriSpacing.xl, vertical = AgriSpacing.xxl),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        BrandLogo(markSize = 56.dp)
-        Spacer(Modifier.height(AgriSpacing.lg))
+    AuthScaffold {
         Text("Create account", style = MaterialTheme.typography.headlineMedium)
         Text("Join AgriConnect as a farmer, employee or buyer.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(AgriSpacing.xl))

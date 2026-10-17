@@ -18,16 +18,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import bw.agriconnect.ui.components.AgriPrimaryButton
 import bw.agriconnect.ui.components.AgriSecondaryButton
-import bw.agriconnect.ui.components.BrandLogo
+import bw.agriconnect.ui.components.AuthScaffold
+import bw.agriconnect.ui.components.AuthScaffold
 import bw.agriconnect.ui.theme.AgriSpacing
 
 @Composable
 fun WelcomeScreen(onGetStarted: () -> Unit, onSignIn: () -> Unit) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(AgriSpacing.xl),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
+    AuthScaffold(card = false) {
         BrandLogo(markSize = 80.dp)
         Spacer(Modifier.height(AgriSpacing.xxl))
         Text("Welcome to AgriConnect", style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center)

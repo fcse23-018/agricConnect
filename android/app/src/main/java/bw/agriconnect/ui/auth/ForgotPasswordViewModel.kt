@@ -21,6 +21,8 @@ data class ForgotUiState(
     val confirmPassword: String = "",
     val step: ResetStep = ResetStep.Request,
     val resetToken: String? = null,
+    /** Development-only code echoed by the backend when no SMS/email provider is set. */
+    val devCode: String? = null,
     val message: String? = null,
     val error: String? = null,
     val isBusy: Boolean = false,
@@ -44,7 +46,18 @@ class ForgotPasswordViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(isBusy = true, error = null) }
             when (val r = authRepository.requestPasswordReset(s.identifier.trim())) {
-                is AppResult.Success -> _state.update { it.copy(isBusy = false, step = ResetStep.Verify, message = "Reset code sent. Enter it below.") }
+                is AppResult.Success -> _state.update {
+                    it.copy(
+                        isBusy = false,
+                        step = ResetStep.Verify,
+                        devCode = r.data.devCode,
+                        message = if (r.data.devCode != null) {
+                            "Test mode: no SMS or email provider is configured. Use the code below."
+                        } else {
+                            r.data.message
+                        },
+                    )
+                }
                 is AppResult.Failure -> _state.update { it.copy(isBusy = false, error = r.error.message) }
             }
         }

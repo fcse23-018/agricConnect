@@ -66,11 +66,17 @@ data class AppError(
         const val RATE_LIMITED = "RATE_LIMITED"
 
         /**
-         * The single user-facing string for being offline. Kept identical to the
-         * product copy so every surface (banner, snackbar, sync sheet) agrees.
+         * Shown when a request could not reach the server at all.
+         *
+         * Deliberately neutral and *not* the old "your changes are saved" copy: this
+         * fires for every transport failure (sign-in, token refresh, a remote read),
+         * most of which persist nothing. Offline *writes* are queued by the
+         * repositories and surface their own "saved / waiting to sync" copy through
+         * the sync UI ([bw.agriconnect.ui.components.OfflineBanner] /
+         * `PendingSyncBanner`) — never through this error.
          */
-        const val OFFLINE_MESSAGE =
-            "You appear to be offline. Your changes are saved and will sync later."
+        const val NETWORK_MESSAGE =
+            "Can't reach AgriConnect. Check your connection and try again."
     }
 }
 
@@ -128,7 +134,7 @@ fun defaultApiError(throwable: Throwable): AppError = when (throwable) {
             httpStatus = status,
         )
     }
-    is IOException -> AppError(AppError.NETWORK, AppError.OFFLINE_MESSAGE)
+    is IOException -> AppError(AppError.NETWORK, AppError.NETWORK_MESSAGE)
     is SerializationException -> AppError(
         AppError.PARSE,
         "We couldn't read the server response. Please try again.",

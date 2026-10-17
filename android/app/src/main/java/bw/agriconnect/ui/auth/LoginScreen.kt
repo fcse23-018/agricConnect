@@ -23,7 +23,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import bw.agriconnect.ui.components.AgriPasswordField
 import bw.agriconnect.ui.components.AgriPrimaryButton
 import bw.agriconnect.ui.components.AgriTextField
-import bw.agriconnect.ui.components.BrandLogo
+import bw.agriconnect.ui.components.AuthScaffold
 import bw.agriconnect.ui.theme.AgriColors
 import bw.agriconnect.ui.theme.AgriSpacing
 
@@ -41,17 +41,10 @@ fun LoginScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = AgriSpacing.xl, vertical = AgriSpacing.xxl),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
+    AuthScaffold {
+        Spacer(Modifier.height(AgriSpacing.xl))
         BrandLogo(markSize = 64.dp)
-
-        Spacer(Modifier.height(AgriSpacing.xxl))
+        Spacer(Modifier.height(AgriSpacing.lg))
 
         Text(
             text = "Welcome back",

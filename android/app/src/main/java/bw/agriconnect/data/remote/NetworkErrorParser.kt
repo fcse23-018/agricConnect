@@ -31,7 +31,7 @@ class NetworkErrorParser(private val json: Json) {
      */
     fun parse(throwable: Throwable): AppError = when (throwable) {
         is HttpException -> fromHttp(throwable)
-        is IOException -> AppError(AppError.NETWORK, AppError.OFFLINE_MESSAGE)
+        is IOException -> AppError(AppError.NETWORK, AppError.NETWORK_MESSAGE)
         is SerializationException -> AppError(
             AppError.PARSE,
             "We couldn't read the server response. Please try again.",

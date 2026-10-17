@@ -2,6 +2,7 @@ package bw.agriconnect.data.remote
 
 import bw.agriconnect.data.remote.dto.AuthResponse
 import bw.agriconnect.data.remote.dto.ChangePasswordRequest
+import bw.agriconnect.data.remote.dto.CodeDispatchResponse
 import bw.agriconnect.data.remote.dto.CreateExpenseRequest
 import bw.agriconnect.data.remote.dto.CreateFarmPlotRequest
 import bw.agriconnect.data.remote.dto.CreateHarvestRequest
@@ -112,7 +113,7 @@ interface ApiService {
     suspend fun me(): MeResponse
 
     @POST("auth/password/forgot")
-    suspend fun passwordForgot(@Body body: ForgotPasswordRequest): MessageResponse
+    suspend fun passwordForgot(@Body body: ForgotPasswordRequest): CodeDispatchResponse
 
     @POST("auth/password/verify")
     suspend fun passwordVerify(@Body body: VerifyCodeRequest): ResetTokenResponse
@@ -121,7 +122,7 @@ interface ApiService {
     suspend fun passwordReset(@Body body: ResetPasswordRequest): MessageResponse
 
     @POST("auth/verification/request")
-    suspend fun verificationRequest(@Body body: IdentifierRequest): MessageResponse
+    suspend fun verificationRequest(@Body body: IdentifierRequest): CodeDispatchResponse
 
     @POST("auth/verification/confirm")
     suspend fun verificationConfirm(@Body body: VerifyCodeRequest): MessageResponse

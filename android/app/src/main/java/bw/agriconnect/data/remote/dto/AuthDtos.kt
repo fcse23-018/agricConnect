@@ -96,6 +96,20 @@ data class ResetTokenResponse(val resetToken: String)
 @Serializable
 data class MessageResponse(val message: String)
 
+/**
+ * `202` acknowledgement for endpoints that send a recovery or verification code.
+ *
+ * When the backend runs with `EXPOSE_DEV_CODES=true` in a non-production
+ * environment and no SMS/email provider is configured, the code is echoed back in
+ * [devCode] so the flow is completable without a provider. The field is absent
+ * (and therefore null here) in production.
+ */
+@Serializable
+data class CodeDispatchResponse(
+    val message: String,
+    val devCode: String? = null,
+)
+
 /** `GET /auth/me` returns the user nested under `user`. */
 @Serializable
 data class MeResponse(val user: UserDto)

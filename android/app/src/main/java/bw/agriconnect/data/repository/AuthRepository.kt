@@ -21,6 +21,7 @@ import bw.agriconnect.data.remote.dto.toDomain
 import bw.agriconnect.data.session.AuthTokens
 import bw.agriconnect.data.session.SessionManager
 import bw.agriconnect.data.session.TokenStore
+import bw.agriconnect.domain.model.CodeDispatch
 import bw.agriconnect.domain.model.Session
 import bw.agriconnect.domain.model.User
 import bw.agriconnect.domain.model.UserRole
@@ -67,11 +68,11 @@ interface AuthRepository {
 
     suspend fun changePassword(currentPassword: String, newPassword: String): AppResult<Unit>
 
-    suspend fun requestPasswordReset(identifier: String): AppResult<Unit>
+    suspend fun requestPasswordReset(identifier: String): AppResult<CodeDispatch>
     suspend fun verifyPasswordResetCode(identifier: String, code: String): AppResult<String>
     suspend fun resetPassword(resetToken: String, newPassword: String): AppResult<Unit>
 
-    suspend fun requestVerificationCode(identifier: String): AppResult<Unit>
+    suspend fun requestVerificationCode(identifier: String): AppResult<CodeDispatch>
     suspend fun confirmVerification(identifier: String, code: String): AppResult<Unit>
 }
 
@@ -219,10 +220,10 @@ internal class DefaultAuthRepository @Inject constructor(
         }
     }
 
-    override suspend fun requestPasswordReset(identifier: String): AppResult<Unit> {
+    override suspend fun requestPasswordReset(identifier: String): AppResult<CodeDispatch> {
         return runCatchingApi(errorParser::parse) {
-            api.passwordForgot(ForgotPasswordRequest(identifier.trim()))
-            Unit
+            val resp = api.passwordForgot(ForgotPasswordRequest(identifier.trim()))
+            CodeDispatch(message = resp.message, devCode = resp.devCode)
         }
     }
 
@@ -242,10 +243,10 @@ internal class DefaultAuthRepository @Inject constructor(
         }
     }
 
-    override suspend fun requestVerificationCode(identifier: String): AppResult<Unit> {
+    override suspend fun requestVerificationCode(identifier: String): AppResult<CodeDispatch> {
         return runCatchingApi(errorParser::parse) {
-            api.verificationRequest(IdentifierRequest(identifier.trim()))
-            Unit
+            val resp = api.verificationRequest(IdentifierRequest(identifier.trim()))
+            CodeDispatch(message = resp.message, devCode = resp.devCode)
         }
     }
 

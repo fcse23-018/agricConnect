@@ -21,7 +21,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import bw.agriconnect.ui.components.AgriPasswordField
 import bw.agriconnect.ui.components.AgriPrimaryButton
 import bw.agriconnect.ui.components.AgriTextField
-import bw.agriconnect.ui.components.BrandLogo
+import bw.agriconnect.ui.components.AuthScaffold
 import bw.agriconnect.ui.theme.AgriColors
 import bw.agriconnect.ui.theme.AgriSpacing
 
@@ -32,16 +32,7 @@ fun ForgotPasswordScreen(
     viewModel: ForgotPasswordViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    Column(
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-            .padding(horizontal = AgriSpacing.xl, vertical = AgriSpacing.xxl),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        BrandLogo(markSize = 56.dp)
-        Spacer(Modifier.height(AgriSpacing.lg))
-        Text("Reset password", style = MaterialTheme.typography.headlineMedium)
-        Spacer(Modifier.height(AgriSpacing.lg))
+    AuthScaffold {
         when (state.step) {
             ResetStep.Request -> {
                 AgriTextField(value = state.identifier, onValueChange = viewModel::onIdentifierChange, label = "Phone or email")
@@ -51,6 +42,10 @@ fun ForgotPasswordScreen(
             ResetStep.Verify -> {
                 AgriTextField(value = state.code, onValueChange = viewModel::onCodeChange, label = "Reset code", keyboardType = KeyboardType.Number)
                 Spacer(Modifier.height(AgriSpacing.lg))
+                if (state.devCode != null) {
+                    Spacer(Modifier.height(AgriSpacing.sm))
+                    Text("Test code: ${state.devCode}", style = MaterialTheme.typography.titleMedium, color = AgriColors.SuccessGreen)
+                }
                 AgriPrimaryButton(text = "Verify", onClick = viewModel::verify, loading = state.isBusy)
             }
             ResetStep.Reset -> {
