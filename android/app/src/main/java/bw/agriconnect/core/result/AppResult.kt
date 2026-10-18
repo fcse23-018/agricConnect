@@ -157,7 +157,7 @@ fun httpFallbackCode(status: Int): String = when (status) {
 /** Safe, generic copy for each status; never contains server internals. */
 fun httpFallbackMessage(status: Int): String = when (status) {
     400 -> "Please check the highlighted fields."
-    401 -> "Your session has expired. Please sign in again."
+    401 -> "Invalid credentials or session expired. Please try again."
     403 -> "You do not have permission to do that."
     404 -> "We couldn't find what you were looking for."
     409 -> "That conflicts with a change made elsewhere."
