@@ -23,7 +23,9 @@ coverage/
 dist/
 backend/.env
 # Uploaded avatars/listings (runtime data, never source).
-uploads/
+# Anchored deliberately: a bare `uploads/` also matches backend/src/modules/uploads/,
+# which silently kept the upload routes out of the repository and broke CI.
+/uploads/
 backend/uploads/
 
 # ---- Python / crop-api ----
