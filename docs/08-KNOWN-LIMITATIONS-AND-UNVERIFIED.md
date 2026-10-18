@@ -16,12 +16,13 @@ and provider-dependent items remain unexecuted.
 | Area | Status |
 |------|--------|
 | Backend code compiles / runs | ✅ Executed — see `05-TEST-REPORT.md` |
-| Android app compiles | ✅ Executed (`:app:assembleDebug`, 23.6 MB APK) |
+| Android app compiles | ✅ Executed (`:app:assembleDebug`, 22.5 MB APK — `1.1.0`/build 2) |
 | Backend tests executed | ✅ 81/81 — see `05-TEST-REPORT.md` |
 | Crop-API tests executed | ✅ 34/34 (`pytest`, mock GEE) |
-| Android unit tests executed | ✅ 22/22 — see `05-TEST-REPORT.md` |
+| Android unit tests executed | ✅ 28/28 — see `05-TEST-REPORT.md` |
 | Instrumented (device) tests executed | **Not executed** — requires an emulator/device |
 | Image upload/display on a device | **Not verified** — unit/wire-tested only, never run on a device |
+| Server override (Settings → Server) | **Not verified on a device** — the stored value and restart path are reviewed, but the URL rewrite was never exercised against a live host |
 | Real SMS/email delivery | **Not possible** — no provider configured |
 | Real Sentinel-2 NDVI | **Not possible** — no Earth Engine account; mock mode is clearly labelled |
 

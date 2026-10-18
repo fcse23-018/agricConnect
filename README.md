@@ -117,6 +117,18 @@ Cleartext HTTP is permitted in **debug** builds (via
 a plain-`http` dev server); **release** builds are HTTPS-only. Login and sign-up
 cannot succeed until the app can reach a running backend.
 
+**Changing the server without rebuilding.** A debug build exposes Settings → **Server**,
+where you can save any base URL on the device; the app restarts to apply it. This is the
+quickest way to move an already-installed APK onto a new Codespaces forward or a LAN
+address, and Settings' footer always shows the version and build number in use.
+
+**Getting a build off CI.** Every push to `main` attaches
+`agriconnect-debug-v<version>-<commit>.apk` to the workflow run (Actions → a run →
+Artifacts). The file name carries the version and commit, so a downloaded APK can never be
+confused with an older one — the reason a fixed-but-unnamed `app-debug.apk` kept getting
+installed by mistake. Bump `versionCode`/`versionName` in `android/app/build.gradle.kts`
+when you hand a build out.
+
 ---
 
 ## Roles at a glance

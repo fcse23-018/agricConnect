@@ -19,8 +19,17 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
  */
 object ImageUrls {
 
-    /** The origin (`scheme://host[:port]`) of the configured API base URL. */
-    val origin: String? = originOf(BuildConfig.API_BASE_URL)
+    /**
+     * The origin (`scheme://host[:port]`) that relative paths resolve against.
+     *
+     * Seeded from the compile-time [BuildConfig.API_BASE_URL], then overwritten once per
+     * process by `AgriConnectApp` from [bw.agriconnect.core.config.ServerConfig], which
+     * may hold a saved server override. Because a change only takes effect on process
+     * restart, no call site can observe two different values within one session.
+     */
+    @Volatile
+    var origin: String? = originOf(BuildConfig.API_BASE_URL)
+        internal set
 
     /**
      * Absolute URL for [raw], or `null` when it is blank/unusable.

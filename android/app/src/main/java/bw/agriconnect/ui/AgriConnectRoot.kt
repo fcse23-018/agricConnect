@@ -42,6 +42,7 @@ import bw.agriconnect.ui.settings.HelpScreen
 import bw.agriconnect.ui.settings.NotificationPrefsScreen
 import bw.agriconnect.ui.settings.OfflineSyncScreen
 import bw.agriconnect.ui.settings.PrivacyScreen
+import bw.agriconnect.ui.settings.ServerSettingsScreen
 import bw.agriconnect.ui.settings.SettingsScreen
 import bw.agriconnect.ui.splash.SplashScreen
 import bw.agriconnect.ui.welcome.WelcomeScreen
@@ -266,6 +267,7 @@ fun AgriConnectRoot(
                     onPrivacy = { navController.navigate(Routes.PRIVACY) },
                     onOfflineSync = { navController.navigate(Routes.OFFLINE_SYNC) },
                     onHelp = { navController.navigate(Routes.HELP) },
+                    onServer = { navController.navigate(Routes.SERVER) },
                     onDeleteAccount = { navController.navigate(Routes.ACCOUNT_DELETION) },
                     onLogout = { clearTo(Routes.LOGIN) },
                 )
@@ -290,6 +292,9 @@ fun AgriConnectRoot(
             }
             composable(Routes.HELP) {
                 HelpScreen(onBack = { navController.popBackStack() })
+            }
+            composable(Routes.SERVER) {
+                ServerSettingsScreen(onBack = { navController.popBackStack() })
             }
         }
     }

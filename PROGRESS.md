@@ -30,8 +30,9 @@
 | **Android app shell** | 🟢 `AgriConnectApp`, `MainActivity`, Hilt modules, nav host all present |
 | **Android UI** | 🟢 26 Compose screens, role-based navigation, offline/sync affordances |
 | **Image upload / display** | 🟢 Listings, plots and avatars: pick → `POST /uploads` → store → render (unit/contract-tested; not yet device-verified) |
-| **Android build** | 🟢 `:app:assembleDebug` produces a 23.6 MB APK (re-run 2026-10-18) |
-| **Android unit tests** | 🟢 22/22 pass (`:app:testDebugUnitTest`, re-run 2026-10-18) |
+| **Android build** | 🟢 `:app:assembleDebug` produces a 22.5 MB APK — `1.1.0` (build 2), re-run 2026-10-18 |
+| **Android unit tests** | 🟢 28/28 pass (`:app:testDebugUnitTest`, re-run 2026-10-18) |
+| **Release distribution** | 🟢 CI uploads a debug APK named `agriconnect-debug-v<version>-<sha>.apk` (§8) |
 | **Android runtime** | 🟡 Never launched on a device/emulator — no instrumented test run |
 | **External providers** | 🔴 SMS/email, Earth Engine and push are not configured |
 | **Docs / deliverables** | 🟢 All referenced docs present — adds `docs/10-CROP-MONITORING-API.md` |
@@ -145,12 +146,13 @@ WorkManager, Retrofit + kotlinx.serialization, Coil, osmdroid. JDK 17,
 | Sync engine | `data/sync/` | `SyncEngine`, `SyncQueue`, `SyncApplier`, `ConflictResolver`, `SyncScheduler`, `SyncWorker` (WorkManager) |
 | Repositories | `data/repository/` (12) | Auth, FarmPlot, Harvest, Livestock, Finance, Marketplace, Order, Notification, Satellite, Account, **Media** (generic image upload) |
 | Image pipeline | `core/util/ImageUrls.kt`, `ImageFiles.kt`, `data/repository/MediaRepository.kt`, `ui/components/AgriRemoteImage.kt` | Pick → `POST /uploads` → store the origin-relative path on the record → Coil renders it after resolving against the API origin (also shows images uploaded by other users) |
+| Server endpoint | `core/config/ServerConfig.kt`, `core/util/BaseUrl.kt`, `ui/settings/ServerSettingsScreen.kt` | Defaults to the URL compiled into the build type; a **debug** build can persist an override (Settings → Server) and restarts to apply it, so an installed APK can point at a Codespaces forward or a LAN host with no rebuild |
 | Result type | `core/result/AppResult.kt` | `AppResult.Success/Failure`, `AppError.message/isNetwork` |
 | Design system | `ui/theme/` | Tokens match [`docs/01-DESIGN-SYSTEM.md`](docs/01-DESIGN-SYSTEM.md) |
 | Reusable components | `ui/components/` (15 files) | Scaffold, surfaces, buttons, dialogs, state views, chips, segmented control, chart, badges, settings rows, logo, remote image |
 | Navigation | `ui/AgriConnectRoot.kt`, `ui/navigation/` | Root `NavHost`, `MainScaffold` chrome, `AgriNavItems.forRole`, `homeRouteFor` |
-| Screens | `ui/**` (26 `*Screen.kt`) | See §3.2 |
-| Unit tests | `app/src/test/...` (6 files) | **22/22 passing** |
+| Screens | `ui/**` (27 `*Screen.kt`) | See §3.2 |
+| Unit tests | `app/src/test/...` (7 files) | **28/28 passing** |
 | Instrumented test scaffold | `app/src/androidTest/.../HiltTestRunner.kt` | Runner exists; no test classes yet |
 
 ### 3.2 Implemented screens ✅
@@ -159,7 +161,7 @@ Splash · Welcome · Onboarding · Login · Register · Forgot password · Dashb
 Farm (plots) · Farm detail · Harvests · Livestock · Satellite insights · Finance ·
 Marketplace · Listing detail · Create listing · Orders · Order detail ·
 Notifications · Profile · Settings · Notification preferences · Privacy & consent ·
-Account deletion · Offline & sync · Help.
+Account deletion · Offline & sync · Help · Server (debug builds only).
 
 Role-based bottom navigation: **FARMER** home/farms/finance/market/profile ·
 **FARM_EMPLOYEE** home/farms/alerts/profile · **BUYER** market/orders/alerts/profile.
@@ -294,12 +296,14 @@ cd android
 $env:JAVA_HOME="C:\Users\src.president\agri-tooling\jdk"
 .\gradlew.bat :app:assembleDebug :app:testDebugUnitTest --console=plain
 ```
-Verified in this environment (2026-10-18): **BUILD SUCCESSFUL**, 22/22 unit tests,
-`app/build/outputs/apk/debug/app-debug.apk` (23.6 MB, with `auth_background.jpg` inside).
+Verified in this environment (2026-10-18): **BUILD SUCCESSFUL**, 28/28 unit tests,
+`app/build/outputs/apk/debug/app-debug.apk` (`1.1.0`/build 2, 22.5 MB, with
+`auth_background.jpg` inside).
 The API base URL defaults to
 `http://10.0.2.2:4000/api/v1/` (debug) and `https://api.agriconnect.bw/api/v1/` (release),
-and can be overridden with `-PapiBaseUrl=…`, `local.properties`, or the auto-detected
-Codespaces forwarded port — see the README.
+and can be overridden with `-PapiBaseUrl=…`, `local.properties`, the auto-detected
+Codespaces forwarded port, or at runtime in a debug build (Settings → Server) — see the
+README.
 
 ---
 

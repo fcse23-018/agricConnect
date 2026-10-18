@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PrivacyTip
@@ -30,6 +31,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import bw.agriconnect.BuildConfig
 import bw.agriconnect.ui.components.AgriCard
 import bw.agriconnect.ui.components.AgriSettingsRow
 import bw.agriconnect.ui.components.AgriScaffold
@@ -49,6 +51,7 @@ fun SettingsScreen(
     onPrivacy: () -> Unit,
     onOfflineSync: () -> Unit,
     onHelp: () -> Unit,
+    onServer: () -> Unit,
     onDeleteAccount: () -> Unit,
     onLogout: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
@@ -116,6 +119,17 @@ fun SettingsScreen(
                         icon = Icons.AutoMirrored.Filled.HelpOutline,
                         onClick = onHelp,
                     )
+                    // Debug affordance: retarget the installed APK at another backend
+                    // without rebuilding. Hidden in release, which cannot do cleartext
+                    // HTTP and should not invite users to move its API.
+                    if (BuildConfig.DEBUG) {
+                        AgriSettingsRow(
+                            title = "Server",
+                            subtitle = "Point this build at another backend",
+                            icon = Icons.Filled.Dns,
+                            onClick = onServer,
+                        )
+                    }
                 }
             }
 
@@ -138,8 +152,15 @@ fun SettingsScreen(
             }
 
             Spacer(Modifier.height(AgriSpacing.sm))
+            // Version is shown so "which build is installed?" is answerable on-device —
+            // stale sideloads are otherwise indistinguishable from fresh ones.
             Text(
-                "AgriConnect • Role permissions are enforced server-side.",
+                "AgriConnect ${BuildConfig.VERSION_NAME} (build ${BuildConfig.VERSION_CODE})",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                "Role permissions are enforced server-side.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

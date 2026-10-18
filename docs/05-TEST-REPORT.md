@@ -17,7 +17,7 @@
 | Backend — API smoke (`backend/tests/api`) | 5 | ✅ **Pass — re-run 2026-10-18** | ✅ Yes (bundled Node) |
 | Backend — ESLint (`npm run lint`) | — | ✅ 0 errors (22 pre-existing warnings) | ✅ Yes |
 | Crop API — `crop-api` (`pytest`) | 34 | ✅ **Pass — re-run 2026-10-18** | ✅ Yes |
-| Android — unit (`app/src/test`) | 22 | ✅ **Pass — re-run 2026-10-18** | ✅ Yes |
+| Android — unit (`app/src/test`) | 28 | ✅ **Pass — re-run 2026-10-18** | ✅ Yes |
 | Android — instrumented (`app/src/androidTest`) | 0 authored | ⏭️ Not run | ❌ No emulator/device |
 | Android — `:app:assembleDebug` | — | ✅ **BUILD SUCCESSFUL** | ✅ Yes |
 | Manual on-device walkthrough | — | ⏭️ Not run | ❌ No emulator/device |
@@ -36,10 +36,11 @@ on `PATH`). The backend suites are also run by CI (`.github/workflows/ci.yml`).
 |------|-------|
 | Command | `./gradlew :app:assembleDebug` |
 | Result | **BUILD SUCCESSFUL** (re-run 2026-10-18) |
-| Tasks | 33 actionable (10 executed, 23 up-to-date) |
+| Tasks | 52 actionable (27 executed, 25 up-to-date) |
 | Artifact | `android/app/build/outputs/apk/debug/app-debug.apk` |
-| Size | **23.6 MB** |
-| Warnings | None blocking. (An inert `application@android:usesCleartextTraffic` manifest-merge note was removed with commit `f4736ed`.) |
+| Size | **22.5 MB** |
+| Version | `1.1.0` (`versionCode` 2) — shown in-app on Settings |
+| Warnings | None blocking. (`usesCleartextTraffic` is declared only in the debug manifest, so the merge note about replacing nothing is expected.) |
 
 The debug APK is signed with the debug keystore and is installable on a device/emulator.
 Release minification rules (`proguard-rules.pro`) are present but `assembleRelease` was **not**
@@ -55,7 +56,7 @@ run here (it requires `android/keystore.properties`).
 ## 3. Android unit tests (`:app:testDebugUnitTest`)
 
 Executed 2026-10-18 with `./gradlew :app:testDebugUnitTest`.
-**22 tests · 0 failures · 0 errors · 0 skipped.**
+**28 tests · 0 failures · 0 errors · 0 skipped.**
 
 | Class | Tests | Focus |
 |-------|------:|-------|
@@ -65,6 +66,7 @@ Executed 2026-10-18 with `./gradlew :app:testDebugUnitTest`.
 | `data.remote.SyncApiTest` | 1 | `sync/push` parses `synced` / `conflict` / `failed` results |
 | `data.remote.TokenAuthenticatorTest` | 2 | 401 → single refresh + retry + rotated token persisted; refresh failure → session cleared |
 | `core.util.ImageUrlsTest` | 7 | Origin-relative `/uploads/…` → absolute API-origin URL, absolute/`content://` untouched, blank → null |
+| `core.util.BaseUrlTest` | 6 | Server-override validation: trailing `/` added, whitespace trimmed, host-only accepted, and null/blank/relative/non-`http(s)` values rejected |
 
 These are pure JVM tests (Robolectric/MockWebServer) — no device required.
 

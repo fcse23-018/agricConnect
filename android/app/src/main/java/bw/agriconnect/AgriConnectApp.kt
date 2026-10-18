@@ -3,6 +3,8 @@ package bw.agriconnect
 import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
+import bw.agriconnect.core.config.ServerConfig
+import bw.agriconnect.core.util.ImageUrls
 import bw.agriconnect.data.sync.SyncScheduler
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
@@ -25,6 +27,8 @@ class AgriConnectApp : Application(), Configuration.Provider {
 
     @Inject lateinit var syncScheduler: SyncScheduler
 
+    @Inject lateinit var serverConfig: ServerConfig
+
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
             .setWorkerFactory(workerFactory)
@@ -32,6 +36,10 @@ class AgriConnectApp : Application(), Configuration.Provider {
 
     override fun onCreate() {
         super.onCreate()
+        // Image references are stored origin-relative, so they must resolve against
+        // whatever host the API client ended up on (which a saved server override can
+        // change). Seeding it here keeps images and JSON on the same origin.
+        ImageUrls.origin = serverConfig.origin
         // Establish the periodic catch-up schedule at process start. The immediate
         // "sync now" path is requested by repositories after each local write.
         syncScheduler.schedulePeriodic()

@@ -1,6 +1,7 @@
 package bw.agriconnect.di
 
 import bw.agriconnect.BuildConfig
+import bw.agriconnect.core.config.ServerConfig
 import bw.agriconnect.data.remote.ApiService
 import bw.agriconnect.data.remote.AuthInterceptor
 import bw.agriconnect.data.remote.RedactingLoggingInterceptor
@@ -43,9 +44,13 @@ object NetworkModule {
         isLenient = true
     }
 
+    /**
+     * The versioned API root. [ServerConfig] yields the compile-time URL unless a debug
+     * build has saved an override (Settings → Server).
+     */
     @Provides
     @Singleton
-    fun provideBaseUrl(): HttpUrl = BuildConfig.API_BASE_URL.toHttpUrl()
+    fun provideBaseUrl(serverConfig: ServerConfig): HttpUrl = serverConfig.baseUrl.toHttpUrl()
 
     /**
      * A bare client used only by [TokenAuthenticator] to exchange a refresh token.

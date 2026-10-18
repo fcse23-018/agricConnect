@@ -41,6 +41,7 @@ object Routes {
     const val PRIVACY = "settings/privacy"
     const val OFFLINE_SYNC = "settings/sync"
     const val HELP = "settings/help"
+    const val SERVER = "settings/server"
     const val ACCOUNT_DELETION = "settings/delete-account"
 
     // Navigation argument keys
