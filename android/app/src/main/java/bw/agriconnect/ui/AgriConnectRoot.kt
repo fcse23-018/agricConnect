@@ -152,6 +152,14 @@ fun AgriConnectRoot(
             composable(Routes.FINANCE) {
                 FinanceScreen(onBack = null)
             }
+            composable(Routes.SATELLITE_TAB) {
+                // Show satellite overview - pick first plot if available later
+                // For now show empty/placeholder with scaffold
+                bw.agriconnect.ui.satellite.SatelliteScreen(
+                    plotId = "overview",
+                    onBack = { navController.popBackStack() },
+                )
+            }
             composable(Routes.MARKETPLACE) {
                 MarketplaceScreen(
                     onListingClick = { id -> navController.navigate(Routes.listingDetail(id)) },
@@ -170,6 +178,16 @@ fun AgriConnectRoot(
                 )
             }
             composable(Routes.PROFILE) {
+                ProfileScreen(
+                    onBack = null,
+                    onSettings = { navController.navigate(Routes.SETTINGS) },
+                    onNotifications = { navController.navigate(Routes.NOTIFICATION_PREFS) },
+                    onPrivacy = { navController.navigate(Routes.PRIVACY) },
+                    onDeleteAccount = { navController.navigate(Routes.ACCOUNT_DELETION) },
+                    onLogout = { clearTo(Routes.LOGIN) },
+                )
+            }
+            composable(Routes.MORE) {
                 ProfileScreen(
                     onBack = null,
                     onSettings = { navController.navigate(Routes.SETTINGS) },

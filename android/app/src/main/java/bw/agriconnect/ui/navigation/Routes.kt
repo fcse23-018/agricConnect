@@ -19,10 +19,12 @@ object Routes {
     const val DASHBOARD = "dashboard"
     const val FARMS = "farms"
     const val FINANCE = "finance"
+    const val SATELLITE_TAB = "satellite"
     const val MARKETPLACE = "marketplace"
     const val ORDERS = "orders"
     const val NOTIFICATIONS = "notifications"
     const val PROFILE = "profile"
+    const val MORE = "more"
 
     // Pushed feature destinations
     const val FARM_DETAIL = "farms/{plotId}"

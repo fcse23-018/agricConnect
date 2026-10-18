@@ -4,9 +4,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Agriculture
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.ReceiptLong
+import androidx.compose.material.icons.filled.Satellite
 import androidx.compose.material.icons.filled.Storefront
 import bw.agriconnect.domain.model.UserRole
 import bw.agriconnect.ui.components.AgriNavItem
@@ -26,17 +28,19 @@ import bw.agriconnect.ui.components.AgriNavItem
 object AgriNavItems {
 
     private val home = AgriNavItem(Routes.DASHBOARD, "Home", Icons.Filled.Home)
-    private val farms = AgriNavItem(Routes.FARMS, "Farms", Icons.Filled.Agriculture)
+    private val farms = AgriNavItem(Routes.FARMS, "Farm", Icons.Filled.Agriculture)
     private val finance = AgriNavItem(Routes.FINANCE, "Finance", Icons.Filled.AccountBalanceWallet)
+    private val satellite = AgriNavItem(Routes.SATELLITE_TAB, "Satellite", Icons.Filled.Satellite)
     private val market = AgriNavItem(Routes.MARKETPLACE, "Market", Icons.Filled.Storefront)
     private val orders = AgriNavItem(Routes.ORDERS, "Orders", Icons.Filled.ReceiptLong)
     private val alerts = AgriNavItem(Routes.NOTIFICATIONS, "Alerts", Icons.Filled.Notifications)
     private val profile = AgriNavItem(Routes.PROFILE, "Profile", Icons.Filled.Person)
+    private val more = AgriNavItem(Routes.MORE, "More", Icons.Filled.MoreHoriz)
 
     fun forRole(role: UserRole?): List<AgriNavItem> = when (role) {
-        UserRole.FARMER -> listOf(home, farms, finance, market, profile)
-        UserRole.FARM_EMPLOYEE -> listOf(home, farms, alerts, profile)
-        UserRole.BUYER -> listOf(market, orders, alerts, profile)
+        UserRole.FARMER -> listOf(home, farms, satellite, market, more)
+        UserRole.FARM_EMPLOYEE -> listOf(home, farms, satellite, market, more)
+        UserRole.BUYER -> listOf(market, orders, alerts, more)
         null -> emptyList()
     }
 
