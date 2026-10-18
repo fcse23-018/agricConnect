@@ -81,7 +81,10 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
+      # v3 downloads a command-line-tools package that Google has since retired, so it
+      # fails before any build step runs (upstream fix: v4.0.2, "Fix for removed tools
+      # package"). v4 also moves the action off the deprecated Node 20 runtime.
+      - uses: android-actions/setup-android@v4
 
       # Pin the exact SDK components the build compiles against (compileSdk 35).
       - name: Install Android SDK components
