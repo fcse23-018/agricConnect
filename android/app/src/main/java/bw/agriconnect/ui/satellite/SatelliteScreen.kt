@@ -18,6 +18,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import bw.agriconnect.core.util.DateFormatters
 import bw.agriconnect.ui.chrome.MainScaffold
+import bw.agriconnect.ui.components.AgriPrimaryButton
+import bw.agriconnect.ui.components.EmptyState
 import bw.agriconnect.ui.components.ErrorBanner
 import bw.agriconnect.ui.components.ErrorState
 import bw.agriconnect.ui.components.InfoBanner
@@ -40,6 +42,7 @@ fun SatelliteScreen(
     viewModel: SatelliteViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val canGenerate by viewModel.canGenerate.collectAsStateWithLifecycle()
     val errorMessage = state.error
 
     LaunchedEffect(plotId) { viewModel.load(plotId) }
@@ -72,16 +75,30 @@ fun SatelliteScreen(
                     }
                 }
 
-                state.ndvi == null -> OfflineEmptyState(
-                    message = "No NDVI has been generated for this plot yet. Once the backend processes a satellite pass it will appear here.",
-                    onRetry = { viewModel.load(plotId) },
-                )
+                state.ndvi == null -> {
+                    if (canGenerate) {
+                        EmptyState(
+                            title = "No satellite data yet",
+                            message = "Generate a fresh NDVI result for this plot. If the plot has no saved boundary, you'll need to add one first.",
+                            actionLabel = if (state.isGenerating) "Generating…" else "Generate satellite data",
+                            onAction = { if (!state.isGenerating) viewModel.generate(plotId) },
+                        )
+                    } else {
+                        EmptyState(
+                            title = "No satellite data yet",
+                            message = "Only the farm owner can generate satellite data. The last computed result will appear here if available.",
+                        )
+                    }
+                }
 
                 else -> {
                     val ndvi = state.ndvi ?: return@Column
 
                     if (state.error != null) {
                         ErrorBanner(message = errorMessage.orEmpty(), onRetry = { viewModel.load(plotId) })
+                    }
+                    if (state.infoMessage != null) {
+                        InfoBanner(message = state.infoMessage.orEmpty())
                     }
                     if (ndvi.isCached) {
                         InfoBanner(
@@ -124,6 +141,17 @@ fun SatelliteScreen(
                     }
                     ndvi.failureReason?.let {
                         ErrorBanner(message = it)
+                    }
+
+                    if (canGenerate) {
+                        Spacer(Modifier.height(AgriSpacing.md))
+                        AgriPrimaryButton(
+                            text = if (state.isGenerating) "Generating…" else "Generate satellite data",
+                            onClick = { if (!state.isGenerating) viewModel.generate(plotId) },
+                            enabled = !state.offline && !state.isGenerating,
+                            loading = state.isGenerating,
+                            fillWidth = true,
+                        )
                     }
                 }
             }

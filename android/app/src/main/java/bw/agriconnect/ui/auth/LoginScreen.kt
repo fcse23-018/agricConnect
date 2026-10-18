@@ -24,6 +24,7 @@ import bw.agriconnect.ui.components.AgriPasswordField
 import bw.agriconnect.ui.components.AgriPrimaryButton
 import bw.agriconnect.ui.components.AgriTextField
 import bw.agriconnect.ui.components.AuthScaffold
+import bw.agriconnect.ui.components.BrandLogo
 import bw.agriconnect.ui.theme.AgriColors
 import bw.agriconnect.ui.theme.AgriSpacing
 

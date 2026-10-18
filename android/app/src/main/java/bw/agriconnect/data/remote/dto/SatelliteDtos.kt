@@ -35,7 +35,8 @@ data class NdviDto(
 @Serializable
 data class NdviRequest(
     val plotId: String,
-    val geoJsonBoundary: JsonElement,
+    /** Optional: when omitted the backend uses the plot's stored boundary. */
+    val geoJsonBoundary: JsonElement? = null,
 )
 
 /**

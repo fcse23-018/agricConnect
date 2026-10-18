@@ -79,6 +79,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const { plotName, geoJsonBoundary, clientId } = req.body;
     const boundary = geoJsonBoundary ?? null;
+    const imageUrl = req.body.imageUrl ?? null;
     const areaHectares = req.body.areaHectares ?? (boundary ? estimateAreaHectares(boundary) : null);
     const { lat, lng } = centroidOf(boundary);
 
@@ -92,20 +93,20 @@ router.post(
           const updated = await client.query(
             `UPDATE farm_plots
                 SET plot_name = $1, area_hectares = $2, geojson_boundary = $3,
-                    centroid_lat = $4, centroid_lng = $5, notes = $6, deleted_at = NULL
-              WHERE id = $7 AND farmer_id = $8
+                    centroid_lat = $4, centroid_lng = $5, notes = $6, image_url = $7, deleted_at = NULL
+              WHERE id = $8 AND farmer_id = $9
               RETURNING *`,
-            [plotName, areaHectares, serialiseBoundary(boundary), lat, lng, req.body.notes ?? null, existing.rows[0].id, req.user.id],
+            [plotName, areaHectares, serialiseBoundary(boundary), lat, lng, req.body.notes ?? null, imageUrl, existing.rows[0].id, req.user.id],
           );
           return { row: updated.rows[0], created: false };
         }
       }
 
       const inserted = await client.query(
-        `INSERT INTO farm_plots (farmer_id, client_id, plot_name, area_hectares, geojson_boundary, centroid_lat, centroid_lng, notes)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        `INSERT INTO farm_plots (farmer_id, client_id, plot_name, area_hectares, geojson_boundary, centroid_lat, centroid_lng, notes, image_url)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
          RETURNING *`,
-        [req.user.id, clientId ?? null, plotName, areaHectares, serialiseBoundary(boundary), lat, lng, req.body.notes ?? null],
+        [req.user.id, clientId ?? null, plotName, areaHectares, serialiseBoundary(boundary), lat, lng, req.body.notes ?? null, imageUrl],
       );
       return { row: inserted.rows[0], created: true };
     });
@@ -164,6 +165,10 @@ router.patch(
     if ('notes' in body) {
       params.push(body.notes);
       assignments.push(`notes = $${params.length}`);
+    }
+    if ('imageUrl' in body) {
+      params.push(body.imageUrl);
+      assignments.push(`image_url = $${params.length}`);
     }
 
     params.push(req.params.id);

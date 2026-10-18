@@ -65,7 +65,7 @@ class SatelliteRepository @Inject constructor(
     }
 
     /** Explicitly requests a fresh computation (server-side Earth Engine job). */
-    suspend fun requestComputation(plotId: String, geoJsonBoundary: kotlinx.serialization.json.JsonElement): AppResult<SatelliteNdvi> =
+    suspend fun requestComputation(plotId: String, geoJsonBoundary: kotlinx.serialization.json.JsonElement? = null): AppResult<SatelliteNdvi> =
         runCatchingApi(errorParser::parse) {
             val ndvi = api.computeNdvi(bw.agriconnect.data.remote.dto.NdviRequest(plotId = plotId, geoJsonBoundary = geoJsonBoundary)).toDomain()
             dao.upsertOne(SatelliteNdviEntity.fromDomain(ndvi))

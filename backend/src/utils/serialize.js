@@ -61,6 +61,7 @@ export function toPlot(row) {
     centroidLat: row.centroid_lat ?? null,
     centroidLng: row.centroid_lng ?? null,
     notes: row.notes ?? null,
+    imageUrl: row.image_url ?? null,
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
   };

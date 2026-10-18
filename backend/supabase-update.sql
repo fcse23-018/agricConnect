@@ -155,6 +155,7 @@ CREATE TABLE IF NOT EXISTS farm_plots (
   centroid_lat     double precision,
   centroid_lng     double precision,
   notes            text,
+  image_url        text,                    -- /uploads path of a plot photo
   created_at       timestamptz NOT NULL DEFAULT now(),
   updated_at       timestamptz NOT NULL DEFAULT now(),
   deleted_at       timestamptz
@@ -425,6 +426,11 @@ BEGIN
   RETURN NEW;
 END;
 $fn$ LANGUAGE plpgsql;
+
+-- ---------------------------------------------------------------------------
+-- 4f. plot photos — /uploads path of a farm-plot photo (optional)
+-- ---------------------------------------------------------------------------
+ALTER TABLE farm_plots ADD COLUMN IF NOT EXISTS image_url text;
 
 -- ---------------------------------------------------------------------------
 -- 5. Triggers (CREATE TRIGGER has no IF NOT EXISTS → drop then recreate)

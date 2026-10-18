@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import bw.agriconnect.ui.components.AgriPrimaryButton
 import bw.agriconnect.ui.components.AgriSecondaryButton
 import bw.agriconnect.ui.components.AuthScaffold
+import bw.agriconnect.ui.components.BrandLogo
 import bw.agriconnect.ui.components.AuthScaffold
 import bw.agriconnect.ui.theme.AgriSpacing
 

@@ -1,8 +1,4 @@
 import { Router } from 'express';
-import fs from 'node:fs';
-import path from 'node:path';
-import { randomUUID } from 'node:crypto';
-import multer from 'multer';
 
 import { config } from '../../config/index.js';
 import { one, many, withTransaction } from '../../db/index.js';
@@ -10,9 +6,9 @@ import { asyncHandler } from '../../utils/asyncHandler.js';
 import { validate } from '../../middleware/errorHandler.js';
 import { authenticate } from '../../middleware/auth.js';
 import { authorizeRoles, ROLES } from '../../middleware/roles.js';
+import { singleImage, publicUrl } from '../../services/uploads.js';
 import {
   AppError,
-  ErrorCode,
   badRequest,
   unauthorized,
   invalidCredentials,
@@ -198,68 +194,21 @@ router.put(
 );
 
 // --- Avatar upload ---------------------------------------------------------
+//
+// Reuses the shared image pipeline in services/uploads.js (jpeg/png/webp, size
+// cap, UUID filename) — only the multipart field name and stored prefix are
+// avatar-specific. The stored path is what lands in users.avatar_url.
 
-const AVATAR_MIME_EXT = Object.freeze({
-  'image/jpeg': '.jpg',
-  'image/png': '.png',
-  'image/webp': '.webp',
-});
-const AVATAR_MIME_TYPES = new Set(Object.keys(AVATAR_MIME_EXT));
-const uploadsDir = path.resolve(config.uploads.dir);
-
-// Best-effort at startup; also ensured per request so a missing directory (or a
-// read-only mount that appears later) never prevents the app from booting.
-try {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-} catch {
-  /* surfaced when an upload is attempted */
-}
-
-const avatarUpload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => {
-      try {
-        fs.mkdirSync(uploadsDir, { recursive: true });
-        cb(null, uploadsDir);
-      } catch (err) {
-        cb(err);
-      }
-    },
-    filename: (_req, file, cb) => cb(null, `avatar-${randomUUID()}${AVATAR_MIME_EXT[file.mimetype] || ''}`),
-  }),
-  limits: { fileSize: config.uploads.maxBytes },
-  fileFilter: (_req, file, cb) => {
-    if (!AVATAR_MIME_TYPES.has(file.mimetype)) {
-      return cb(new AppError(ErrorCode.UNSUPPORTED_MEDIA, 'Only JPEG, PNG or WebP images are allowed.'));
-    }
-    cb(null, true);
-  },
-});
-
-/** Adapt multer's callback API to Express, translating its errors to safe ones. */
-function singleAvatar(req, res, next) {
-  avatarUpload.single('avatar')(req, res, (err) => {
-    if (!err) return next();
-    if (err instanceof multer.MulterError) {
-      if (err.code === 'LIMIT_FILE_SIZE') {
-        const mb = Math.floor(config.uploads.maxBytes / (1024 * 1024));
-        return next(badRequest(`Image must be ${mb} MB or smaller.`));
-      }
-      return next(badRequest('The image could not be uploaded.'));
-    }
-    return next(err);
-  });
-}
+const singleAvatar = singleImage('avatar', 'avatar-');
 
 router.post(
   '/me/avatar',
   singleAvatar,
   asyncHandler(async (req, res) => {
     if (!req.file) throw badRequest('An avatar image is required (field name "avatar").');
-    const avatarUrl = `/uploads/${req.file.filename}`;
     const updated = await one(
       `UPDATE users SET avatar_url = $2 WHERE id = $1 RETURNING *`,
-      [req.user.id, avatarUrl],
+      [req.user.id, publicUrl(req.file)],
     );
     await audit(req, 'AVATAR_UPDATED', { entityType: 'user', entityId: req.user.id });
     res.json({ user: serializeUser(updated) });

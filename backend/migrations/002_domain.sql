@@ -17,6 +17,7 @@ CREATE TABLE farm_plots (
   centroid_lat     double precision,
   centroid_lng     double precision,
   notes            text,
+  image_url        text,                    -- /uploads path of a plot photo
   created_at       timestamptz NOT NULL DEFAULT now(),
   updated_at       timestamptz NOT NULL DEFAULT now(),
   deleted_at       timestamptz
