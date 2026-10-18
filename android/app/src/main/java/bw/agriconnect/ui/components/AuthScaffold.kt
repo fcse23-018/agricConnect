@@ -60,9 +60,9 @@ fun AuthScaffold(
                 .matchParentSize()
                 .background(
                     Brush.verticalGradient(
-                        0.0f to AgriColors.DeepGreen.copy(alpha = 0.86f),
-                        0.45f to AgriColors.ForestGreen.copy(alpha = 0.58f),
-                        1.0f to AgriColors.DeepGreen.copy(alpha = 0.90f),
+                        0.0f to AgriColors.DeepGreen.copy(alpha = 0.60f),
+                        0.45f to AgriColors.ForestGreen.copy(alpha = 0.40f),
+                        1.0f to AgriColors.DeepGreen.copy(alpha = 0.70f),
                     ),
                 ),
         )

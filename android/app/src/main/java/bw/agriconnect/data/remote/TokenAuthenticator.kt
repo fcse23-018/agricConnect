@@ -65,26 +65,39 @@ class TokenAuthenticator(
 
             val refreshToken = tokenStore.refreshToken() ?: return null
 
-            val refreshed = refreshBlocking(refreshToken)
-            if (refreshed == null) {
-                // The refresh token is expired/revoked. Drop everything; the caller
-                // keeps its 401 and the UI signs the user out.
-                tokenStore.clear()
-                return null
+            val refreshResult = refreshBlocking(refreshToken)
+            when (refreshResult) {
+                is RefreshResult.NetworkError -> {
+                    // Cannot reach server while offline. Keep tokens/session intact;
+                    // let the original request fail due to connectivity so UI shows offline state.
+                    return null
+                }
+                is RefreshResult.Invalid -> {
+                    // The refresh token is expired/revoked. Drop everything; the caller
+                    // keeps its 401 and the UI signs the user out.
+                    tokenStore.clear()
+                    return null
+                }
+                is RefreshResult.Success -> {
+                    // `save` is suspending for the encrypted store's I/O; authenticator
+                    // callbacks are blocking by contract, so bridge with runBlocking here.
+                    runBlocking { tokenStore.save(refreshResult.tokens) }
+                    return response.request.newBuilder()
+                        .header(AuthInterceptor.HEADER_AUTHORIZATION, "Bearer ${refreshResult.tokens.accessToken}")
+                        .build()
+                }
             }
-
-            // `save` is suspending for the encrypted store's I/O; authenticator
-            // callbacks are blocking by contract, so bridge with runBlocking here.
-            runBlocking { tokenStore.save(refreshed) }
-
-            return response.request.newBuilder()
-                .header(AuthInterceptor.HEADER_AUTHORIZATION, "Bearer ${refreshed.accessToken}")
-                .build()
         }
     }
 
-    /** Blocking refresh; returns null on any failure (network, non-2xx, bad body). */
-    private fun refreshBlocking(refreshToken: String): AuthTokens? {
+    private sealed class RefreshResult {
+        data class Success(val tokens: AuthTokens) : RefreshResult()
+        data object Invalid : RefreshResult()
+        data object NetworkError : RefreshResult()
+    }
+
+    /** Blocking refresh; returns success only when refresh is valid. */
+    private fun refreshBlocking(refreshToken: String): RefreshResult {
         val url = baseUrl.newBuilder().addPathSegments("auth/refresh").build()
         val payload = json.encodeToString(RefreshRequest.serializer(), RefreshRequest(refreshToken))
         val request = Request.Builder()
@@ -94,15 +107,23 @@ class TokenAuthenticator(
 
         return try {
             refreshClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return null
-                val body = response.body?.string() ?: return null
-                json.decodeFromString(TokenPairResponse.serializer(), body).toAuthTokens()
+                if (!response.isSuccessful) {
+                    // Treat 401/403/others from refresh as invalid (token revoked/expired)
+                    return RefreshResult.Invalid
+                }
+                val body = response.body?.string() ?: return RefreshResult.Invalid
+                try {
+                    RefreshResult.Success(json.decodeFromString(TokenPairResponse.serializer(), body).toAuthTokens())
+                } catch (_: Exception) {
+                    RefreshResult.Invalid
+                }
             }
         } catch (_: IOException) {
-            null
+            // Network connectivity issue - do not clear session
+            RefreshResult.NetworkError
         } catch (_: IllegalArgumentException) {
             // Malformed base URL — treat as an unrecoverable refresh failure.
-            null
+            RefreshResult.Invalid
         }
     }
 
