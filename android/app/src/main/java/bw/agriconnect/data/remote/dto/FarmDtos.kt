@@ -28,6 +28,8 @@ data class FarmPlotDto(
     val centroidLat: Double? = null,
     val centroidLng: Double? = null,
     val notes: String? = null,
+    /** Origin-relative path of the plot photo, set after an upload. */
+    val imageUrl: String? = null,
     val createdAt: String,
     val updatedAt: String,
     val clientId: String? = null,
@@ -38,6 +40,7 @@ data class CreateFarmPlotRequest(
     val plotName: String,
     val areaHectares: Double? = null,
     val geoJsonBoundary: JsonElement? = null,
+    val imageUrl: String? = null,
     val clientId: String? = null,
     val notes: String? = null,
 )
@@ -52,6 +55,7 @@ data class UpdateFarmPlotRequest(
     val plotName: String? = null,
     val areaHectares: Double? = null,
     val geoJsonBoundary: JsonElement? = null,
+    val imageUrl: String? = null,
     val notes: String? = null,
 )
 

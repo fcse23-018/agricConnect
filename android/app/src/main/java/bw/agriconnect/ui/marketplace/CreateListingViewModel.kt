@@ -3,7 +3,9 @@ package bw.agriconnect.ui.marketplace
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import bw.agriconnect.core.result.AppResult
+import bw.agriconnect.core.util.ImageFiles
 import bw.agriconnect.data.repository.MarketplaceRepository
+import bw.agriconnect.data.repository.MediaRepository
 import bw.agriconnect.data.repository.AuthRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,13 +22,21 @@ data class CreateListingUiState(
     val unit: String = "kg",
     val price: String = "",
     val locationText: String = "",
+    /** Device-local URI of a picked-but-not-yet-uploaded photo, for the preview. */
+    val imagePreview: String? = null,
+    /** The picked bytes staged for upload; null when no photo was chosen. */
+    val pendingImage: ImageFiles.Picked? = null,
+    val isUploading: Boolean = false,
     val error: String? = null,
     val isSaving: Boolean = false,
-)
+) {
+    val isBusy: Boolean get() = isSaving || isUploading
+}
 
 @HiltViewModel
 class CreateListingViewModel @Inject constructor(
     private val repo: MarketplaceRepository,
+    private val media: MediaRepository,
     private val auth: bw.agriconnect.data.repository.AuthRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(CreateListingUiState())
@@ -39,6 +49,16 @@ class CreateListingViewModel @Inject constructor(
     fun onPriceChange(v: String) = _state.update { it.copy(price = v) }
     fun onLocationChange(v: String) = _state.update { it.copy(locationText = v) }
 
+    /** Stages a picked photo; the upload itself happens on save so a cancel costs nothing. */
+    fun onImagePicked(preview: String, picked: ImageFiles.Picked) =
+        _state.update { it.copy(imagePreview = preview, pendingImage = picked, error = null) }
+
+    fun onImageCleared() =
+        _state.update { it.copy(imagePreview = null, pendingImage = null) }
+
+    /** Surfaces a pick/read failure (e.g. unsupported type or an unreadable URI). */
+    fun onImageError(message: String) = _state.update { it.copy(error = message) }
+
     fun save(onSaved: (String) -> Unit) {
         val s = _state.value
         val q = s.quantity.toDoubleOrNull()
@@ -48,12 +68,31 @@ class CreateListingViewModel @Inject constructor(
         }
         viewModelScope.launch {
             _state.update { it.copy(isSaving = true, error = null) }
+
+            // Upload the photo first (when one was picked) so the listing is created with
+            // its final image URL in a single write. A failed upload aborts the save
+            // rather than publishing a listing the user believes has a photo.
+            val imageUrl = s.pendingImage?.let { picked ->
+                _state.update { it.copy(isUploading = true) }
+                when (val up = media.uploadImage(picked.bytes, picked.mimeType, picked.fileName)) {
+                    is AppResult.Success -> up.data
+                    is AppResult.Failure -> {
+                        _state.update {
+                            it.copy(isSaving = false, isUploading = false, error = up.error.message)
+                        }
+                        return@launch
+                    }
+                }
+            }
+            _state.update { it.copy(isUploading = false) }
+
             val req = bw.agriconnect.data.remote.dto.CreateListingRequest(
                 produce = s.produce.trim(),
                 description = s.description.trim().ifBlank { null },
                 quantity = q,
                 unit = s.unit,
                 price = p,
+                imageUrl = imageUrl,
                 locationText = s.locationText.trim().ifBlank { null },
             )
             when (val r = repo.createListing(req)) {

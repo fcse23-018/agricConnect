@@ -143,6 +143,7 @@ fun FarmPlotDto.toDomain(): FarmPlot = FarmPlot(
     centroidLat = centroidLat,
     centroidLng = centroidLng,
     notes = notes,
+    imageUrl = imageUrl,
     createdAt = createdAt,
     updatedAt = updatedAt,
     clientId = clientId,
@@ -152,6 +153,7 @@ fun FarmPlot.toCreateRequest(): CreateFarmPlotRequest = CreateFarmPlotRequest(
     plotName = plotName,
     areaHectares = areaHectares,
     geoJsonBoundary = geoJsonBoundary.asGeoJsonElement(),
+    imageUrl = imageUrl,
     clientId = clientId,
     notes = notes,
 )

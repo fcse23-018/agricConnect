@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Keep the brand imagery through the release resource shrinker.
+
+  These drawables are referenced only from Kotlin (`R.drawable.*`), and the
+  backdrop is the app's welcome/auth artwork — if it is ever stripped, the
+  screens silently fall back to a flat colour. `tools:keep` pins them.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/auth_background,@drawable/agri_logo_large,@drawable/agri_logo_mark" />

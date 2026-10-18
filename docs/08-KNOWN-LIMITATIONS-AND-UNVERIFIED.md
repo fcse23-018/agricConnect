@@ -8,15 +8,20 @@ feature could not be executed, it is listed here as **unverified** rather than r
 ## 1. Verification status (read this first)
 
 The build machine started with **no toolchains installed** (no Java, Gradle, Android SDK, Node,
-PostgreSQL). A portable, admin-free toolchain was installed during the build. Consequences:
+PostgreSQL). A portable, admin-free toolchain was installed during the build. As of
+**2026-10-18** the backend (`node`), Android (`JDK 17` + SDK 35) and crop-API (`Python 3.12`)
+suites have all been executed on this machine — see `05-TEST-REPORT.md`. Only device/emulator
+and provider-dependent items remain unexecuted.
 
 | Area | Status |
 |------|--------|
-| Backend code compiles / runs | Depends on the toolchain install completing; see `05-TEST-REPORT.md` |
-| Android app compiles | Same — requires JDK 17 + Android SDK 35 |
-| Backend tests executed | See `05-TEST-REPORT.md` (nothing claimed as passing unless it ran) |
-| Android unit tests executed | See `05-TEST-REPORT.md` |
+| Backend code compiles / runs | ✅ Executed — see `05-TEST-REPORT.md` |
+| Android app compiles | ✅ Executed (`:app:assembleDebug`, 23.6 MB APK) |
+| Backend tests executed | ✅ 81/81 — see `05-TEST-REPORT.md` |
+| Crop-API tests executed | ✅ 34/34 (`pytest`, mock GEE) |
+| Android unit tests executed | ✅ 22/22 — see `05-TEST-REPORT.md` |
 | Instrumented (device) tests executed | **Not executed** — requires an emulator/device |
+| Image upload/display on a device | **Not verified** — unit/wire-tested only, never run on a device |
 | Real SMS/email delivery | **Not possible** — no provider configured |
 | Real Sentinel-2 NDVI | **Not possible** — no Earth Engine account; mock mode is clearly labelled |
 
@@ -61,7 +66,8 @@ PostgreSQL). A portable, admin-free toolchain was installed during the build. Co
 |---|------|------|
 | T1 | Scheduled deletion processing | `processDueDeletions()` exists but must be scheduled (cron/queue) in production. |
 | T2 | Email verification enforcement | Codes are issued; the account is usable before verification. Decide whether to gate features. |
-| T3 | Listing image upload | The API supports `imageUrl`; a full device upload pipeline for listings is not built (avatar upload is). |
+| T3 | ~~Listing image upload~~ | **Done 2026-10-18**: listings, farm plots and avatars now upload through `POST /uploads` and render via Coil (`MediaRepository`, `AgriRemoteImage`). Device smoke test still outstanding. |
+| T3b | Wire the crop-API into the app | `crop-api/` is a standalone service; the app still reads satellite data through the Express `/satellite` mock. Aligning the app with the new service is future work. |
 | T4 | Offline map tiles | OSMDroid can cache tiles; explicit pre-download of a Botswana region is not implemented. |
 | T5 | Conflict UI | Conflicts surface as a `CONFLICT` badge with a review affordance; a full merge screen is minimal. |
 | T6 | Rate-limit storage | In-memory rate limiting is per-instance; a multi-instance deployment needs a shared store (Redis). |

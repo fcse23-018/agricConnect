@@ -1,0 +1,14 @@
+# AgriConnect crop-monitoring service (FastAPI).
+#
+# Runtime dependencies. The Earth Engine client is optional: the service runs
+# with GEE_ENABLED=false using a deterministic synthetic series, which is what
+# the unit tests and the local prototype use.
+
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+
+# Google Earth Engine. Only needed when GEE_ENABLED=true; install it in the
+# environment that holds the service-account / OAuth credentials.
+# earthengine-api==1.5.4
+# geeagri==0.1.6

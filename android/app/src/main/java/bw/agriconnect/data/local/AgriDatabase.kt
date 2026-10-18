@@ -49,7 +49,7 @@ import bw.agriconnect.data.local.entity.SyncQueueEntity
         NotificationEntity::class,
         SyncQueueEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)

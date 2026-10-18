@@ -1,11 +1,14 @@
 package bw.agriconnect.ui.profile
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -20,15 +23,21 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import bw.agriconnect.core.util.ImageFiles
 import bw.agriconnect.ui.chrome.MainScaffold
 import bw.agriconnect.ui.components.AgriCard
 import bw.agriconnect.ui.components.AgriPrimaryButton
+import bw.agriconnect.ui.components.AgriRemoteImage
 import bw.agriconnect.ui.components.AgriSecondaryButton
 import bw.agriconnect.ui.components.AgriTextField
 import bw.agriconnect.ui.components.ErrorBanner
@@ -36,6 +45,7 @@ import bw.agriconnect.ui.components.InfoBanner
 import bw.agriconnect.ui.components.RoleBadge
 import bw.agriconnect.ui.theme.AgriColors
 import bw.agriconnect.ui.theme.AgriSpacing
+import kotlinx.coroutines.launch
 
 /**
  * Profile hub for the signed-in user: identity, editable contact details, password
@@ -54,6 +64,17 @@ fun ProfileScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val pickAvatar = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            ImageFiles.read(context, uri)
+                .onSuccess(viewModel::uploadAvatar)
+                .onFailure { viewModel.onAvatarError(it.message ?: "Could not read the selected image.") }
+        }
+    }
+
     MainScaffold(title = "Profile", onBack = onBack) { padding ->
         Column(
             modifier = Modifier
@@ -64,16 +85,27 @@ fun ProfileScreen(
             verticalArrangement = Arrangement.spacedBy(AgriSpacing.md),
         ) {
             AgriCard {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    BoxAvatar(state.stateLocalInitials())
-                    Spacer(Modifier.size(AgriSpacing.md))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            text = state.fullName.ifBlank { state.session?.fullName.orEmpty() },
-                            style = MaterialTheme.typography.titleLarge,
+                Column(verticalArrangement = Arrangement.spacedBy(AgriSpacing.md)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        ProfileAvatar(
+                            imageUrl = state.avatarUrl,
+                            initials = state.stateLocalInitials(),
                         )
-                        state.session?.let { RoleBadge(role = it.role) }
+                        Spacer(Modifier.size(AgriSpacing.md))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = state.fullName.ifBlank { state.session?.fullName.orEmpty() },
+                                style = MaterialTheme.typography.titleLarge,
+                            )
+                            state.session?.let { RoleBadge(role = it.role) }
+                        }
                     }
+                    AgriSecondaryButton(
+                        text = if (state.avatarUrl == null) "Add profile photo" else "Change profile photo",
+                        onClick = { pickAvatar.launch("image/*") },
+                        enabled = !state.isUploadingAvatar,
+                        loading = state.isUploadingAvatar,
+                    )
                 }
             }
 
@@ -157,14 +189,24 @@ fun ProfileScreen(
 }
 
 @Composable
-private fun BoxAvatar(initials: String) {
+private fun ProfileAvatar(imageUrl: String?, initials: String) {
     Box(
         modifier = Modifier
             .size(56.dp)
-            .background(AgriColors.ForestGreen, CircleShape),
+            .clip(CircleShape)
+            .background(AgriColors.ForestGreen),
         contentAlignment = Alignment.Center,
     ) {
-        Text(initials, color = Color.White, style = MaterialTheme.typography.titleMedium)
+        if (imageUrl.isNullOrBlank()) {
+            Text(initials, color = Color.White, style = MaterialTheme.typography.titleMedium)
+        } else {
+            AgriRemoteImage(
+                url = imageUrl,
+                contentDescription = "Profile photo",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+        }
     }
 }
 

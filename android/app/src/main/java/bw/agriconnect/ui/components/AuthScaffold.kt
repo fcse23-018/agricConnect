@@ -30,11 +30,14 @@ import bw.agriconnect.ui.theme.AgriSpacing
  * The shared backdrop for the account *setup* journey (welcome, sign-in, register,
  * password reset).
  *
- * It paints a full-screen agricultural photograph behind a dark-green gradient
+ * It paints a full-screen agricultural photograph behind a soft dark-green gradient
  * scrim, then centres its [content] in a readable card. The scrim is not decoration:
- * without it, form labels over a busy photograph fail contrast (docs/01 design
- * system), so the gradient is tuned dark enough for the card and any text to sit on
- * top legibly in both light and dark themes.
+ * without it, text over a busy photograph can fail contrast (docs/01 design system).
+ * It is kept deliberately translucent so the photograph reads clearly *and* the
+ * card/hero text stays legible — the card itself is an opaque surface.
+ *
+ * A solid brand colour sits behind the photograph, so the screen is never blank
+ * while the image decodes (or if the image is ever missing from the build).
  *
  * The photograph fills behind the status/navigation bars (edge-to-edge); the content
  * respects the system insets via [safeDrawingPadding].
@@ -48,7 +51,7 @@ fun AuthScaffold(
     card: Boolean = true,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Box(modifier.fillMaxSize()) {
+    Box(modifier.fillMaxSize().background(AgriColors.DeepGreen)) {
         Image(
             painter = painterResource(id = R.drawable.auth_background),
             contentDescription = null,
@@ -60,9 +63,9 @@ fun AuthScaffold(
                 .matchParentSize()
                 .background(
                     Brush.verticalGradient(
-                        0.0f to AgriColors.DeepGreen.copy(alpha = 0.60f),
-                        0.45f to AgriColors.ForestGreen.copy(alpha = 0.40f),
-                        1.0f to AgriColors.DeepGreen.copy(alpha = 0.70f),
+                        0.0f to AgriColors.DeepGreen.copy(alpha = 0.42f),
+                        0.45f to AgriColors.ForestGreen.copy(alpha = 0.18f),
+                        1.0f to AgriColors.DeepGreen.copy(alpha = 0.55f),
                     ),
                 ),
         )

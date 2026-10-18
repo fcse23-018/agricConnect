@@ -1,0 +1,19 @@
+# AgriConnect crop-monitoring service — local / single-host deployment.
+#
+#   docker compose up --build      ->  http://localhost:8000/docs
+#
+# Runs in synthetic mode by default so it works with no Google credentials.
+# Set GEE_ENABLED=true and provide Earth Engine credentials for live data.
+services:
+  crop-api:
+    build: .
+    restart: unless-stopped
+    environment:
+      GEE_ENABLED: "false"
+      GEE_PROJECT: agriconnect-crop-monitoring
+      CACHE_TTL_SECONDS: "21600"
+      # Set a long random value before exposing this port beyond localhost.
+      CROP_API_KEY: ""
+      CORS_ORIGINS: "*"
+    ports:
+      - "8000:8000"

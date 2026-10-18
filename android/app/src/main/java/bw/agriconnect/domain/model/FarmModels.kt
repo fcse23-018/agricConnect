@@ -15,6 +15,8 @@ data class FarmPlot(
     val centroidLat: Double? = null,
     val centroidLng: Double? = null,
     val notes: String? = null,
+    /** Origin-relative path of the plot photo (`/uploads/…`), or null. */
+    val imageUrl: String? = null,
     val createdAt: String,
     val updatedAt: String,
     val syncStatus: SyncStatus = SyncStatus.SYNCED,

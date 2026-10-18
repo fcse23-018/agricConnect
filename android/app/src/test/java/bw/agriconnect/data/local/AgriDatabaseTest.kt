@@ -60,6 +60,7 @@ class AgriDatabaseTest {
             areaHectares = 2.5,
             geoJsonBoundary = """{"type":"Polygon","coordinates":[]}""",
             notes = "irrigated",
+            imageUrl = "/uploads/north-field.jpg",
             createdAt = "2026-01-01T08:00:00Z",
             updatedAt = "2026-01-02T09:30:00Z",
             syncStatus = SyncStatus.PENDING,
@@ -73,6 +74,7 @@ class AgriDatabaseTest {
         // The enum must survive as its name, not its ordinal.
         assertThat(loaded.syncStatus).isEqualTo(SyncStatus.PENDING)
         assertThat(loaded.clientId).isEqualTo("client-abc")
+        assertThat(loaded.imageUrl).isEqualTo("/uploads/north-field.jpg")
     }
 
     @Test

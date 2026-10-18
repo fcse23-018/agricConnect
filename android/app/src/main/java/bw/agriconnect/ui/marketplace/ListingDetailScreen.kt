@@ -5,8 +5,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
@@ -20,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -30,12 +33,14 @@ import bw.agriconnect.domain.model.ListingStatus
 import bw.agriconnect.ui.chrome.MainScaffold
 import bw.agriconnect.ui.components.AgriCard
 import bw.agriconnect.ui.components.AgriPrimaryButton
+import bw.agriconnect.ui.components.AgriRemoteImage
 import bw.agriconnect.ui.components.AgriSecondaryButton
 import bw.agriconnect.ui.components.AgriTextField
 import bw.agriconnect.ui.components.ErrorBanner
 import bw.agriconnect.ui.components.InfoBanner
 import bw.agriconnect.ui.components.LoadingState
 import bw.agriconnect.ui.components.SyncStatusBadge
+import bw.agriconnect.ui.theme.AgriRadius
 
 /**
  * Listing detail. Two roles share one screen:
@@ -123,6 +128,17 @@ private fun ListingDetailContent(
         }
         state.message?.let { message ->
             InfoBanner(message = message)
+        }
+
+        listing.imageUrl?.takeIf { it.isNotBlank() }?.let { image ->
+            AgriRemoteImage(
+                url = image,
+                contentDescription = listing.produce,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(200.dp)
+                    .clip(RoundedCornerShape(AgriRadius.lg)),
+            )
         }
 
         AgriCard {

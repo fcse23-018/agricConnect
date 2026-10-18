@@ -32,6 +32,10 @@ agriConnect/
 │  ├─ migrations/               PostgreSQL schema (ordered, transactional)
 │  ├─ tests/                    Unit + API integration tests
 │  └─ openapi.yaml              Machine-readable API contract
+├─ crop-api/                    Standalone FastAPI crop-monitoring service
+│  ├─ app/                      Routes, schemas, geometry, GEE adapter, cache
+│  ├─ tests/                    pytest suite (mock GEE)
+│  └─ Dockerfile                Container image + compose file
 └─ docs/                        All written deliverables (see below)
 ```
 
@@ -60,6 +64,8 @@ agriConnect/
 | 17 | Role-based access control (3 layers) | [`backend/src/middleware/roles.js`](backend/src/middleware/roles.js) · [traceability](docs/04-TRACEABILITY-MATRIX.md) |
 | 18 | Satellite NDVI pipeline | [`backend/src/services/gee.js`](backend/src/services/gee.js) · [`ndvi.js`](backend/src/services/ndvi.js) |
 | 19 | Account lifecycle (register→delete) | [`backend/src/modules/auth`](backend/src/modules/auth) · [`account`](backend/src/modules/account) |
+| 20 | Crop-monitoring API (Earth Engine · Sentinel-2) | [`crop-api/`](crop-api) · [`docs/10-CROP-MONITORING-API.md`](docs/10-CROP-MONITORING-API.md) |
+| 21 | Image upload & display (listings, plots, avatars) | [`MediaRepository`](android/app/src/main/java/bw/agriconnect/data/repository/MediaRepository.kt) · [`AgriRemoteImage`](android/app/src/main/java/bw/agriconnect/ui/components/AgriRemoteImage.kt) · [`backend/.../uploads`](backend/src/modules/uploads) |
 
 ---
 

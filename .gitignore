@@ -26,6 +26,15 @@ backend/.env
 uploads/
 backend/uploads/
 
+# ---- Python / crop-api ----
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+# Runtime output of the standalone plot tool.
+plot_preview.html
+plot_readings.csv
+
 # ---- Android / Gradle ----
 .gradle/
 build/

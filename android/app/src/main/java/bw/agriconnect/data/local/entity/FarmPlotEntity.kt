@@ -45,6 +45,8 @@ data class FarmPlotEntity(
     val centroidLng: Double? = null,
     @ColumnInfo(name = "notes")
     val notes: String? = null,
+    @ColumnInfo(name = "image_url")
+    val imageUrl: String? = null,
     @ColumnInfo(name = "created_at")
     val createdAt: String,
     @ColumnInfo(name = "updated_at")
@@ -66,6 +68,7 @@ data class FarmPlotEntity(
         centroidLat = centroidLat,
         centroidLng = centroidLng,
         notes = notes,
+        imageUrl = imageUrl,
         createdAt = createdAt,
         updatedAt = updatedAt,
         syncStatus = syncStatus,
@@ -84,6 +87,7 @@ data class FarmPlotEntity(
                 centroidLat = domain.centroidLat,
                 centroidLng = domain.centroidLng,
                 notes = domain.notes,
+                imageUrl = domain.imageUrl,
                 createdAt = domain.createdAt,
                 updatedAt = domain.updatedAt,
                 syncStatus = domain.syncStatus,

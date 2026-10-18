@@ -54,6 +54,7 @@ import bw.agriconnect.data.remote.dto.UpdateLivestockRequest
 import bw.agriconnect.data.remote.dto.UpdateProfileRequest
 import bw.agriconnect.data.remote.dto.UpdateSaleRequest
 import bw.agriconnect.data.remote.dto.UpdatedCountResponse
+import bw.agriconnect.data.remote.dto.UploadResponse
 import bw.agriconnect.data.remote.dto.VerifyCodeRequest
 import bw.agriconnect.data.remote.dto.EmployerLinkRequest
 import kotlinx.serialization.json.JsonObject
@@ -150,6 +151,16 @@ interface ApiService {
 
     @GET("users/me/export")
     suspend fun export(): JsonObject
+
+    /**
+     * Generic image upload (≤ 2 MB, jpeg/png/webp): stores one image and returns its
+     * origin-relative URL path under `{ url }`. The caller attaches the returned path to
+     * the listing/plot it is editing. Distinct from [uploadAvatar], which attaches the
+     * image to the caller's own profile in the same request.
+     */
+    @Multipart
+    @POST("uploads")
+    suspend fun uploadImage(@Part image: MultipartBody.Part): UploadResponse
 
     /** Link a FARM_EMPLOYEE to their employing farmer (migration 005). */
     @POST("users/me/employer-link")

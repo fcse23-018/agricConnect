@@ -84,6 +84,8 @@ const farmPlotPayload = z.object({
   centroidLat: z.coerce.number().min(-90).max(90).nullish(),
   centroidLng: z.coerce.number().min(-180).max(180).nullish(),
   notes: z.string().max(4000).nullish(),
+  // Origin-relative upload path ("/uploads/<uuid>.<ext>"); see services/uploads.js.
+  imageUrl: z.string().trim().max(500).nullish(),
 });
 
 const harvestPayload = z.object({
@@ -150,8 +152,8 @@ const FarmPlot = {
   validate: (payload) => farmPlotPayload.parse(payload),
   buildInsert: ({ payload, ownerFarmerId, clientId }) => ({
     sql: `INSERT INTO farm_plots
-            (farmer_id, client_id, plot_name, area_hectares, geojson_boundary, centroid_lat, centroid_lng, notes)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+            (farmer_id, client_id, plot_name, area_hectares, geojson_boundary, centroid_lat, centroid_lng, notes, image_url)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
           RETURNING *`,
     params: [
       ownerFarmerId,
@@ -162,13 +164,14 @@ const FarmPlot = {
       payload.centroidLat ?? null,
       payload.centroidLng ?? null,
       payload.notes ?? null,
+      payload.imageUrl ?? null,
     ],
   }),
   buildUpdate: ({ payload, existingId }) => ({
     sql: `UPDATE farm_plots
              SET plot_name = $1, area_hectares = $2, geojson_boundary = $3,
-                 centroid_lat = $4, centroid_lng = $5, notes = $6, deleted_at = NULL
-           WHERE id = $7
+                 centroid_lat = $4, centroid_lng = $5, notes = $6, image_url = $7, deleted_at = NULL
+           WHERE id = $8
            RETURNING *`,
     params: [
       payload.plotName,
@@ -177,6 +180,7 @@ const FarmPlot = {
       payload.centroidLat ?? null,
       payload.centroidLng ?? null,
       payload.notes ?? null,
+      payload.imageUrl ?? null,
       existingId,
     ],
   }),

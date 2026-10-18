@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -36,7 +37,11 @@ fun BrandLogo(
     modifier: Modifier = Modifier,
     markSize: Dp = 40.dp,
     showWordmark: Boolean = true,
+    darkContent: Boolean = false,
 ) {
+    val titleColor = if (darkContent) Color.White else MaterialTheme.colorScheme.onBackground
+    val subtitleColor =
+        if (darkContent) Color.White.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurfaceVariant
     Row(
         modifier = modifier.semantics { contentDescription = "AgriConnect" },
         verticalAlignment = Alignment.CenterVertically,
@@ -61,13 +66,13 @@ fun BrandLogo(
                     text = "AgriConnect",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground,
+                    color = titleColor,
                     letterSpacing = (-0.3).sp,
                 )
                 Text(
                     text = "Farm · Market · Satellite",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = subtitleColor,
                 )
             }
         }

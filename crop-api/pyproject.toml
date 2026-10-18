@@ -1,0 +1,9 @@
+[project]
+name = "agriconnect-crop-api"
+version = "0.2.0"
+description = "AgriConnect crop-monitoring REST API: Sentinel-2 NDVI/EVI via Google Earth Engine."
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

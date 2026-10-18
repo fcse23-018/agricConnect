@@ -12,6 +12,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
@@ -26,11 +27,21 @@ import bw.agriconnect.ui.theme.AgriSpacing
 @Composable
 fun WelcomeScreen(onGetStarted: () -> Unit, onSignIn: () -> Unit) {
     AuthScaffold(card = false) {
-        BrandLogo(markSize = 80.dp)
+        BrandLogo(markSize = 80.dp, darkContent = true)
         Spacer(Modifier.height(AgriSpacing.xxl))
-        Text("Welcome to AgriConnect", style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center)
+        Text(
+            text = "Welcome to AgriConnect",
+            style = MaterialTheme.typography.headlineMedium,
+            color = Color.White,
+            textAlign = TextAlign.Center,
+        )
         Spacer(Modifier.height(AgriSpacing.sm))
-        Text("Smart, offline-first farm management, satellite crop insights and produce marketplace for farmers, employees and buyers in Botswana.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+        Text(
+            text = "Smart, offline-first farm management, satellite crop insights and produce marketplace for farmers, employees and buyers in Botswana.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White.copy(alpha = 0.92f),
+            textAlign = TextAlign.Center,
+        )
         Spacer(Modifier.height(AgriSpacing.xxl))
         AgriPrimaryButton(text = "Get started", onClick = onGetStarted)
         Spacer(Modifier.height(AgriSpacing.md))

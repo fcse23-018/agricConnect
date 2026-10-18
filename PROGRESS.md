@@ -4,8 +4,8 @@
 > stubbed or mocked, and what is still missing — so a developer joining the project
 > can orient in minutes and know exactly where to start.
 >
-> **Last updated:** 2026-10-15 · **Baseline commit:** `c3f6878` (+ uncommitted work
-> described below) · **Platform:** Windows, JDK 17, Node 24, PostgreSQL 17
+> **Last updated:** 2026-10-18 · **Baseline commit:** `9cde496` (+ uncommitted work
+> described below) · **Platform:** Windows, JDK 17, Node 24, Python 3.12, PostgreSQL 17
 >
 > **How to read the status markers**
 > ✅ **Done** — implemented and actually executed/verified in this environment ·
@@ -23,16 +23,18 @@
 | Area | State |
 |------|-------|
 | **Backend REST API** | 🟢 Every endpoint in the contract is implemented |
-| **Backend tests** | 🟢 73/73 pass (`npm test`, exit 0) — unit + HTTP smoke |
+| **Backend tests** | 🟢 81/81 pass — 76 unit + 5 HTTP smoke (re-run 2026-10-18) |
+| **Crop-monitoring API** | 🟢 `crop-api/` FastAPI service — 34/34 pytest pass (mock GEE by default) |
 | **Backend ↔ Supabase schema** | 🟢 `backend/supabase-update.sql` verified against PostgreSQL 17 (§6) |
-| **Android data + domain layer** | 🟢 Room, Retrofit, sync engine, session, 11 repositories |
+| **Android data + domain layer** | 🟢 Room (v2), Retrofit, sync engine, session, 12 repositories |
 | **Android app shell** | 🟢 `AgriConnectApp`, `MainActivity`, Hilt modules, nav host all present |
 | **Android UI** | 🟢 26 Compose screens, role-based navigation, offline/sync affordances |
-| **Android build** | 🟢 `:app:assembleDebug` produces a 22.3 MB APK (re-run 2026-10-16) |
-| **Android unit tests** | 🟢 12/12 pass (`:app:testDebugUnitTest`, re-run 2026-10-16) |
+| **Image upload / display** | 🟢 Listings, plots and avatars: pick → `POST /uploads` → store → render (unit/contract-tested; not yet device-verified) |
+| **Android build** | 🟢 `:app:assembleDebug` produces a 23.6 MB APK (re-run 2026-10-18) |
+| **Android unit tests** | 🟢 22/22 pass (`:app:testDebugUnitTest`, re-run 2026-10-18) |
 | **Android runtime** | 🟡 Never launched on a device/emulator — no instrumented test run |
 | **External providers** | 🔴 SMS/email, Earth Engine and push are not configured |
-| **Docs / deliverables** | 🟢 All referenced docs present — `docs/05-TEST-REPORT.md` added 2026-10-16 |
+| **Docs / deliverables** | 🟢 All referenced docs present — adds `docs/10-CROP-MONITORING-API.md` |
 
 ---
 
@@ -42,6 +44,7 @@
 agriConnect/
 ├─ android/    Native Android app (Kotlin · Jetpack Compose · Room · Hilt · WorkManager)
 ├─ backend/    Node.js/Express REST API + PostgreSQL migrations + Supabase update script
+├─ crop-api/   Standalone FastAPI crop-monitoring service (Google Earth Engine · Sentinel-2)
 ├─ docs/       Written deliverables (requirements, design, API contract, …)
 ├─ .github/    CI workflow
 ├─ README.md   Project overview + deliverable index
@@ -69,12 +72,13 @@ JWT auth, Helmet/CORS/compression, Swagger UI, Jest.
 | Validation + error envelope + rate limiting + idempotency | `src/middleware/` | Never leaks stack traces |
 | Auth module (register→login→refresh→reset→verify) | `src/modules/auth/` | Full token lifecycle |
 | Profile, avatar, export, employee-link, deletion lifecycle | `src/modules/users/`, `account/`, `public/` | Re-auth, grace period, retention ledger |
-| Farms/plots, harvests, livestock | `src/modules/farms/`, `farm/` | GeoJSON boundaries |
+| Farms/plots, harvests, livestock | `src/modules/farms/`, `farm/` | GeoJSON boundaries; plots carry an optional `imageUrl` photo |
+| Image uploads (generic + avatar) | `src/modules/uploads/`, `src/services/uploads.js` | `POST /uploads` (field `image`, ≤2 MB jpeg/png/webp) and `POST /users/me/avatar`; files stored under `backend/uploads/`, served from the origin at `/uploads/…` |
 | Sales, expenses, financial summary | `src/modules/finance/` | Farmer-only |
 | Satellite NDVI (mock + real GEE path) | `src/modules/satellite/`, `services/gee.js`, `services/ndvi.js` | NDVI arithmetic unit-tested |
 | Marketplace listings + orders workflow | `src/modules/marketplace/`, `orders/` | Transactional stock, no payments |
 | Notifications feed + sync push/pull + audit log | `src/modules/notifications/`, `sync/`, `services/audit.js` | In-app only |
-| Tests | `tests/unit/*` (5 files), `tests/api/smoke.test.js` | **73 tests, all passing** |
+| Tests | `tests/unit/*` (6 files), `tests/api/smoke.test.js` | **81 tests, all passing** |
 | OpenAPI 3 spec, Dockerfile, docker-compose | `backend/openapi.yaml`, `Dockerfile`, `docker-compose.yml` | |
 | ESLint config, lockfile | `eslint.config.js`, `package-lock.json` | |
 | Supabase schema update script | `backend/supabase-update.sql` | Idempotent; **verified** — see §6 |
@@ -92,6 +96,30 @@ JWT auth, Helmet/CORS/compression, Swagger UI, Jest.
 
 - Real provider credentials — see [`docs/07-EXTERNAL-CREDENTIALS.md`](docs/07-EXTERNAL-CREDENTIALS.md).
 - End-to-end tests against a live PostgreSQL (the runner supports them; the suite does not exist).
+
+---
+
+## 2·b Crop-monitoring API (`crop-api/`) — FastAPI / Google Earth Engine
+
+A **standalone** Python service that sits *alongside* the Node backend (chosen so the
+Express API keeps serving app data unchanged). It is the messenger between the mobile app
+and Google Earth Engine + Sentinel-2: it turns a bounding box / centre-and-size into an area,
+NDVI-family indices and a per-plot health summary. Documented in
+[`docs/10-CROP-MONITORING-API.md`](docs/10-CROP-MONITORING-API.md).
+
+**Endpoints:** `GET /health`, `POST /v1/area`, `POST /v1/indices`, `POST /v1/health-summary`;
+optional `X-API-Key` when `API_KEY` is set.
+
+| Item | State | Notes |
+|------|-------|-------|
+| Service, schemas, geometry, summary, caching | ✅ | `crop-api/app/` (`main`, `schemas`, `geometry`, `gee`, `cache`, `security`, `config`) |
+| Tests | ✅ | **34/34 pytest pass** (re-run 2026-10-18) — `tests/` |
+| Earth Engine path | 🟡 | Real GEE code written, but **not** enabled/verified here; default `GEE_ENABLED=false` returns deterministic synthetic values tagged `"source": "mock"` |
+| Packaging | ✅ | `requirements*.txt`, `pyproject.toml`, `Dockerfile`, `docker-compose.yml`, `.env.example`, `README.md`, `scripts/ndvi_plot.py` CLI |
+
+It is **not** wired into the Android app or the Node backend yet — the app still reads
+satellite data through the existing Express `/satellite` mock. Making the app call this
+service (base-URL config + DTO alignment) is future work.
 
 ---
 
@@ -115,13 +143,14 @@ WorkManager, Retrofit + kotlinx.serialization, Coil, osmdroid. JDK 17,
 | DTO envelopes | `data/remote/dto/` | `MeResponse`, `NdviResponse`, `DeletionRequestResponse`, paginated `{items,…}` — the old contract mismatches are fixed |
 | Session / tokens | `data/session/` | Encrypted token storage |
 | Sync engine | `data/sync/` | `SyncEngine`, `SyncQueue`, `SyncApplier`, `ConflictResolver`, `SyncScheduler`, `SyncWorker` (WorkManager) |
-| Repositories | `data/repository/` (11) | Auth, FarmPlot, Harvest, Livestock, Finance, Marketplace, Order, Notification, Satellite, Account |
+| Repositories | `data/repository/` (12) | Auth, FarmPlot, Harvest, Livestock, Finance, Marketplace, Order, Notification, Satellite, Account, **Media** (generic image upload) |
+| Image pipeline | `core/util/ImageUrls.kt`, `ImageFiles.kt`, `data/repository/MediaRepository.kt`, `ui/components/AgriRemoteImage.kt` | Pick → `POST /uploads` → store the origin-relative path on the record → Coil renders it after resolving against the API origin (also shows images uploaded by other users) |
 | Result type | `core/result/AppResult.kt` | `AppResult.Success/Failure`, `AppError.message/isNetwork` |
 | Design system | `ui/theme/` | Tokens match [`docs/01-DESIGN-SYSTEM.md`](docs/01-DESIGN-SYSTEM.md) |
-| Reusable components | `ui/components/` (14 files) | Scaffold, surfaces, buttons, dialogs, state views, chips, segmented control, chart, badges, settings rows, logo |
+| Reusable components | `ui/components/` (15 files) | Scaffold, surfaces, buttons, dialogs, state views, chips, segmented control, chart, badges, settings rows, logo, remote image |
 | Navigation | `ui/AgriConnectRoot.kt`, `ui/navigation/` | Root `NavHost`, `MainScaffold` chrome, `AgriNavItems.forRole`, `homeRouteFor` |
 | Screens | `ui/**` (26 `*Screen.kt`) | See §3.2 |
-| Unit tests | `app/src/test/...` (4 files) | **12/12 passing** |
+| Unit tests | `app/src/test/...` (6 files) | **22/22 passing** |
 | Instrumented test scaffold | `app/src/androidTest/.../HiltTestRunner.kt` | Runner exists; no test classes yet |
 
 ### 3.2 Implemented screens ✅
@@ -150,21 +179,28 @@ Role-based bottom navigation: **FARMER** home/farms/finance/market/profile ·
 - Notification taps route only on a **known** `relatedEntityType`; anything unknown is
   ignored rather than guessed.
 
-### 3.4 Fixed in the latest pass ✅
+### 3.4 Fixed / added in the latest pass ✅
 
-| Fix | File |
-|-----|------|
+| Change | File(s) |
+|--------|---------|
 | Legal consents (`acceptTerms`, `acceptPrivacy`) were dropped by kotlinx.serialization defaults → `@EncodeDefault(ALWAYS)` | `data/remote/dto/AuthDtos.kt` |
 | Profile / Settings "Sign out" navigated but **never ended the session** → VMs now call `AuthRepository.logout()` | `ui/profile/ProfileViewModel.kt`, `ui/settings/SettingsViewModel.kt`, matching screens |
 | `AuthRepository.logout/logoutAll` only cleared the session on some error codes → local session is always cleared | `data/repository/AuthRepository.kt` |
+| Welcome/auth backdrop rendered blank → solid brand colour behind the photo, lighter scrim, white hero text; `res/raw/keep.xml` pins brand drawables for release. **`auth_background.jpg` now confirmed inside the built APK.** | `ui/components/AuthScaffold.kt`, `ui/welcome/WelcomeScreen.kt`, `ui/components/BrandLogo.kt`, `res/raw/keep.xml` |
+| **New image support** end-to-end (listing, plot, avatar): pick → upload → store → render, including other users' images | `core/util/ImageUrls.kt`, `core/util/ImageFiles.kt`, `data/repository/MediaRepository.kt`, `ui/components/AgriRemoteImage.kt`, `ui/{marketplace,farms,profile}/…` |
+| Room bumped to **v2** with a real `MIGRATION_1_2` adding `farm_plots.image_url` (no destructive fallback) | `data/local/Migrations.kt`, `AgriDatabase.kt`, `DatabaseProvider.kt`, `data/local/entity/FarmPlotEntity.kt` |
 
 ### 3.5 Not verified ❌
 
 - The app has **not been launched**. No emulator/device smoke test, no screenshot, no
   instrumented test. Compose layout/visual fidelity to the design reference is
   therefore **unverified** — only the code paths were reviewed and compiled.
-- Location permission flows, avatar upload and the export endpoint are wired but
-  never exercised against a live backend.
+- The **image flow has not been exercised on a device against a live backend**: the picker,
+  the multipart upload, the round-trip of `/uploads/…` URLs and their display (including a
+  second user's listing) are covered only by unit tests and code review. Likewise the
+  welcome/auth backdrop was confirmed present *in the APK*, not *on screen*.
+- Location permission flows and the export endpoint are wired but never exercised against a
+  live backend.
 
 ---
 
@@ -182,6 +218,7 @@ Role-based bottom navigation: **FARMER** home/farms/finance/market/profile ·
 | — | `07-EXTERNAL-CREDENTIALS.md` | ✅ |
 | — | `08-KNOWN-LIMITATIONS-AND-UNVERIFIED.md` | ✅ |
 | 11 | `09-DEPLOYMENT.md` | ✅ |
+| — | `10-CROP-MONITORING-API.md` | ✅ (added 2026-10-18) |
 | 12 | `privacy-policy.md` | ✅ |
 | 13 | `terms-of-service.md` | ✅ |
 | 14 | `account-deletion.html` | ✅ |
@@ -198,7 +235,7 @@ No dead links remain in the README deliverable index.
 | `README.md`, `LICENSE` (MIT), `CONTRIBUTING.md` | ✅ | Deliverable index fully resolves (no dead links) |
 | GitHub Actions CI | ✅ | `.github/workflows/ci.yml` — backend tests + Android build/test |
 | Gradle wrapper | ✅ | `gradlew`, `gradlew.bat`, `gradle/wrapper/*` committed |
-| Room schema export | ✅ | `app/schemas/bw.agriconnect.data.local.AgriDatabase/1.json` |
+| Room schema export | ✅ | `app/schemas/bw.agriconnect.data.local.AgriDatabase/{1,2}.json` (v2 adds `farm_plots.image_url`) |
 | `proguard-rules.pro`, `package-lock.json`, ESLint config | ✅ | |
 | Secrets hygiene | 🟡 | `.gitignore` covers `.env`, keystores, `local.properties` — but see §8 |
 
@@ -238,8 +275,17 @@ cd backend
 cp .env.example .env          # fill in DB + secrets
 npm install
 npm run migrate               # or paste backend/supabase-update.sql into Supabase
-npm test                      # 73 tests — unit + HTTP smoke (no database needed)
+npm test                      # 81 tests — 76 unit + 5 HTTP smoke (no database needed)
 npm start                     # http://localhost:4000  ·  docs at /api-docs
+```
+
+### Crop-monitoring API (Python 3.12)
+```bash
+cd crop-api
+python -m venv .venv && ./.venv/Scripts/activate     # Windows
+pip install -r requirements-dev.txt
+pytest                                               # 34 tests
+uvicorn app.main:app --reload                        # http://127.0.0.1:8000/docs
 ```
 
 ### Android (PowerShell, JDK 17)
@@ -248,8 +294,9 @@ cd android
 $env:JAVA_HOME="C:\Users\src.president\agri-tooling\jdk"
 .\gradlew.bat :app:assembleDebug :app:testDebugUnitTest --console=plain
 ```
-Verified in this environment: **BUILD SUCCESSFUL**, 12/12 unit tests,
-`app/build/outputs/apk/debug/app-debug.apk`. The API base URL defaults to
+Verified in this environment (2026-10-18): **BUILD SUCCESSFUL**, 22/22 unit tests,
+`app/build/outputs/apk/debug/app-debug.apk` (23.6 MB, with `auth_background.jpg` inside).
+The API base URL defaults to
 `http://10.0.2.2:4000/api/v1/` (debug) and `https://api.agriconnect.bw/api/v1/` (release),
 and can be overridden with `-PapiBaseUrl=…`, `local.properties`, or the auto-detected
 Codespaces forwarded port — see the README.
@@ -282,9 +329,11 @@ Codespaces forwarded port — see the README.
    and order transitions — the highest-risk untested server logic.
 4. ~~Write `docs/05-TEST-REPORT.md`~~ — **done 2026-10-16**; the dead README link is fixed.
 5. **Wire real providers** (SMS/email, Earth Engine, push) per
-   [`docs/07-EXTERNAL-CREDENTIALS.md`](docs/07-EXTERNAL-CREDENTIALS.md).
+   [`docs/07-EXTERNAL-CREDENTIALS.md`](docs/07-EXTERNAL-CREDENTIALS.md). For crop monitoring,
+   enable the `crop-api` service's real GEE path and point the app at it (§2·b).
 6. **Add instrumented UI tests** (`androidTest/`) for at least login and the offline
-   sync queue; the Hilt runner is already in place.
+   sync queue; the Hilt runner is already in place. This pass added **no** device run, so the
+   image upload/display flow (§3.4) still needs an on-device smoke test.
 7. Keep `openapi.yaml`, [`docs/02-API-CONTRACT.md`](docs/02-API-CONTRACT.md) and
    `ApiService.kt` in sync as endpoints evolve.
 

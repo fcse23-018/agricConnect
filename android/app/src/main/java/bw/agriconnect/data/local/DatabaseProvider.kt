@@ -29,6 +29,7 @@ object DatabaseProvider {
             AgriDatabase.NAME,
         )
             .fallbackToDestructiveMigrationOnDowngrade()
+            .addMigrations(*ALL_MIGRATIONS)
             .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
             .build()
 }

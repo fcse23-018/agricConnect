@@ -3,6 +3,8 @@ package bw.agriconnect.ui.profile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import bw.agriconnect.core.result.AppResult
+import bw.agriconnect.core.util.ImageFiles
+import bw.agriconnect.data.repository.AccountRepository
 import bw.agriconnect.data.repository.AuthRepository
 import bw.agriconnect.domain.model.Session
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -17,8 +19,10 @@ data class ProfileUiState(
     val session: Session? = null,
     val fullName: String = "",
     val email: String = "",
+    val avatarUrl: String? = null,
     val isLoading: Boolean = false,
     val isSaving: Boolean = false,
+    val isUploadingAvatar: Boolean = false,
     val message: String? = null,
     val error: String? = null,
     val currentPassword: String = "",
@@ -29,6 +33,7 @@ data class ProfileUiState(
 @HiltViewModel
 class ProfileViewModel @Inject constructor(
     private val authRepository: AuthRepository,
+    private val accountRepository: AccountRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(ProfileUiState(session = authRepository.session.value))
     val state: StateFlow<ProfileUiState> = _state.asStateFlow()
@@ -41,11 +46,26 @@ class ProfileViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
             when (val r = authRepository.getCurrentUser()) {
-                is AppResult.Success -> _state.update { it.copy(isLoading = false, session = authRepository.session.value, fullName = r.data.fullName, email = r.data.email.orEmpty()) }
+                is AppResult.Success -> _state.update { it.copy(isLoading = false, session = authRepository.session.value, fullName = r.data.fullName, email = r.data.email.orEmpty(), avatarUrl = r.data.avatarUrl) }
                 is AppResult.Failure -> _state.update { it.copy(isLoading = false, error = r.error.message) }
             }
         }
     }
+
+    /** Uploads a newly picked profile photo and reflects the returned URL immediately. */
+    fun uploadAvatar(picked: ImageFiles.Picked) {
+        viewModelScope.launch {
+            _state.update { it.copy(isUploadingAvatar = true, error = null, message = null) }
+            when (val r = accountRepository.uploadAvatar(picked.bytes, picked.mimeType, picked.fileName)) {
+                is AppResult.Success -> _state.update {
+                    it.copy(isUploadingAvatar = false, avatarUrl = r.data.avatarUrl, message = "Profile photo updated.")
+                }
+                is AppResult.Failure -> _state.update { it.copy(isUploadingAvatar = false, error = r.error.message) }
+            }
+        }
+    }
+
+    fun onAvatarError(message: String) = _state.update { it.copy(error = message) }
 
     /**
      * Revokes the session (best-effort server-side) and always clears it locally

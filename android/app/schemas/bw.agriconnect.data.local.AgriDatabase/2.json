@@ -1,0 +1,1175 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 2,
+    "identityHash": "24f31ffe12803ec270636c3a9263bdb5",
+    "entities": [
+      {
+        "tableName": "farm_plots",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`plot_id` TEXT NOT NULL, `farmer_id` TEXT NOT NULL, `plot_name` TEXT NOT NULL, `area_hectares` REAL, `geojson_boundary` TEXT, `centroid_lat` REAL, `centroid_lng` REAL, `notes` TEXT, `image_url` TEXT, `created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL, `sync_status` TEXT NOT NULL, `client_id` TEXT, `pending_delete` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`plot_id`))",
+        "fields": [
+          {
+            "fieldPath": "plotId",
+            "columnName": "plot_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "farmerId",
+            "columnName": "farmer_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "plotName",
+            "columnName": "plot_name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "areaHectares",
+            "columnName": "area_hectares",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "geoJsonBoundary",
+            "columnName": "geojson_boundary",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "centroidLat",
+            "columnName": "centroid_lat",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "centroidLng",
+            "columnName": "centroid_lng",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "notes",
+            "columnName": "notes",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "imageUrl",
+            "columnName": "image_url",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncStatus",
+            "columnName": "sync_status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "clientId",
+            "columnName": "client_id",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "pendingDelete",
+            "columnName": "pending_delete",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "plot_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_farm_plots_farmer_id_client_id",
+            "unique": true,
+            "columnNames": [
+              "farmer_id",
+              "client_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_farm_plots_farmer_id_client_id` ON `${TABLE_NAME}` (`farmer_id`, `client_id`)"
+          },
+          {
+            "name": "index_farm_plots_farmer_id",
+            "unique": false,
+            "columnNames": [
+              "farmer_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_farm_plots_farmer_id` ON `${TABLE_NAME}` (`farmer_id`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "harvest_records",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`harvest_id` TEXT NOT NULL, `farmer_id` TEXT NOT NULL, `plot_id` TEXT, `crop_type` TEXT NOT NULL, `quantity_kg` REAL NOT NULL, `harvest_date` TEXT NOT NULL, `notes` TEXT, `created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL, `sync_status` TEXT NOT NULL, `client_id` TEXT, `pending_delete` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`harvest_id`))",
+        "fields": [
+          {
+            "fieldPath": "harvestId",
+            "columnName": "harvest_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "farmerId",
+            "columnName": "farmer_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "plotId",
+            "columnName": "plot_id",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "cropType",
+            "columnName": "crop_type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "quantityKg",
+            "columnName": "quantity_kg",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "harvestDate",
+            "columnName": "harvest_date",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "notes",
+            "columnName": "notes",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncStatus",
+            "columnName": "sync_status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "clientId",
+            "columnName": "client_id",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "pendingDelete",
+            "columnName": "pending_delete",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "harvest_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_harvest_records_farmer_id_client_id",
+            "unique": true,
+            "columnNames": [
+              "farmer_id",
+              "client_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_harvest_records_farmer_id_client_id` ON `${TABLE_NAME}` (`farmer_id`, `client_id`)"
+          },
+          {
+            "name": "index_harvest_records_farmer_id_harvest_date",
+            "unique": false,
+            "columnNames": [
+              "farmer_id",
+              "harvest_date"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_harvest_records_farmer_id_harvest_date` ON `${TABLE_NAME}` (`farmer_id`, `harvest_date`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "livestock_counts",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`count_id` TEXT NOT NULL, `farmer_id` TEXT NOT NULL, `animal_type` TEXT NOT NULL, `head_count` INTEGER NOT NULL, `record_date` TEXT NOT NULL, `notes` TEXT, `created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL, `sync_status` TEXT NOT NULL, `client_id` TEXT, `pending_delete` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`count_id`))",
+        "fields": [
+          {
+            "fieldPath": "countId",
+            "columnName": "count_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "farmerId",
+            "columnName": "farmer_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "animalType",
+            "columnName": "animal_type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "headCount",
+            "columnName": "head_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recordDate",
+            "columnName": "record_date",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "notes",
+            "columnName": "notes",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncStatus",
+            "columnName": "sync_status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "clientId",
+            "columnName": "client_id",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "pendingDelete",
+            "columnName": "pending_delete",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "count_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_livestock_counts_farmer_id_client_id",
+            "unique": true,
+            "columnNames": [
+              "farmer_id",
+              "client_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_livestock_counts_farmer_id_client_id` ON `${TABLE_NAME}` (`farmer_id`, `client_id`)"
+          },
+          {
+            "name": "index_livestock_counts_farmer_id_record_date",
+            "unique": false,
+            "columnNames": [
+              "farmer_id",
+              "record_date"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_livestock_counts_farmer_id_record_date` ON `${TABLE_NAME}` (`farmer_id`, `record_date`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "sale_transactions",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`transaction_id` TEXT NOT NULL, `farmer_id` TEXT NOT NULL, `item` TEXT NOT NULL, `quantity` REAL NOT NULL, `unit_price` REAL, `amount` REAL NOT NULL, `currency` TEXT NOT NULL, `buyer_name` TEXT, `sale_date` TEXT NOT NULL, `notes` TEXT, `created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL, `sync_status` TEXT NOT NULL, `client_id` TEXT, `pending_delete` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`transaction_id`))",
+        "fields": [
+          {
+            "fieldPath": "transactionId",
+            "columnName": "transaction_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "farmerId",
+            "columnName": "farmer_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "item",
+            "columnName": "item",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "quantity",
+            "columnName": "quantity",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unitPrice",
+            "columnName": "unit_price",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "amount",
+            "columnName": "amount",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currency",
+            "columnName": "currency",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "buyerName",
+            "columnName": "buyer_name",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "date",
+            "columnName": "sale_date",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "notes",
+            "columnName": "notes",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncStatus",
+            "columnName": "sync_status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "clientId",
+            "columnName": "client_id",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "pendingDelete",
+            "columnName": "pending_delete",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "transaction_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sale_transactions_farmer_id_client_id",
+            "unique": true,
+            "columnNames": [
+              "farmer_id",
+              "client_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_sale_transactions_farmer_id_client_id` ON `${TABLE_NAME}` (`farmer_id`, `client_id`)"
+          },
+          {
+            "name": "index_sale_transactions_farmer_id_sale_date",
+            "unique": false,
+            "columnNames": [
+              "farmer_id",
+              "sale_date"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sale_transactions_farmer_id_sale_date` ON `${TABLE_NAME}` (`farmer_id`, `sale_date`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "expenses",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`expense_id` TEXT NOT NULL, `farmer_id` TEXT NOT NULL, `category` TEXT NOT NULL, `description` TEXT, `amount` REAL NOT NULL, `currency` TEXT NOT NULL, `expense_date` TEXT NOT NULL, `created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL, `sync_status` TEXT NOT NULL, `client_id` TEXT, `pending_delete` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`expense_id`))",
+        "fields": [
+          {
+            "fieldPath": "expenseId",
+            "columnName": "expense_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "farmerId",
+            "columnName": "farmer_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "category",
+            "columnName": "category",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "description",
+            "columnName": "description",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "amount",
+            "columnName": "amount",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currency",
+            "columnName": "currency",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "expenseDate",
+            "columnName": "expense_date",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncStatus",
+            "columnName": "sync_status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "clientId",
+            "columnName": "client_id",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "pendingDelete",
+            "columnName": "pending_delete",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "expense_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_expenses_farmer_id_client_id",
+            "unique": true,
+            "columnNames": [
+              "farmer_id",
+              "client_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_expenses_farmer_id_client_id` ON `${TABLE_NAME}` (`farmer_id`, `client_id`)"
+          },
+          {
+            "name": "index_expenses_farmer_id_expense_date",
+            "unique": false,
+            "columnNames": [
+              "farmer_id",
+              "expense_date"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_expenses_farmer_id_expense_date` ON `${TABLE_NAME}` (`farmer_id`, `expense_date`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "satellite_ndvi",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`ndvi_id` TEXT NOT NULL, `plot_id` TEXT NOT NULL, `farmer_id` TEXT NOT NULL, `satellite_date` TEXT, `mean_ndvi_value` REAL, `stress_level` TEXT, `status` TEXT NOT NULL, `failure_reason` TEXT, `cloud_cover` REAL, `compressed_vector_json` TEXT, `is_cached` INTEGER NOT NULL, `source` TEXT NOT NULL, `created_at` TEXT NOT NULL, `plot_name` TEXT, PRIMARY KEY(`ndvi_id`))",
+        "fields": [
+          {
+            "fieldPath": "ndviId",
+            "columnName": "ndvi_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "plotId",
+            "columnName": "plot_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "farmerId",
+            "columnName": "farmer_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "satelliteDate",
+            "columnName": "satellite_date",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "meanNdviValue",
+            "columnName": "mean_ndvi_value",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "stressLevel",
+            "columnName": "stress_level",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "failureReason",
+            "columnName": "failure_reason",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "cloudCover",
+            "columnName": "cloud_cover",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "compressedVectorJson",
+            "columnName": "compressed_vector_json",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "isCached",
+            "columnName": "is_cached",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "plotName",
+            "columnName": "plot_name",
+            "affinity": "TEXT",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "ndvi_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_satellite_ndvi_plot_id_satellite_date",
+            "unique": false,
+            "columnNames": [
+              "plot_id",
+              "satellite_date"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_satellite_ndvi_plot_id_satellite_date` ON `${TABLE_NAME}` (`plot_id`, `satellite_date`)"
+          },
+          {
+            "name": "index_satellite_ndvi_farmer_id",
+            "unique": false,
+            "columnNames": [
+              "farmer_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_satellite_ndvi_farmer_id` ON `${TABLE_NAME}` (`farmer_id`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "produce_listings",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`listing_id` TEXT NOT NULL, `farmer_id` TEXT NOT NULL, `produce` TEXT NOT NULL, `description` TEXT, `quantity` REAL NOT NULL, `reserved_qty` REAL NOT NULL, `sold_qty` REAL NOT NULL, `unit` TEXT NOT NULL, `price` REAL NOT NULL, `currency` TEXT NOT NULL, `status` TEXT NOT NULL, `image_url` TEXT, `location_text` TEXT, `published_at` TEXT, `created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL, `sync_status` TEXT NOT NULL, `farmer_name` TEXT, `pending_delete` INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(`listing_id`))",
+        "fields": [
+          {
+            "fieldPath": "listingId",
+            "columnName": "listing_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "farmerId",
+            "columnName": "farmer_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "produce",
+            "columnName": "produce",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "description",
+            "columnName": "description",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "quantity",
+            "columnName": "quantity",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reservedQty",
+            "columnName": "reserved_qty",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "soldQty",
+            "columnName": "sold_qty",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unit",
+            "columnName": "unit",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "price",
+            "columnName": "price",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currency",
+            "columnName": "currency",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "imageUrl",
+            "columnName": "image_url",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "locationText",
+            "columnName": "location_text",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "publishedAt",
+            "columnName": "published_at",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "syncStatus",
+            "columnName": "sync_status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "farmerName",
+            "columnName": "farmer_name",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "pendingDelete",
+            "columnName": "pending_delete",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "listing_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_produce_listings_farmer_id",
+            "unique": false,
+            "columnNames": [
+              "farmer_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_produce_listings_farmer_id` ON `${TABLE_NAME}` (`farmer_id`)"
+          },
+          {
+            "name": "index_produce_listings_status",
+            "unique": false,
+            "columnNames": [
+              "status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_produce_listings_status` ON `${TABLE_NAME}` (`status`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "orders",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`order_id` TEXT NOT NULL, `listing_id` TEXT NOT NULL, `buyer_id` TEXT NOT NULL, `farmer_id` TEXT NOT NULL, `quantity` REAL NOT NULL, `unit_price` REAL NOT NULL, `total_price` REAL NOT NULL, `currency` TEXT NOT NULL, `status` TEXT NOT NULL, `note` TEXT, `buyer_contact` TEXT, `produce` TEXT, `buyer_name` TEXT, `farmer_decision_at` TEXT, `created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL, PRIMARY KEY(`order_id`))",
+        "fields": [
+          {
+            "fieldPath": "orderId",
+            "columnName": "order_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "listingId",
+            "columnName": "listing_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "buyerId",
+            "columnName": "buyer_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "farmerId",
+            "columnName": "farmer_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "quantity",
+            "columnName": "quantity",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unitPrice",
+            "columnName": "unit_price",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalPrice",
+            "columnName": "total_price",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currency",
+            "columnName": "currency",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "note",
+            "columnName": "note",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "buyerContact",
+            "columnName": "buyer_contact",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "produce",
+            "columnName": "produce",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "buyerName",
+            "columnName": "buyer_name",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "farmerDecisionAt",
+            "columnName": "farmer_decision_at",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "order_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_orders_buyer_id",
+            "unique": false,
+            "columnNames": [
+              "buyer_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_orders_buyer_id` ON `${TABLE_NAME}` (`buyer_id`)"
+          },
+          {
+            "name": "index_orders_farmer_id",
+            "unique": false,
+            "columnNames": [
+              "farmer_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_orders_farmer_id` ON `${TABLE_NAME}` (`farmer_id`)"
+          },
+          {
+            "name": "index_orders_listing_id",
+            "unique": false,
+            "columnNames": [
+              "listing_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_orders_listing_id` ON `${TABLE_NAME}` (`listing_id`)"
+          },
+          {
+            "name": "index_orders_status",
+            "unique": false,
+            "columnNames": [
+              "status"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_orders_status` ON `${TABLE_NAME}` (`status`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "notifications",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`notification_id` TEXT NOT NULL, `user_id` TEXT, `type` TEXT NOT NULL, `title` TEXT NOT NULL, `body` TEXT NOT NULL, `related_entity_type` TEXT, `related_entity_id` TEXT, `is_read` INTEGER NOT NULL DEFAULT 0, `created_at` TEXT NOT NULL, PRIMARY KEY(`notification_id`))",
+        "fields": [
+          {
+            "fieldPath": "notificationId",
+            "columnName": "notification_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "user_id",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "type",
+            "columnName": "type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "body",
+            "columnName": "body",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "relatedEntityType",
+            "columnName": "related_entity_type",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "relatedEntityId",
+            "columnName": "related_entity_id",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "isRead",
+            "columnName": "is_read",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "notification_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_notifications_user_id_created_at",
+            "unique": false,
+            "columnNames": [
+              "user_id",
+              "created_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_notifications_user_id_created_at` ON `${TABLE_NAME}` (`user_id`, `created_at`)"
+          },
+          {
+            "name": "index_notifications_is_read",
+            "unique": false,
+            "columnNames": [
+              "is_read"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_notifications_is_read` ON `${TABLE_NAME}` (`is_read`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "sync_queue",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`queue_id` TEXT NOT NULL, `entity_type` TEXT NOT NULL, `entity_id` TEXT NOT NULL, `operation` TEXT NOT NULL, `payload` TEXT NOT NULL, `created_at` INTEGER NOT NULL, `status` TEXT NOT NULL, `retry_count` INTEGER NOT NULL DEFAULT 0, `last_error` TEXT, `attempted_at` INTEGER, PRIMARY KEY(`queue_id`))",
+        "fields": [
+          {
+            "fieldPath": "queueId",
+            "columnName": "queue_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityType",
+            "columnName": "entity_type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "entityId",
+            "columnName": "entity_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "operation",
+            "columnName": "operation",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payload",
+            "columnName": "payload",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "retryCount",
+            "columnName": "retry_count",
+            "affinity": "INTEGER",
+            "notNull": true,
+            "defaultValue": "0"
+          },
+          {
+            "fieldPath": "lastError",
+            "columnName": "last_error",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "attemptedAt",
+            "columnName": "attempted_at",
+            "affinity": "INTEGER",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "queue_id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_sync_queue_status_created_at",
+            "unique": false,
+            "columnNames": [
+              "status",
+              "created_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_queue_status_created_at` ON `${TABLE_NAME}` (`status`, `created_at`)"
+          },
+          {
+            "name": "index_sync_queue_entity_type_entity_id",
+            "unique": false,
+            "columnNames": [
+              "entity_type",
+              "entity_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_sync_queue_entity_type_entity_id` ON `${TABLE_NAME}` (`entity_type`, `entity_id`)"
+          }
+        ],
+        "foreignKeys": []
+      }
+    ],
+    "views": [],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '24f31ffe12803ec270636c3a9263bdb5')"
+    ]
+  }
+}

@@ -5,8 +5,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.FloatingActionButton
@@ -17,12 +19,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import bw.agriconnect.core.util.MoneyFormat
 import bw.agriconnect.ui.chrome.MainScaffold
 import bw.agriconnect.ui.components.AgriCard
 import bw.agriconnect.ui.components.AgriFilterChip
+import bw.agriconnect.ui.components.AgriRemoteImage
 import bw.agriconnect.ui.components.AgriTextField
 import bw.agriconnect.ui.components.EmptyState
 import bw.agriconnect.ui.components.ErrorBanner
@@ -30,6 +35,7 @@ import bw.agriconnect.ui.components.InlineLoading
 import bw.agriconnect.ui.components.LoadingState
 import bw.agriconnect.ui.components.SectionHeader
 import bw.agriconnect.ui.theme.AgriColors
+import bw.agriconnect.ui.theme.AgriRadius
 import bw.agriconnect.ui.theme.AgriSpacing
 
 private val categories = listOf("All", "Vegetables", "Grains", "Fruits", "Livestock", "Other")
@@ -142,18 +148,30 @@ fun MarketplaceScreen(
                     ) {
                         items(state.listings, key = { it.listingId }) { listing ->
                             AgriCard(onClick = { onListingClick(listing.listingId) }) {
-                                Column(verticalArrangement = Arrangement.spacedBy(AgriSpacing.xs)) {
-                                    Text(listing.produce, style = MaterialTheme.typography.titleMedium)
-                                    Text(
-                                        "${listing.availableQty} ${listing.unit.label} • ${MoneyFormat.pula(listing.price)}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                Row(horizontalArrangement = Arrangement.spacedBy(AgriSpacing.md)) {
+                                    AgriRemoteImage(
+                                        url = listing.imageUrl,
+                                        contentDescription = listing.produce,
+                                        modifier = Modifier
+                                            .size(72.dp)
+                                            .clip(RoundedCornerShape(AgriRadius.md)),
                                     )
-                                    listing.farmerName?.takeIf { it.isNotBlank() }?.let {
-                                        Text("Seller: $it", style = MaterialTheme.typography.bodySmall)
-                                    }
-                                    listing.locationText?.takeIf { it.isNotBlank() }?.let {
-                                        Text("Location: $it", style = MaterialTheme.typography.bodySmall)
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(AgriSpacing.xs),
+                                    ) {
+                                        Text(listing.produce, style = MaterialTheme.typography.titleMedium)
+                                        Text(
+                                            "${listing.availableQty} ${listing.unit.label} • ${MoneyFormat.pula(listing.price)}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        listing.farmerName?.takeIf { it.isNotBlank() }?.let {
+                                            Text("Seller: $it", style = MaterialTheme.typography.bodySmall)
+                                        }
+                                        listing.locationText?.takeIf { it.isNotBlank() }?.let {
+                                            Text("Location: $it", style = MaterialTheme.typography.bodySmall)
+                                        }
                                     }
                                 }
                             }

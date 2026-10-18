@@ -3,8 +3,10 @@ package bw.agriconnect.ui.farms
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import bw.agriconnect.core.result.AppResult
+import bw.agriconnect.core.util.ImageFiles
 import bw.agriconnect.data.repository.AuthRepository
 import bw.agriconnect.data.repository.FarmPlotRepository
+import bw.agriconnect.data.repository.MediaRepository
 import bw.agriconnect.domain.model.FarmPlot
 import bw.agriconnect.domain.model.SyncStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -28,14 +30,21 @@ data class FarmFormState(
     val lat: String = "",
     val lng: String = "",
     val notes: String = "",
+    /** Device-local URI of a picked-but-not-yet-uploaded photo, for the preview. */
+    val imagePreview: String? = null,
+    val pendingImage: ImageFiles.Picked? = null,
+    val isUploading: Boolean = false,
     val error: String? = null,
     val isSaving: Boolean = false,
     val showForm: Boolean = false,
-)
+) {
+    val isBusy: Boolean get() = isSaving || isUploading
+}
 
 @HiltViewModel
 class FarmViewModel @Inject constructor(
     private val repo: FarmPlotRepository,
+    private val media: MediaRepository,
     private val auth: AuthRepository,
 ) : ViewModel() {
     private val now get() = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.format(Date())
@@ -54,6 +63,13 @@ class FarmViewModel @Inject constructor(
     fun onLngChange(v: String) = _form.update { it.copy(lng = v) }
     fun onNotesChange(v: String) = _form.update { it.copy(notes = v) }
 
+    fun onImagePicked(preview: String, picked: ImageFiles.Picked) =
+        _form.update { it.copy(imagePreview = preview, pendingImage = picked, error = null) }
+
+    fun onImageCleared() = _form.update { it.copy(imagePreview = null, pendingImage = null) }
+
+    fun onImageError(message: String) = _form.update { it.copy(error = message) }
+
     fun savePlot() {
         val s = _form.value
         val farmerId = auth.session.value?.userId ?: return
@@ -63,6 +79,22 @@ class FarmViewModel @Inject constructor(
         val lng = s.lng.toDoubleOrNull()
         viewModelScope.launch {
             _form.update { it.copy(isSaving = true, error = null) }
+
+            // Upload the photo before writing so the plot (and its queued sync payload)
+            // carries the final URL; a failed upload aborts rather than saving silently
+            // without the picture the user chose.
+            val imageUrl = s.pendingImage?.let { picked ->
+                _form.update { it.copy(isUploading = true) }
+                when (val up = media.uploadImage(picked.bytes, picked.mimeType, picked.fileName)) {
+                    is AppResult.Success -> up.data
+                    is AppResult.Failure -> {
+                        _form.update { it.copy(isSaving = false, isUploading = false, error = up.error.message) }
+                        return@launch
+                    }
+                }
+            }
+            _form.update { it.copy(isUploading = false) }
+
             val plot = FarmPlot(
                 plotId = UUID.randomUUID().toString(),
                 farmerId = farmerId,
@@ -72,6 +104,7 @@ class FarmViewModel @Inject constructor(
                 centroidLat = lat,
                 centroidLng = lng,
                 notes = s.notes.trim().ifBlank { null },
+                imageUrl = imageUrl,
                 createdAt = now,
                 updatedAt = now,
             )

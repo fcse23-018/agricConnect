@@ -156,6 +156,7 @@ internal fun Json.farmPlotPayload(plot: FarmPlot): String = encodeToString(
         plot.centroidLat?.let { put("centroidLat", it) }
         plot.centroidLng?.let { put("centroidLng", it) }
         plot.notes?.let { put("notes", it) }
+        plot.imageUrl?.let { put("imageUrl", it) }
     },
 )
 
