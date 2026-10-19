@@ -32,7 +32,7 @@
 | **Image upload / display** | 🟢 Listings, plots and avatars: pick → `POST /uploads` → store → render (unit/contract-tested; not yet device-verified) |
 | **Plot boundary (NDVI input)** | 🟢 Add/edit plot captures the polygon (GPS corners or manual lat/lng); stored in `farm_plots.geojson_boundary`, pushed via `/sync/push`, and required by `POST /satellite/ndvi` |
 | **Android build** | 🟢 `:app:assembleDebug` produces a 23.8 MB APK — `1.1.1` (build 3), re-run 2026-10-19 |
-| **Android unit tests** | 🟢 36/36 pass (`:app:testDebugUnitTest`, re-run 2026-10-19) |
+| **Android unit tests** | 🟢 37/37 pass (`:app:testDebugUnitTest`, re-run 2026-10-19) |
 | **Release distribution** | 🟢 CI uploads a debug APK named `agriconnect-debug-v<version>-<sha>.apk` (§8) |
 | **Android runtime** | 🟡 Never launched on a device/emulator — no instrumented test run |
 | **External providers** | 🔴 SMS/email, Earth Engine and push are not configured |
@@ -154,7 +154,7 @@ WorkManager, Retrofit + kotlinx.serialization, Coil, osmdroid. JDK 17,
 | Reusable components | `ui/components/` (16 files) | Scaffold, surfaces, buttons, dialogs, state views, chips, segmented control, chart, badges, settings rows, logo, remote image, boundary editor |
 | Navigation | `ui/AgriConnectRoot.kt`, `ui/navigation/` | Root `NavHost`, `MainScaffold` chrome, `AgriNavItems.forRole`, `homeRouteFor` |
 | Screens | `ui/**` (27 `*Screen.kt`) | See §3.2 |
-| Unit tests | `app/src/test/...` (8 files) | **36/36 passing** |
+| Unit tests | `app/src/test/...` (8 files) | **37/37 passing** |
 | Instrumented test scaffold | `app/src/androidTest/.../HiltTestRunner.kt` | Runner exists; no test classes yet |
 
 ### 3.2 Implemented screens ✅

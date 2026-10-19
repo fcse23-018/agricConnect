@@ -2,6 +2,8 @@ package bw.agriconnect.core.util
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -69,9 +71,8 @@ object PlotBoundary {
      * value must not crash the plot editor.
      */
     fun fromGeoJson(raw: String?): List<GeoVertex> {
-        if (raw.isNullOrBlank()) return emptyList()
+        val root = toJsonElement(raw) as? JsonObject ?: return emptyList()
         return runCatching {
-            val root = Json.parseToJsonElement(raw).jsonObject
             val geometry = if (root["type"]?.jsonPrimitive?.content == "Feature") {
                 root["geometry"]?.jsonObject
             } else {
@@ -117,6 +118,20 @@ object PlotBoundary {
             latitude = vertices.map { it.latitude }.average(),
             longitude = vertices.map { it.longitude }.average(),
         )
+    }
+
+    /**
+     * The stored boundary as a JSON element ready to send back to the API, or `null` when
+     * there is none or it is unparseable.
+     *
+     * Used to attach the boundary to an NDVI request: a plot drawn moments ago may not
+     * have synced yet, and the backend needs a boundary to compute anything. Sending the
+     * local copy is the difference between NDVI working immediately and failing until the
+     * next sync.
+     */
+    fun toJsonElement(raw: String?): JsonElement? {
+        if (raw.isNullOrBlank()) return null
+        return runCatching { Json.parseToJsonElement(raw) }.getOrNull()
     }
 
     private fun coordinate(vertex: GeoVertex): JsonArray = buildJsonArray {

@@ -3,7 +3,9 @@ package bw.agriconnect.ui.satellite
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import bw.agriconnect.core.result.AppResult
+import bw.agriconnect.core.util.PlotBoundary
 import bw.agriconnect.data.repository.AuthRepository
+import bw.agriconnect.data.repository.FarmPlotRepository
 import bw.agriconnect.data.repository.SatelliteRepository
 import bw.agriconnect.domain.model.SatelliteNdvi
 import bw.agriconnect.domain.model.UserRole
@@ -31,6 +33,7 @@ data class SatelliteUiState(
 @HiltViewModel
 class SatelliteViewModel @Inject constructor(
     private val repo: SatelliteRepository,
+    private val farmPlots: FarmPlotRepository,
     authRepository: AuthRepository,
 ) : ViewModel() {
     private val _state = MutableStateFlow(SatelliteUiState())
@@ -56,7 +59,17 @@ class SatelliteViewModel @Inject constructor(
     fun generate(plotId: String) {
         viewModelScope.launch {
             _state.update { it.copy(isGenerating = true, error = null, offline = false, infoMessage = null) }
-            when (val r = repo.requestComputation(plotId)) {
+
+            // Send the boundary held locally. The server falls back to its stored boundary,
+            // but a plot drawn moments ago may not have synced yet and NDVI cannot be
+            // computed without one — so the local copy is what makes a freshly mapped plot
+            // work immediately instead of failing until the next sync.
+            val localBoundary = when (val result = farmPlots.getPlot(plotId)) {
+                is AppResult.Success -> result.data?.geoJsonBoundary
+                is AppResult.Failure -> null
+            }
+
+            when (val r = repo.requestComputation(plotId, PlotBoundary.toJsonElement(localBoundary))) {
                 is AppResult.Success -> _state.update {
                     it.copy(
                         isGenerating = false,

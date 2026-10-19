@@ -80,6 +80,16 @@ class PlotBoundaryTest {
     }
 
     @Test
+    fun `exposes the stored boundary as a JSON element for the NDVI request`() {
+        val json = PlotBoundary.toGeoJsonPolygon(square)!!
+
+        assertThat(PlotBoundary.toJsonElement(json)).isEqualTo(Json.parseToJsonElement(json))
+        assertThat(PlotBoundary.toJsonElement(null)).isNull()
+        assertThat(PlotBoundary.toJsonElement("")).isNull()
+        assertThat(PlotBoundary.toJsonElement("not json")).isNull()
+    }
+
+    @Test
     fun `area estimate matches the backend planar model`() {
         assertThat(PlotBoundary.estimateAreaHectares(square)!!).isWithin(0.02).of(1.1262)
     }
