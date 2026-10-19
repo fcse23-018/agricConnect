@@ -85,7 +85,7 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             isMinifyEnabled = false
-            buildConfigField("String", "API_BASE_URL", "\"${apiBaseUrl("http://10.0.2.2:4000/api/v1/")}\"")
+            buildConfigField("String", "API_BASE_URL", "\"${apiBaseUrl("https://cautious-space-winner-69w4rgqxjv6gf5qxv-4000.app.github.dev/api/v1/")}\"")
             buildConfigField("boolean", "VERBOSE_LOGGING", "true")
         }
         release {
