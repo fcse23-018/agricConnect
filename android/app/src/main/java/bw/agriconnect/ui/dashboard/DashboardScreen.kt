@@ -31,7 +31,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import bw.agriconnect.core.util.MoneyFormat
-import bw.agriconnect.domain.model.UserRole
 import bw.agriconnect.ui.chrome.MainScaffold
 import bw.agriconnect.ui.components.AgriCard
 import bw.agriconnect.ui.components.AgriPrimaryButton
@@ -107,10 +106,10 @@ fun DashboardScreen(
 
             Row(horizontalArrangement = Arrangement.spacedBy(AgriSpacing.md)) {
                 StatTile(
-                    label = if (role == UserRole.BUYER) "Active orders" else "Farm plots",
-                    value = if (role == UserRole.BUYER) activeOrders.toString() else plots.size.toString(),
+                    label = if (role?.canViewFarms == true) "Farm plots" else "Active orders",
+                    value = if (role?.canViewFarms == true) plots.size.toString() else activeOrders.toString(),
                     modifier = Modifier.weight(1f),
-                    icon = if (role == UserRole.BUYER) Icons.Filled.ReceiptLong else Icons.Filled.Agriculture,
+                    icon = if (role?.canViewFarms == true) Icons.Filled.Agriculture else Icons.Filled.ReceiptLong,
                 )
                 StatTile(
                     label = "Waiting to sync",
@@ -122,7 +121,7 @@ fun DashboardScreen(
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(AgriSpacing.md)) {
-                if (role == UserRole.BUYER) {
+                if (role?.canViewFarms != true) {
                     StatTile(
                         label = "Alerts",
                         value = unread.toString(),
@@ -145,7 +144,7 @@ fun DashboardScreen(
                 }
             }
 
-            if (role != UserRole.BUYER && netBalance != null) {
+            if (role?.canSeeFinance == true && netBalance != null) {
                 AgriCard {
                     Column {
                         Text("Net balance", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -169,15 +168,12 @@ fun DashboardScreen(
             SectionHeader(title = "Shortcuts")
             AgriCard {
                 Column {
-                    when (role) {
-                        UserRole.FARMER, UserRole.FARM_EMPLOYEE -> {
-                            AgriSettingsRow(title = "My farms", icon = Icons.Filled.Agriculture, onClick = { onNavigate(Routes.FARMS) })
-                            AgriSettingsRow(title = "Harvests", icon = Icons.Filled.Grass, onClick = { onNavigate(Routes.HARVESTS) })
-                            AgriSettingsRow(title = "Livestock", icon = Icons.Filled.Pets, onClick = { onNavigate(Routes.LIVESTOCK) })
-                        }
-                        else -> Unit
+                    if (role?.canViewFarms == true) {
+                        AgriSettingsRow(title = "My farms", icon = Icons.Filled.Agriculture, onClick = { onNavigate(Routes.FARMS) })
+                        AgriSettingsRow(title = "Harvests", icon = Icons.Filled.Grass, onClick = { onNavigate(Routes.HARVESTS) })
+                        AgriSettingsRow(title = "Livestock", icon = Icons.Filled.Pets, onClick = { onNavigate(Routes.LIVESTOCK) })
                     }
-                    if (role == UserRole.FARMER) {
+                    if (role?.canSeeFinance == true) {
                         AgriSettingsRow(title = "Finance", icon = Icons.Filled.AccountBalanceWallet, onClick = { onNavigate(Routes.FINANCE) })
                     }
                     AgriSettingsRow(title = "Marketplace", icon = Icons.Filled.Storefront, onClick = { onNavigate(Routes.MARKETPLACE) })

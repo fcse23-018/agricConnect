@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { config } from './config/index.js';
 import { healthcheck } from './db/index.js';
 import apiRouter from './modules/index.js';
-import { uploadsDir, storageDriver, publicObjectUrl } from './services/uploads.js';
+import { uploadsDir, storageDriver, publicObjectUrl, STORED_NAME_PATTERN } from './services/uploads.js';
 import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
 import { publicReadLimiter } from './middleware/rateLimit.js';
 
@@ -82,13 +82,15 @@ export function createApp() {
   //
   // The redirect target is always built from server config plus a *validated*
   // filename, never from anything the client controls, so this cannot be used as
-  // an open redirect. `dotfiles: 'deny'` and the pattern below also block any
+  // an open redirect. `dotfiles: 'deny'` and [STORED_NAME_PATTERN] also block any
   // attempt to address something other than a name we generated.
-  const STORED_NAME = /^(?:image|avatar)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|webp)$/;
-
+  //
+  // The pattern is imported from services/uploads.js, next to the code that generates
+  // the names, so the producer and this validator cannot drift apart — which is exactly
+  // how every avatar came to be stored as `avatar--<uuid>` and served a 404.
   if (storageDriver === 'supabase') {
     app.get('/uploads/:name', (req, res, next) => {
-      if (!STORED_NAME.test(req.params.name)) return next();
+      if (!STORED_NAME_PATTERN.test(req.params.name)) return next();
       res.redirect(302, publicObjectUrl(req.params.name));
     });
   } else {

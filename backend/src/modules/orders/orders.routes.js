@@ -4,7 +4,7 @@ import { asyncHandler } from '../../utils/asyncHandler.js';
 import { paginated, toOrder } from '../../utils/serialize.js';
 import { pagination, validate } from '../../middleware/errorHandler.js';
 import { authenticate } from '../../middleware/auth.js';
-import { buyerOnly, buyerOrFarmer, farmerOnly } from '../../middleware/roles.js';
+import { anyRole, farmOwnerOnly } from '../../middleware/roles.js';
 import { idempotency } from '../../middleware/idempotency.js';
 import { audit } from '../../services/audit.js';
 import { createOrderSchema, idParamSchema } from './orders.schemas.js';
@@ -23,13 +23,13 @@ const router = Router();
 router.use(authenticate);
 
 /**
- * POST /orders — buyer places an order.
+ * POST /orders — any signed-in account places an order.
  * `idempotency` replays the original response for a repeated Idempotency-Key so a
  * double-tap or retry-after-timeout can never create two orders.
  */
 router.post(
   '/',
-  buyerOnly,
+  anyRole,
   idempotency('orders.create'),
   validate(createOrderSchema, 'body'),
   asyncHandler(async (req, res) => {
@@ -46,16 +46,19 @@ router.post(
   }),
 );
 
-/** GET /orders — own orders (buyer) or orders on own listings (farmer). */
+/**
+ * GET /orders — every order the caller is party to: the ones they placed, and the
+ * ones placed on produce they are selling. All roles can buy, so which side of an
+ * order a user is on is no longer implied by their role.
+ */
 router.get(
   '/',
-  buyerOrFarmer,
+  anyRole,
   pagination,
   asyncHandler(async (req, res) => {
     const { page, pageSize, offset } = req.pagination;
     const { rows, total } = await listOrders({
       userId: req.user.id,
-      role: req.user.role,
       pageSize,
       offset,
     });
@@ -63,10 +66,10 @@ router.get(
   }),
 );
 
-/** GET /orders/:id — visible only to its buyer or its farmer. */
+/** GET /orders/:id — visible only to its buyer or its seller. */
 router.get(
   '/:id',
-  buyerOrFarmer,
+  anyRole,
   validate(idParamSchema, 'params'),
   asyncHandler(async (req, res) => {
     const order = await getOrder({ userId: req.user.id, orderId: req.params.id });
@@ -74,10 +77,10 @@ router.get(
   }),
 );
 
-/** POST /orders/:id/confirm — farmer confirms a PENDING order. */
+/** POST /orders/:id/confirm — the seller confirms a PENDING order. */
 router.post(
   '/:id/confirm',
-  farmerOnly,
+  farmOwnerOnly,
   validate(idParamSchema, 'params'),
   asyncHandler(async (req, res) => {
     const order = await confirmOrder({ userId: req.user.id, orderId: req.params.id });
@@ -86,10 +89,10 @@ router.post(
   }),
 );
 
-/** POST /orders/:id/reject — farmer declines a PENDING order; stock released. */
+/** POST /orders/:id/reject — the seller declines a PENDING order; stock released. */
 router.post(
   '/:id/reject',
-  farmerOnly,
+  farmOwnerOnly,
   validate(idParamSchema, 'params'),
   asyncHandler(async (req, res) => {
     const order = await rejectOrder({ userId: req.user.id, orderId: req.params.id });
@@ -98,10 +101,10 @@ router.post(
   }),
 );
 
-/** POST /orders/:id/cancel — buyer cancels their own PENDING order. */
+/** POST /orders/:id/cancel — the buyer cancels their own PENDING order. */
 router.post(
   '/:id/cancel',
-  buyerOnly,
+  anyRole,
   validate(idParamSchema, 'params'),
   asyncHandler(async (req, res) => {
     const order = await cancelOrder({ userId: req.user.id, orderId: req.params.id });
@@ -110,10 +113,10 @@ router.post(
   }),
 );
 
-/** POST /orders/:id/complete — farmer completes a CONFIRMED order. */
+/** POST /orders/:id/complete — the seller completes a CONFIRMED order. */
 router.post(
   '/:id/complete',
-  farmerOnly,
+  farmOwnerOnly,
   validate(idParamSchema, 'params'),
   asyncHandler(async (req, res) => {
     const order = await completeOrder({ userId: req.user.id, orderId: req.params.id });

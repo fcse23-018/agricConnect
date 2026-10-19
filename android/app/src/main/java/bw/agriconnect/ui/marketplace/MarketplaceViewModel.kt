@@ -7,7 +7,6 @@ import bw.agriconnect.data.repository.AuthRepository
 import bw.agriconnect.data.repository.MarketplaceRepository
 import bw.agriconnect.data.remote.dto.toDomain
 import bw.agriconnect.domain.model.ProduceListing
-import bw.agriconnect.domain.model.UserRole
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -39,9 +38,9 @@ class MarketplaceViewModel @Inject constructor(
     private val _state = MutableStateFlow(MarketplaceUiState())
     val state: StateFlow<MarketplaceUiState> = _state.asStateFlow()
 
-    /** Only a farmer may create listings (docs/02-API-CONTRACT.md §marketplace). */
+    /** Only a farm owner may create listings (docs/02-API-CONTRACT.md §marketplace). */
     val canCreateListing: StateFlow<Boolean> = authRepository.session
-        .map { it?.role == UserRole.FARMER }
+        .map { it?.role?.canSell == true }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     init { refresh() }

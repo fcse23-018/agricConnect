@@ -8,7 +8,6 @@ import bw.agriconnect.data.repository.AuthRepository
 import bw.agriconnect.data.repository.FarmPlotRepository
 import bw.agriconnect.data.repository.SatelliteRepository
 import bw.agriconnect.domain.model.SatelliteNdvi
-import bw.agriconnect.domain.model.UserRole
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -39,9 +38,9 @@ class SatelliteViewModel @Inject constructor(
     private val _state = MutableStateFlow(SatelliteUiState())
     val state: StateFlow<SatelliteUiState> = _state.asStateFlow()
 
-    /** Only the farm owner (FARMER) can request a fresh NDVI computation. */
+    /** Only the farm owner can request a fresh NDVI computation. */
     val canGenerate: StateFlow<Boolean> = authRepository.session
-        .map { it?.role == UserRole.FARMER }
+        .map { it?.role?.canComputeNdvi == true }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     fun load(plotId: String) {
@@ -74,7 +73,11 @@ class SatelliteViewModel @Inject constructor(
                     it.copy(
                         isGenerating = false,
                         ndvi = r.data,
-                        infoMessage = "Satellite data generated. Status: ${r.data.status.name.lowercase()}",
+                        infoMessage = if (r.data.advice != null) {
+                            "New reading ready — guidance below."
+                        } else {
+                            "Satellite data generated. Status: ${r.data.status.name.lowercase()}"
+                        },
                     )
                 }
                 is AppResult.Failure -> _state.update {

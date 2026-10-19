@@ -199,7 +199,10 @@ router.put(
 // cap, UUID filename) — only the multipart field name and stored prefix are
 // avatar-specific. The stored path is what lands in users.avatar_url.
 
-const singleAvatar = singleImage('avatar', 'avatar-');
+// Field name is `avatar` (what the Android client sends); the stored prefix is
+// `avatar` without a trailing separator — `singleImage` adds the `-` itself. Passing
+// `'avatar-'` here stored every photo as `avatar--<uuid>` and 404'd it.
+const singleAvatar = singleImage('avatar', 'avatar');
 
 router.post(
   '/me/avatar',
@@ -267,18 +270,18 @@ router.get(
   }),
 );
 
-// --- Employee → employer link (migration 005 gap fix) ----------------------
+// --- Farmer → owner link (migration 005 gap fix) ---------------------------
 
 router.post(
   '/me/employer-link',
-  authorizeRoles(ROLES.FARM_EMPLOYEE),
+  authorizeRoles(ROLES.FARMER),
   validate(employerLinkSchema, 'body'),
   asyncHandler(async (req, res) => {
     const farmer = await one(
-      `SELECT id FROM users WHERE phone_number = $1 AND role = 'FARMER' AND deleted_at IS NULL`,
+      `SELECT id FROM users WHERE phone_number = $1 AND role = 'FARM_OWNER' AND deleted_at IS NULL`,
       [req.body.employerPhone],
     );
-    if (!farmer) throw notFound('No farmer account matches that phone number.');
+    if (!farmer) throw notFound('No farm owner account matches that phone number.');
 
     const updated = await one(
       `UPDATE users SET employer_farmer_id = $2 WHERE id = $1 RETURNING *`,

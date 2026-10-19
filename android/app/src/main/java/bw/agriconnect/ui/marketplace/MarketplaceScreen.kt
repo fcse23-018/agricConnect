@@ -43,7 +43,7 @@ private val categories = listOf("All", "Vegetables", "Grains", "Fruits", "Livest
 /**
  * The public produce catalogue. Reads are offline-first (a failed refresh falls back to
  * the last-saved catalogue, clearly labelled), and the "create listing" affordance is
- * shown only to farmers because the server restricts listing creation to that role.
+ * shown only to farm owners because the server restricts listing creation to that role.
  */
 @Composable
 fun MarketplaceScreen(

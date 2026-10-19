@@ -25,10 +25,16 @@ if (config.isProd) {
   process.exit(1);
 }
 
-/** Demo accounts. Phones satisfy the `^\+[1-9][0-9]{7,14}$` CHECK. */
+/**
+ * Demo accounts. Phones satisfy the `^\+[1-9][0-9]{7,14}$` CHECK.
+ *
+ * The keys keep their historical names because the rest of this script reads them:
+ * `farmer` is the **farm owner** (owns the land, sells produce), `employee` is a
+ * **farmer** who works that land, and `buyer` buys.
+ */
 const DEMO = {
-  farmer: { name: 'Thabo Mokoena', phone: '+26771100001', email: 'thabo@example.bw', password: 'farmer2026', role: 'FARMER' },
-  employee: { name: 'Neo Kgosi', phone: '+26771100002', email: null, password: 'worker2026', role: 'FARM_EMPLOYEE' },
+  farmer: { name: 'Thabo Mokoena', phone: '+26771100001', email: 'thabo@example.bw', password: 'farmer2026', role: 'FARM_OWNER' },
+  employee: { name: 'Neo Kgosi', phone: '+26771100002', email: null, password: 'worker2026', role: 'FARMER' },
   buyer: { name: 'Kagiso Trading', phone: '+26771100003', email: 'kagiso@example.bw', password: 'buyer2026', role: 'BUYER' },
 };
 

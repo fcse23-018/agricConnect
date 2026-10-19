@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { validate, pagination } from '../../middleware/errorHandler.js';
 import { authenticate } from '../../middleware/auth.js';
-import { farmerOrEmployee } from '../../middleware/roles.js';
+import { farmOwnerOrFarmer } from '../../middleware/roles.js';
 import { notFound } from '../../utils/errors.js';
 import { toHarvest, toLivestock, paginated } from '../../utils/serialize.js';
 import {
@@ -31,9 +31,10 @@ import {
 
 const router = Router();
 
-// Farmers record their own field data; employees record on behalf of their
-// employer. Buyers have no access at all.
-router.use(authenticate, farmerOrEmployee);
+// Both the owner and the farmer who works the land record field data: the owner on
+// their own account, the farmer on behalf of the owner who employs them (see
+// `resolveOwnerFarmerId`). Buyers have no access at all.
+router.use(authenticate, farmOwnerOrFarmer);
 
 /* ------------------------------- harvests -------------------------------- */
 

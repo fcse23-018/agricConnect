@@ -40,7 +40,7 @@ interface AccountRepository {
     /** Fetches the machine-readable personal-data export (shape owned by the backend). */
     suspend fun export(): AppResult<JsonObject>
 
-    /** Links a FARM_EMPLOYEE to their employer by the owner's phone number. */
+    /** Links a FARMER to their employer (a FARM_OWNER) by the owner's phone number. */
     suspend fun linkEmployer(employerPhone: String): AppResult<User>
 
     /** Starts the deletion grace period. Requires the current password (re-auth). */

@@ -8,9 +8,9 @@ import bw.agriconnect.domain.model.SaleTransaction
 import bw.agriconnect.domain.model.SyncStatus
 
 /**
- * Local mirror of the server `sale_transactions` table. Farmer-only writes
+ * Local mirror of the server `sale_transactions` table. Farm-owner-only writes
  * (docs/02-API-CONTRACT.md §2.5); the role check happens server-side, but offline rows are
- * still scoped by `farmer_id` so an employee device can never surface another farm's sales.
+ * still scoped by `farmer_id` so a farmer's device can never surface another farm's sales.
  */
 @Entity(
     tableName = "sale_transactions",

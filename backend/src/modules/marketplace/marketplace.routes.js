@@ -6,7 +6,7 @@ import { badRequest, conflict, notFound } from '../../utils/errors.js';
 import { paginated, toListing } from '../../utils/serialize.js';
 import { pagination, validate } from '../../middleware/errorHandler.js';
 import { authenticate } from '../../middleware/auth.js';
-import { buyerOrFarmer, farmerOnly } from '../../middleware/roles.js';
+import { anyRole, farmOwnerOnly } from '../../middleware/roles.js';
 import { audit } from '../../services/audit.js';
 import {
   createListingSchema,
@@ -34,7 +34,7 @@ const SORTS = {
  */
 router.get(
   '/listings',
-  buyerOrFarmer,
+  anyRole,
   validate(listingQuerySchema, 'query'),
   pagination,
   asyncHandler(async (req, res) => {
@@ -87,7 +87,7 @@ router.get(
  */
 router.get(
   '/my-listings',
-  farmerOnly,
+  farmOwnerOnly,
   pagination,
   asyncHandler(async (req, res) => {
     const { page, pageSize, offset } = req.pagination;
@@ -118,7 +118,7 @@ router.get(
  */
 router.get(
   '/listings/:id',
-  buyerOrFarmer,
+  anyRole,
   validate(idParamSchema, 'params'),
   asyncHandler(async (req, res) => {
     const row = await one(
@@ -131,7 +131,7 @@ router.get(
     if (!row) throw notFound('The requested listing was not found.');
 
     const isPublic = row.status === 'PUBLISHED';
-    const isOwner = req.user.role === 'FARMER' && row.farmer_id === req.user.id;
+    const isOwner = req.user.role === 'FARM_OWNER' && row.farmer_id === req.user.id;
     if (!isPublic && !isOwner) throw notFound('The requested listing was not found.');
 
     res.json(toListing(row));
@@ -145,7 +145,7 @@ router.get(
  */
 router.post(
   '/listings',
-  farmerOnly,
+  farmOwnerOnly,
   validate(createListingSchema, 'body'),
   asyncHandler(async (req, res) => {
     const b = req.body;
@@ -183,7 +183,7 @@ router.post(
  */
 router.patch(
   '/listings/:id',
-  farmerOnly,
+  farmOwnerOnly,
   validate(idParamSchema, 'params'),
   validate(updateListingSchema, 'body'),
   asyncHandler(async (req, res) => {
@@ -243,7 +243,7 @@ router.patch(
  */
 router.post(
   '/listings/:id/publish',
-  farmerOnly,
+  farmOwnerOnly,
   validate(idParamSchema, 'params'),
   asyncHandler(async (req, res) => {
     const existing = await one(
@@ -290,7 +290,7 @@ router.post(
  */
 router.post(
   '/listings/:id/archive',
-  farmerOnly,
+  farmOwnerOnly,
   validate(idParamSchema, 'params'),
   asyncHandler(async (req, res) => {
     const existing = await one(

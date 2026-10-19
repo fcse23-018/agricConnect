@@ -17,7 +17,7 @@ and provider-dependent items remain unexecuted.
 |------|--------|
 | Backend code compiles / runs | ✅ Executed — see `05-TEST-REPORT.md` |
 | Android app compiles | ✅ Executed (`:app:assembleDebug`, 22.5 MB APK — `1.1.0`/build 2) |
-| Backend tests executed | ✅ 81/81 — see `05-TEST-REPORT.md` |
+| Backend tests executed | ✅ 152/152 — see `05-TEST-REPORT.md` |
 | Crop-API tests executed | ✅ 34/34 (`pytest`, mock GEE) |
 | Android unit tests executed | ✅ 28/28 — see `05-TEST-REPORT.md` |
 | Instrumented (device) tests executed | **Not executed** — requires an emulator/device |
@@ -40,7 +40,7 @@ and provider-dependent items remain unexecuted.
 | L6 | **Push notifications are not wired.** The in-app notification feed works. | No Firebase project supplied. |
 | L7 | **NDVI is mock unless Earth Engine is configured.** Mock results are tagged `source: "MOCK"`. | No GEE credentials. |
 | L8 | **Setswana localisation is not included.** | Documented as a Phase-3 item. |
-| L9 | **Farm Employee requires a linked farm.** An employee with no employer cannot record field data. | Inferred gap fix (migration 005); the employer link is added by phone number. |
+| L9 | **The farmer role requires a linked farm.** A farmer (the account that works the land) with no employer cannot record field data; the farm owner who employs them maps the plots. | Inferred gap fix (migration `005_employee_link`, role renamed by `006_role_rename`); the employer link is added by phone number. |
 | L10 | **Buyer order confirmation wording.** The v1.1 permission matrix lists both Farmer and Buyer under "Manage Orders & Confirm Deliveries". | The build follows the narrative: **farmer confirms**; a buyer may only cancel their own `PENDING` order (conflict C4). Needs owner confirmation. |
 
 ---
@@ -67,12 +67,14 @@ and provider-dependent items remain unexecuted.
 |---|------|------|
 | T1 | Scheduled deletion processing | `processDueDeletions()` exists but must be scheduled (cron/queue) in production. |
 | T2 | Email verification enforcement | Codes are issued; the account is usable before verification. Decide whether to gate features. |
-| T3 | ~~Listing image upload~~ | **Done 2026-10-18**: listings, farm plots and avatars now upload through `POST /uploads` and render via Coil (`MediaRepository`, `AgriRemoteImage`). Device smoke test still outstanding. |
+| T3 | ~~Listing image upload~~ | **Done 2026-10-18**: listings, farm plots and avatars now upload through `POST /uploads` and render via Coil (`MediaRepository`, `AgriRemoteImage`). **Avatar 404 fixed 2026-10-19** (double-hyphen stored name). Device smoke test still outstanding. |
 | T3b | Wire the crop-API into the app | `crop-api/` is a standalone service; the app still reads satellite data through the Express `/satellite` mock. Aligning the app with the new service is future work. |
 | T4 | Offline map tiles | OSMDroid can cache tiles; explicit pre-download of a Botswana region is not implemented. |
 | T5 | Conflict UI | Conflicts surface as a `CONFLICT` badge with a review affordance; a full merge screen is minimal. |
-| T6 | Rate-limit storage | In-memory rate limiting is per-instance; a multi-instance deployment needs a shared store (Redis). |
+| T6 | Rate-limit storage | In-memory rate limiting is per-instance; a multi-instance deployment needs a shared store (a managed cache or the database), not the process heap. |
 | T7 | Idempotency key retention | The `idempotency_keys` table grows; add a purge job. |
+| T8 | NDVI advice on a device | The post-reading guidance is unit-tested on both sides (builder, wire contract and mapping) but has not been displayed on a device — no emulator/phone was available. |
+| T9 | Role rename deployment | `006_role_rename.sql` runs automatically at deploy (`npm run migrate`); `backend/scripts/apply-role-rename.sql` applies the same change idempotently by hand. A database left on the old labels would show `FARMER` where `FARM_OWNER` is meant. |
 
 ---
 

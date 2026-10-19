@@ -4,7 +4,7 @@ import { many, one, withTransaction } from '../../db/index.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { validate, pagination } from '../../middleware/errorHandler.js';
 import { authenticate } from '../../middleware/auth.js';
-import { farmerOnly } from '../../middleware/roles.js';
+import { farmOwnerOnly } from '../../middleware/roles.js';
 import { notFound } from '../../utils/errors.js';
 import { toSale, toExpense, paginated, num } from '../../utils/serialize.js';
 import {
@@ -24,7 +24,7 @@ const router = Router();
  * guard, so an employee or buyer receives 403 FORBIDDEN — this is an explicit,
  * tested acceptance criterion (docs/02-API-CONTRACT.md §2.5).
  */
-router.use(authenticate, farmerOnly);
+router.use(authenticate, farmOwnerOnly);
 
 const BWP = 'BWP';
 

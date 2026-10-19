@@ -27,7 +27,7 @@ farmer-confirmation workflow.
 | P2 | **Decoupled sync engine** — WorkManager + ConnectivityMonitor own queueing, network detection and retries. The UI never waits on the network. | v1.1 §1 |
 | P3 | **Deterministic conflict resolution** — LastWriteWinsResolver using client/server timestamps. | v1.1 §1 |
 | P4 | **Cached intelligence** — NDVI is computed in the cloud; a compressed vector alert is cached locally for offline viewing. | v1.1 §1 |
-| P5 | **Role-based access** — three roles (FARMER, FARM_EMPLOYEE, BUYER) enforced by the backend. **No facial recognition / biometrics.** | v1.1 §9 |
+| P5 | **Role-based access** — three roles (FARM_OWNER, FARMER, BUYER) enforced by the backend. All three may buy. **No facial recognition / biometrics.** | v1.1 §9 |
 
 ---
 
@@ -54,7 +54,7 @@ Entities: `User`, `FarmPlot`, `SatelliteNDVI`, `HarvestRecord`, `LivestockCount`
 Enums:
 
 ```
-UserRole      = FARMER, FARM_EMPLOYEE, BUYER
+UserRole      = FARM_OWNER, FARMER, BUYER
 SyncStatus    = PENDING, SYNCED, CONFLICT, FAILED
 ListingStatus = DRAFT, PENDING_PUBLISH, SYNCING, RETRY, PUBLISHED, SOLD
 OrderStatus   = PENDING, CONFIRMED, COMPLETED, CANCELLED

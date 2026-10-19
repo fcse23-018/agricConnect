@@ -4,18 +4,20 @@ import { many, one, withTransaction } from '../../db/index.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { validate } from '../../middleware/errorHandler.js';
 import { authenticate } from '../../middleware/auth.js';
-import { farmerOnly } from '../../middleware/roles.js';
+import { farmOwnerOnly, farmOwnerOrFarmer } from '../../middleware/roles.js';
 import { notFound } from '../../utils/errors.js';
 import { toPlot } from '../../utils/serialize.js';
 import { estimateAreaHectares } from '../../services/gee.js';
 import { audit } from '../../services/audit.js';
+import { resolveOwnerFarmerId } from '../farm/records.service.js';
 import { createPlotSchema, updatePlotSchema, idParamSchema } from './farms.schemas.js';
 
 const router = Router();
 
-// Plot mapping is a farmer-only capability (permission matrix): an employee or
-// buyer must receive 403, never a hidden-button-only restriction.
-router.use(authenticate, farmerOnly);
+// Reading plots is shared with the farmer who works the land — they need the plot
+// list to record harvests against it. Mapping (create/update/delete) is the owner's
+// capability, so those routes carry their own `farmOwnerOnly` guard below.
+router.use(authenticate);
 
 /** Pull the outer ring out of the supported GeoJSON shapes. */
 function boundaryRing(geoJson) {
@@ -55,12 +57,14 @@ function serialiseBoundary(geoJson) {
 /** GET /farms/plots — the caller's live plots, newest first. */
 router.get(
   '/plots',
+  farmOwnerOrFarmer,
   asyncHandler(async (req, res) => {
+    const farmerId = await resolveOwnerFarmerId(req.user);
     const rows = await many(
       `SELECT * FROM farm_plots
         WHERE farmer_id = $1 AND deleted_at IS NULL
         ORDER BY created_at DESC`,
-      [req.user.id],
+      [farmerId],
     );
     res.json({ items: rows.map(toPlot) });
   }),
@@ -75,6 +79,7 @@ router.get(
  */
 router.post(
   '/plots',
+  farmOwnerOnly,
   validate(createPlotSchema),
   asyncHandler(async (req, res) => {
     const { plotName, geoJsonBoundary, clientId } = req.body;
@@ -121,14 +126,16 @@ router.post(
   }),
 );
 
-/** GET /farms/plots/:id — own plot only; others' ids collapse to 404. */
+/** GET /farms/plots/:id — a plot on the caller's farm; others' ids collapse to 404. */
 router.get(
   '/plots/:id',
+  farmOwnerOrFarmer,
   validate(idParamSchema, 'params'),
   asyncHandler(async (req, res) => {
+    const farmerId = await resolveOwnerFarmerId(req.user);
     const row = await one(
       `SELECT * FROM farm_plots WHERE id = $1 AND farmer_id = $2 AND deleted_at IS NULL`,
-      [req.params.id, req.user.id],
+      [req.params.id, farmerId],
     );
     if (!row) throw notFound('Plot not found.');
     res.json(toPlot(row));
@@ -138,6 +145,7 @@ router.get(
 /** PATCH /farms/plots/:id — partial update of an owned, live plot. */
 router.patch(
   '/plots/:id',
+  farmOwnerOnly,
   validate(idParamSchema, 'params'),
   validate(updatePlotSchema),
   asyncHandler(async (req, res) => {
@@ -192,6 +200,7 @@ router.patch(
 /** DELETE /farms/plots/:id — soft delete; the row is retained for sync/audit. */
 router.delete(
   '/plots/:id',
+  farmOwnerOnly,
   validate(idParamSchema, 'params'),
   asyncHandler(async (req, res) => {
     const row = await one(

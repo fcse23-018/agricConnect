@@ -73,7 +73,7 @@ export const registerSchema = z
     password: passwordSchema,
     confirmPassword: z.string().optional(),
     role: z.enum(Object.values(ROLES), {
-      errorMap: () => ({ message: 'Role must be one of FARMER, FARM_EMPLOYEE or BUYER.' }),
+      errorMap: () => ({ message: 'Role must be one of FARM_OWNER, FARMER or BUYER.' }),
     }),
     acceptTerms: acceptLiteral('You must accept the Terms of Service to create an account.'),
     acceptPrivacy: acceptLiteral('You must accept the Privacy Policy to create an account.'),

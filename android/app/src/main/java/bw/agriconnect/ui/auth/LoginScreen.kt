@@ -42,11 +42,12 @@ fun LoginScreen(
     onForgotPassword: () -> Unit = {},
     onRegister: () -> Unit = {},
     onServerSettings: (() -> Unit)? = null,
+    onBack: (() -> Unit)? = null,
     viewModel: LoginViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
-    AuthScaffold {
+    AuthScaffold(onBack = onBack) {
         Spacer(Modifier.height(AgriSpacing.xl))
         BrandLogo(markSize = 64.dp)
         Spacer(Modifier.height(AgriSpacing.lg))

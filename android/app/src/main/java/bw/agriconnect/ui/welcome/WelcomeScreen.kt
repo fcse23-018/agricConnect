@@ -42,7 +42,7 @@ fun WelcomeScreen(
         )
         Spacer(Modifier.height(AgriSpacing.sm))
         Text(
-            text = "Smart, offline-first farm management, satellite crop insights and produce marketplace for farmers, employees and buyers in Botswana.",
+            text = "Smart, offline-first farm management, satellite crop insights and produce marketplace for farm owners, farmers and buyers in Botswana.",
             style = MaterialTheme.typography.bodyMedium,
             color = Color.White.copy(alpha = 0.92f),
             textAlign = TextAlign.Center,

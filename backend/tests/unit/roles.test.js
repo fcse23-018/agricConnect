@@ -5,12 +5,15 @@ import {
   canAccessFinancials,
   canRecordFieldData,
   canBuy,
+  canComputeNdvi,
   canManageMarketplace,
-  farmerOnly,
-  farmerOrEmployee,
-  buyerOnly,
-  buyerOrFarmer,
+  canViewPlots,
+  farmOwnerOnly,
+  farmOwnerOrFarmer,
+  buyerOrFarmOwner,
+  anyRole,
   ROLES,
+  ALL_ROLES,
 } from '../../src/middleware/roles.js';
 
 /**
@@ -26,74 +29,102 @@ function run(middleware, role) {
   return captured; // undefined == passed through
 }
 
+describe('the role set', () => {
+  it('is exactly farm owner, farmer and buyer', () => {
+    expect(Object.values(ROLES).sort()).toEqual(['BUYER', 'FARMER', 'FARM_OWNER']);
+    expect([...ALL_ROLES].sort()).toEqual(['BUYER', 'FARMER', 'FARM_OWNER']);
+  });
+
+  it('retires the old FARM_EMPLOYEE label', () => {
+    expect(Object.values(ROLES)).not.toContain('FARM_EMPLOYEE');
+  });
+});
+
 describe('authorizeRoles — server-side RBAC is the real enforcement point', () => {
   it('allows a permitted role', () => {
-    expect(run(farmerOnly, ROLES.FARMER)).toBeUndefined();
+    expect(run(farmOwnerOnly, ROLES.FARM_OWNER)).toBeUndefined();
   });
 
   it('rejects a role without permission with a 403 FORBIDDEN', () => {
-    const err = run(farmerOnly, ROLES.FARM_EMPLOYEE);
+    const err = run(farmOwnerOnly, ROLES.FARMER);
     expect(err).toBeDefined();
     expect(err.status).toBe(403);
     expect(err.code).toBe('FORBIDDEN');
   });
 
-  it('rejects a buyer from farmer-only operations', () => {
-    const err = run(farmerOnly, ROLES.BUYER);
-    expect(err.status).toBe(403);
+  it('rejects a buyer from farm-owner-only operations', () => {
+    expect(run(farmOwnerOnly, ROLES.BUYER).status).toBe(403);
   });
 
   it('demands authentication before authorization', () => {
-    const err = run(farmerOnly, undefined);
+    const err = run(farmOwnerOnly, undefined);
     expect(err).toBeDefined();
     expect(err.status).toBe(401);
   });
 
-  it('farmerOrEmployee admits both, but not buyers', () => {
-    expect(run(farmerOrEmployee, ROLES.FARMER)).toBeUndefined();
-    expect(run(farmerOrEmployee, ROLES.FARM_EMPLOYEE)).toBeUndefined();
-    expect(run(farmerOrEmployee, ROLES.BUYER).status).toBe(403);
+  it('ad hoc guards work too (authorizeRoles is the primitive)', () => {
+    expect(run(authorizeRoles(ROLES.BUYER), ROLES.BUYER)).toBeUndefined();
+    expect(run(authorizeRoles(ROLES.BUYER), ROLES.FARMER).status).toBe(403);
   });
 
-  it('buyerOnly admits buyers only', () => {
-    expect(run(buyerOnly, ROLES.BUYER)).toBeUndefined();
-    expect(run(buyerOnly, ROLES.FARMER).status).toBe(403);
+  it('farmOwnerOrFarmer admits the owner and the farmer who works the land, not buyers', () => {
+    expect(run(farmOwnerOrFarmer, ROLES.FARM_OWNER)).toBeUndefined();
+    expect(run(farmOwnerOrFarmer, ROLES.FARMER)).toBeUndefined();
+    expect(run(farmOwnerOrFarmer, ROLES.BUYER).status).toBe(403);
   });
 
-  it('buyerOrFarmer admits buyers and farmers, but not employees', () => {
-    expect(run(buyerOrFarmer, ROLES.BUYER)).toBeUndefined();
-    expect(run(buyerOrFarmer, ROLES.FARMER)).toBeUndefined();
-    expect(run(buyerOrFarmer, ROLES.FARM_EMPLOYEE).status).toBe(403);
+  it('buyerOrFarmOwner admits buyers and owners, but not the working farmer', () => {
+    expect(run(buyerOrFarmOwner, ROLES.BUYER)).toBeUndefined();
+    expect(run(buyerOrFarmOwner, ROLES.FARM_OWNER)).toBeUndefined();
+    expect(run(buyerOrFarmOwner, ROLES.FARMER).status).toBe(403);
   });
 
-  it('is not fooled by an unknown/tampered role string', () => {
-    expect(run(farmerOnly, 'ADMIN').status).toBe(403);
-    expect(run(farmerOnly, 'farmer').status).toBe(403); // case-sensitive
+  it('anyRole admits all three — buying and browsing are not a role', () => {
+    for (const role of ALL_ROLES) expect(run(anyRole, role)).toBeUndefined();
+  });
+
+  it('is not fooled by an unknown, retired or mis-cased role string', () => {
+    expect(run(anyRole, 'ADMIN').status).toBe(403);
+    expect(run(farmOwnerOnly, 'FARM_EMPLOYEE').status).toBe(403); // retired label
+    expect(run(farmOwnerOnly, 'farm_owner').status).toBe(403); // case-sensitive
   });
 });
 
-describe('permission predicates mirror the documented matrix', () => {
-  it('only a farmer may access financials (employees explicitly excluded)', () => {
-    expect(canAccessFinancials(ROLES.FARMER)).toBe(true);
-    expect(canAccessFinancials(ROLES.FARM_EMPLOYEE)).toBe(false);
+describe('permission predicates mirror the matrix', () => {
+  it('only the farm owner may access financials', () => {
+    expect(canAccessFinancials(ROLES.FARM_OWNER)).toBe(true);
+    expect(canAccessFinancials(ROLES.FARMER)).toBe(false);
     expect(canAccessFinancials(ROLES.BUYER)).toBe(false);
   });
 
-  it('farmers and employees may record field data; buyers may not', () => {
+  it('the owner and the farmer record field data; buyers do not', () => {
+    expect(canRecordFieldData(ROLES.FARM_OWNER)).toBe(true);
     expect(canRecordFieldData(ROLES.FARMER)).toBe(true);
-    expect(canRecordFieldData(ROLES.FARM_EMPLOYEE)).toBe(true);
     expect(canRecordFieldData(ROLES.BUYER)).toBe(false);
   });
 
-  it('only farmers manage marketplace listings', () => {
-    expect(canManageMarketplace(ROLES.FARMER)).toBe(true);
-    expect(canManageMarketplace(ROLES.FARM_EMPLOYEE)).toBe(false);
+  it('only the farm owner manages marketplace listings', () => {
+    expect(canManageMarketplace(ROLES.FARM_OWNER)).toBe(true);
+    expect(canManageMarketplace(ROLES.FARMER)).toBe(false);
     expect(canManageMarketplace(ROLES.BUYER)).toBe(false);
   });
 
-  it('only buyers place orders', () => {
+  it('the owner and the farmer who works the land may view plots', () => {
+    expect(canViewPlots(ROLES.FARM_OWNER)).toBe(true);
+    expect(canViewPlots(ROLES.FARMER)).toBe(true);
+    expect(canViewPlots(ROLES.BUYER)).toBe(false);
+  });
+
+  it('only the farm owner computes NDVI', () => {
+    expect(canComputeNdvi(ROLES.FARM_OWNER)).toBe(true);
+    expect(canComputeNdvi(ROLES.FARMER)).toBe(false);
+    expect(canComputeNdvi(ROLES.BUYER)).toBe(false);
+  });
+
+  it('every role can buy — that is the point of "they can all buy"', () => {
+    expect(canBuy(ROLES.FARM_OWNER)).toBe(true);
+    expect(canBuy(ROLES.FARMER)).toBe(true);
     expect(canBuy(ROLES.BUYER)).toBe(true);
-    expect(canBuy(ROLES.FARMER)).toBe(false);
-    expect(canBuy(ROLES.FARM_EMPLOYEE)).toBe(false);
+    expect(canBuy('ADMIN')).toBe(false);
   });
 });

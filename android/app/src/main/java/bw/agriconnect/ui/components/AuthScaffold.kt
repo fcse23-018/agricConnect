@@ -10,15 +10,22 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
@@ -44,11 +51,15 @@ import bw.agriconnect.ui.theme.AgriSpacing
  *
  * @param card when true (default) the content is wrapped in a surface card — use it
  *   for forms. Pass false for hero content that should sit directly on the scrim.
+ * @param onBack when non-null, a back arrow is pinned to the top-left of the screen.
+ *   It is pinned rather than placed in the scrolling content so it is always reachable,
+ *   however long the form is — a back button that scrolls out of view is worse than none.
  */
 @Composable
 fun AuthScaffold(
     modifier: Modifier = Modifier,
     card: Boolean = true,
+    onBack: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Box(modifier.fillMaxSize().background(AgriColors.DeepGreen)) {
@@ -69,6 +80,24 @@ fun AuthScaffold(
                     ),
                 ),
         )
+        if (onBack != null) {
+            // Translucent disc so the arrow keeps contrast over any part of the photo.
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .safeDrawingPadding()
+                    .padding(AgriSpacing.sm)
+                    .size(44.dp)
+                    .background(Color.White.copy(alpha = 0.20f), CircleShape),
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = Color.White,
+                )
+            }
+        }
         Column(
             modifier = Modifier
                 .fillMaxSize()

@@ -1,7 +1,8 @@
 import { many, one } from '../../db/index.js';
 import { badRequest, notFound } from '../../utils/errors.js';
-import { computeNdvi } from '../../services/gee.js';
+import { computeNdvi, estimateAreaHectares } from '../../services/gee.js';
 import { classifyNdvi } from '../../services/ndvi.js';
+import { buildNdviAdvice } from '../../services/ndviAdvice.js';
 import { notify } from '../../services/notifications.js';
 import { toNdvi } from '../../utils/serialize.js';
 
@@ -13,8 +14,55 @@ import { toNdvi } from '../../utils/serialize.js';
 export const NDVI_DISCLAIMER =
   'Satellite vegetation index is an indicative signal, not an agronomic diagnosis.';
 
-export function presentNdvi(row) {
-  return { ...toNdvi(row), disclaimer: NDVI_DISCLAIMER };
+/**
+ * Serialise an NDVI row.
+ *
+ * `advice` is attached only where we computed it (a fresh computation, the latest
+ * observation, or a single record) because building it costs two extra queries —
+ * too much for every item in a history page. It is always present as `null` when
+ * absent, so the client can branch on it without a key check.
+ */
+export function presentNdvi(row, advice = null) {
+  return { ...toNdvi(row), disclaimer: NDVI_DISCLAIMER, advice: advice ?? null };
+}
+
+/**
+ * Build the post-computation advisory block for a generated reading.
+ *
+ * It compares against the plot's *previous* generated reading so the advice can
+ * speak about direction rather than a single value, and it uses the plot boundary
+ * only to state the area the average covers. It never invents a measurement.
+ * Returns null for anything that is not a usable generated reading.
+ */
+export async function adviceForNdvi(row) {
+  if (!row || row.status !== 'GENERATED' || row.mean_ndvi_value === null || row.mean_ndvi_value === undefined) {
+    return null;
+  }
+
+  const [previous, plot] = await Promise.all([
+    one(
+      `SELECT mean_ndvi_value, satellite_date FROM satellite_ndvi
+        WHERE plot_id = $1 AND farmer_id = $2 AND status = 'GENERATED'
+          AND mean_ndvi_value IS NOT NULL AND id <> $3
+        ORDER BY satellite_date DESC NULLS LAST, created_at DESC
+        LIMIT 1`,
+      [row.plot_id, row.farmer_id, row.id],
+    ),
+    one('SELECT name, geojson_boundary FROM farm_plots WHERE id = $1', [row.plot_id]),
+  ]);
+
+  return buildNdviAdvice({
+    meanNdviValue: Number(row.mean_ndvi_value),
+    stressLevel: row.stress_level ?? classifyNdvi(row.mean_ndvi_value),
+    previous: previous
+      ? { value: Number(previous.mean_ndvi_value), date: previous.satellite_date ?? null }
+      : null,
+    areaHectares: plot?.geojson_boundary ? estimateAreaHectares(plot.geojson_boundary) : null,
+    plotName: plot?.name ?? null,
+    satelliteDate: row.satellite_date ?? null,
+    cloudCover: row.cloud_cover === null || row.cloud_cover === undefined ? null : Number(row.cloud_cover),
+    source: row.source ?? null,
+  });
 }
 
 /** Load a plot, enforcing farmer ownership. Others' plots collapse to 404. */
@@ -141,4 +189,4 @@ export async function latestNdvi(farmerId, plotId) {
   );
 }
 
-export default { requestNdvi, listNdvi, getNdvi, latestNdvi, presentNdvi, NDVI_DISCLAIMER };
+export default { requestNdvi, listNdvi, getNdvi, latestNdvi, presentNdvi, adviceForNdvi, NDVI_DISCLAIMER };

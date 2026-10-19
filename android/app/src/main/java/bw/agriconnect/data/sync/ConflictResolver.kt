@@ -26,8 +26,8 @@ enum class Resolution {
  *
  * **Why Last-Write-Wins is acceptable here.** AgriConnect's syncable records are
  * single-writer in practice: a plot, harvest, livestock count, sale or expense has
- * exactly one owner (a farmer, or that farmer plus their explicitly linked
- * employees acting on the same farm), and the server independently enforces an
+ * exactly one owner (a farm owner, or that owner plus their explicitly linked
+ * farmers acting on the same farm), and the server independently enforces an
  * owned-entity check, so two *different* accounts can never race for the same row.
  * Every device edit is stamped with a monotonic-ish `createdAt`, which the queue
  * already sends to the server as `clientTimestamp`; the server applies the identical

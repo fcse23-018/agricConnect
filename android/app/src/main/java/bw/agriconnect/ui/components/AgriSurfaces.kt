@@ -181,8 +181,8 @@ fun PulaAmount(
 @Composable
 fun RoleBadge(role: UserRole, modifier: Modifier = Modifier) {
     val (bg, fg) = when (role) {
-        UserRole.FARMER -> AgriColors.GreenContainer to AgriColors.DeepGreen
-        UserRole.FARM_EMPLOYEE -> AgriColors.BrownContainer to AgriColors.DarkBrown
+        UserRole.FARM_OWNER -> AgriColors.GreenContainer to AgriColors.DeepGreen
+        UserRole.FARMER -> AgriColors.BrownContainer to AgriColors.DarkBrown
         UserRole.BUYER -> AgriColors.GreenContainer to AgriColors.InfoBlue
     }
     Box(

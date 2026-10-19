@@ -137,7 +137,7 @@ Google Play requires a web-accessible route to request deletion **without instal
 | Tokens | stored hashed (`sha256`); single-use; short TTL; rotated on refresh; reuse detection revokes all |
 | Transport | HTTPS only; HSTS in production |
 | At-rest (device) | tokens in `EncryptedSharedPreferences`; app DB in private storage; Android backup/exfil **disabled** |
-| Least privilege | three roles enforced server-side; employees never see financials |
+| Least privilege | three roles enforced server-side; the farmer who works the land never sees financials |
 | Data minimisation | email optional; no biometrics; no camera |
 | Logging | request id correlation; no PII/token/password in logs |
 | Crash reporting | disabled by default (no PII leaves the device) |

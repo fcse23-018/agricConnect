@@ -29,13 +29,13 @@ import { audit } from '../../services/audit.js';
 
 /**
  * Public user plus the inferred employer link (migration 005 gap). The field is
- * only meaningful for FARM_EMPLOYEE accounts, so it is added for staff and left
- * off everyone else to keep the contract's user shape intact.
+ * only meaningful for FARMER accounts (someone who works another's land), so it is
+ * added for them and left off everyone else to keep the contract's user shape intact.
  */
 export function serializeUser(row) {
   if (!row) return null;
   const user = toPublicUser(row);
-  if (row.role === 'FARM_EMPLOYEE') {
+  if (row.role === 'FARMER') {
     user.employerFarmerId = row.employer_farmer_id ?? null;
   }
   return user;

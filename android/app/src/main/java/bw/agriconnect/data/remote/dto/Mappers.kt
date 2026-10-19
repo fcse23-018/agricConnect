@@ -12,7 +12,15 @@ import bw.agriconnect.domain.model.FinanceSummary
 import bw.agriconnect.domain.model.HarvestRecord
 import bw.agriconnect.domain.model.ListingStatus
 import bw.agriconnect.domain.model.LivestockCount
+import bw.agriconnect.domain.model.NdviAction
+import bw.agriconnect.domain.model.NdviAdvice
+import bw.agriconnect.domain.model.NdviAdviceContext
+import bw.agriconnect.domain.model.NdviAdvicePriority
+import bw.agriconnect.domain.model.NdviConfidence
 import bw.agriconnect.domain.model.NdviProcessingStatus
+import bw.agriconnect.domain.model.NdviScaleRow
+import bw.agriconnect.domain.model.NdviTrend
+import bw.agriconnect.domain.model.NdviTrendDirection
 import bw.agriconnect.domain.model.NotificationPreferences
 import bw.agriconnect.domain.model.Order
 import bw.agriconnect.domain.model.OrderStatus
@@ -282,7 +290,61 @@ fun NdviDto.toDomain(): SatelliteNdvi = SatelliteNdvi(
     isCached = isCached,
     source = source ?: "SENTINEL-2",
     createdAt = createdAt.orEmpty(),
+    advice = advice?.toDomain(),
 )
+
+/**
+ * The advisory block is dropped entirely when it carries no assessment. Without a
+ * headline and a meaning there is nothing to tell the farmer, and an empty advice card
+ * would be worse than no card at all — the screen then simply shows the reading.
+ */
+fun NdviAdviceDto.toDomain(): NdviAdvice? {
+    val a = assessment ?: return null
+    return NdviAdvice(
+        headline = a.headline.orEmpty(),
+        meaning = a.meaning.orEmpty(),
+        summary = a.summary.orEmpty(),
+        priority = enumOrDefault(priority, NdviAdvicePriority.ROUTINE),
+        label = a.label.orEmpty(),
+        colour = a.colour.orEmpty(),
+        actions = actions.mapNotNull { it.toDomain() },
+        watchFor = watchFor.filter { it.isNotBlank() },
+        trend = trend?.let {
+            NdviTrend(
+                direction = enumOrDefault(it.direction, NdviTrendDirection.FIRST_READING),
+                delta = it.delta,
+                previousValue = it.previousValue,
+                previousDate = it.previousDate,
+                note = it.note,
+            )
+        },
+        context = context?.let {
+            NdviAdviceContext(
+                plotName = it.plotName,
+                areaHectares = it.areaHectares,
+                observedOn = it.observedOn,
+                daysSinceObservation = it.daysSinceObservation,
+                cloudCoverPercent = it.cloudCoverPercent,
+                source = it.source,
+                sourceIsSimulated = it.sourceIsSimulated,
+            )
+        },
+        confidence = confidence?.let {
+            NdviConfidence(level = it.level.orEmpty(), note = it.note.orEmpty())
+        },
+        scaleGuide = scaleGuide.mapNotNull { row ->
+            row.range?.takeIf { it.isNotBlank() }?.let { range -> NdviScaleRow(range, row.meaning.orEmpty()) }
+        },
+        limits = limits.filter { it.isNotBlank() },
+        disclaimer = disclaimer,
+    )
+}
+
+/** An action without a title cannot be acted on, so it is dropped rather than shown blank. */
+private fun NdviActionDto.toDomain(): NdviAction? {
+    val t = title?.takeIf { it.isNotBlank() } ?: return null
+    return NdviAction(title = t, detail = detail.orEmpty())
+}
 
 /* -------------------------------- marketplace ----------------------------- */
 

@@ -16,11 +16,15 @@ import bw.agriconnect.ui.components.AgriNavItem
 /**
  * Role-aware navigation model.
  *
- * The three roles get materially different apps:
- *  - **Farmer** manages plots, finances and their own listings.
- *  - **Farm employee** records field work and reads alerts; finance and account
- *    settings are the owner's.
- *  - **Buyer** browses the marketplace and tracks orders.
+ * Each role lands on its own home and sees only the tabs the backend will actually
+ * serve it:
+ *  - **Farm owner** owns the land — plots, satellite crop monitoring, selling and
+ *    buying.
+ *  - **Farmer** works the land — the owner's plots to record against, plus buying.
+ *  - **Buyer** buys — the catalogue and order tracking.
+ *
+ * **Every role gets a Market and a More tab.** Anyone can buy, and More is the only
+ * route to the profile, settings and sign-out, so no role may be locked out of it.
  *
  * The backend enforces these boundaries (RBAC middleware); the client mirrors them so a
  * role never sees a tab that would only return `403`.
@@ -38,8 +42,12 @@ object AgriNavItems {
     private val more = AgriNavItem(Routes.MORE, "More", Icons.Filled.MoreHoriz)
 
     fun forRole(role: UserRole?): List<AgriNavItem> = when (role) {
-        UserRole.FARMER -> listOf(home, farms, satellite, market, more)
-        UserRole.FARM_EMPLOYEE -> listOf(home, farms, satellite, market, more)
+        // Owns the farm: farm plots plus satellite monitoring of the same plots, and
+        // both sides of the marketplace. Finance lives on the home shortcuts.
+        UserRole.FARM_OWNER -> listOf(home, farms, satellite, market, more)
+        // Works the land: the owner's plots to record against, and buying.
+        UserRole.FARMER -> listOf(home, farms, market, orders, more)
+        // Buys: the catalogue first, then order tracking.
         UserRole.BUYER -> listOf(market, orders, alerts, more)
         null -> emptyList()
     }

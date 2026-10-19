@@ -8,8 +8,8 @@ import bw.agriconnect.domain.model.HarvestRecord
 import bw.agriconnect.domain.model.SyncStatus
 
 /**
- * Local mirror of the server `harvest_records` table. Writable by farmers and (through
- * their employer link) farm employees. Carries the same offline tombstone/sync bookkeeping
+ * Local mirror of the server `harvest_records` table. Writable by farm owners and (through
+ * their employer link) the FARMERs they employ. Carries the same offline tombstone/sync bookkeeping
  * as [FarmPlotEntity] so an unsynced harvest survives logout.
  */
 @Entity(

@@ -147,7 +147,7 @@ const FarmPlot = {
   table: 'farm_plots',
   clientIdBased: true,
   softDelete: true,
-  roles: [ROLES.FARMER],
+  roles: [ROLES.FARM_OWNER],
   serialize: toPlot,
   validate: (payload) => farmPlotPayload.parse(payload),
   buildInsert: ({ payload, ownerFarmerId, clientId }) => ({
@@ -190,7 +190,7 @@ const HarvestRecord = {
   table: 'harvest_records',
   clientIdBased: true,
   softDelete: true,
-  roles: [ROLES.FARMER, ROLES.FARM_EMPLOYEE],
+  roles: [ROLES.FARM_OWNER, ROLES.FARMER],
   serialize: toHarvest,
   validate: (payload) => harvestPayload.parse(payload),
   buildInsert: ({ payload, ownerFarmerId, userId, clientId }) => ({
@@ -230,7 +230,7 @@ const LivestockCount = {
   table: 'livestock_counts',
   clientIdBased: true,
   softDelete: true,
-  roles: [ROLES.FARMER, ROLES.FARM_EMPLOYEE],
+  roles: [ROLES.FARM_OWNER, ROLES.FARMER],
   serialize: toLivestock,
   validate: (payload) => livestockPayload.parse(payload),
   buildInsert: ({ payload, ownerFarmerId, userId, clientId }) => ({
@@ -268,7 +268,7 @@ const SaleTransaction = {
   table: 'sale_transactions',
   clientIdBased: true,
   softDelete: true,
-  roles: [ROLES.FARMER],
+  roles: [ROLES.FARM_OWNER],
   serialize: toSale,
   validate: (payload) => salePayload.parse(payload),
   buildInsert: ({ payload, ownerFarmerId, clientId }) => ({
@@ -313,7 +313,7 @@ const Expense = {
   table: 'expenses',
   clientIdBased: true,
   softDelete: true,
-  roles: [ROLES.FARMER],
+  roles: [ROLES.FARM_OWNER],
   serialize: toExpense,
   validate: (payload) => expensePayload.parse(payload),
   buildInsert: ({ payload, ownerFarmerId, clientId }) => ({
@@ -352,7 +352,7 @@ const ProduceListing = {
   table: 'produce_listings',
   clientIdBased: false,
   softDelete: true,
-  roles: [ROLES.FARMER],
+  roles: [ROLES.FARM_OWNER],
   serialize: toListing,
   validate: (payload) => produceListingPayload.parse(payload),
   buildInsert: ({ payload, ownerFarmerId, id }) => ({

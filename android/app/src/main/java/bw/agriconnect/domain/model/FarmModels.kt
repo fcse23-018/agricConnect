@@ -106,7 +106,68 @@ data class SatelliteNdvi(
     val source: String = "SENTINEL-2",
     val createdAt: String,
     val plotName: String? = null,
+    /**
+     * What the reading means and what to do about it, built server-side
+     * (`backend/src/services/ndviAdvice.js`) and shown once a result is available.
+     * Null while a computation is in flight, on a failure, or when a cached reading
+     * was stored before the guidance existed.
+     */
+    val advice: NdviAdvice? = null,
 )
+
+/**
+ * The advisory block attached to a generated reading.
+ *
+ * Every field is a plain value or a list of plain values: the device renders the
+ * guidance, it never derives it. That keeps advice identical across devices and
+ * versions, and keeps the agricultural content in one reviewable place.
+ */
+data class NdviAdvice(
+    /** One-line instruction, e.g. "Act now — crop vigour is very low". */
+    val headline: String,
+    /** What this band means agronomically. */
+    val meaning: String,
+    /** The reading in one sentence, including its trend and age. */
+    val summary: String,
+    val priority: NdviAdvicePriority,
+    val label: String,
+    val colour: String,
+    val actions: List<NdviAction> = emptyList(),
+    val watchFor: List<String> = emptyList(),
+    val trend: NdviTrend? = null,
+    val context: NdviAdviceContext? = null,
+    val confidence: NdviConfidence? = null,
+    /** The published NDVI ranges, so the number can be read without trusting a colour. */
+    val scaleGuide: List<NdviScaleRow> = emptyList(),
+    /** What no vegetation index can tell a farmer. */
+    val limits: List<String> = emptyList(),
+    val disclaimer: String? = null,
+)
+
+data class NdviAction(val title: String, val detail: String)
+
+data class NdviTrend(
+    val direction: NdviTrendDirection,
+    val delta: Double? = null,
+    val previousValue: Double? = null,
+    val previousDate: String? = null,
+    val note: String? = null,
+)
+
+data class NdviAdviceContext(
+    val plotName: String? = null,
+    val areaHectares: Double? = null,
+    val observedOn: String? = null,
+    val daysSinceObservation: Int? = null,
+    val cloudCoverPercent: Double? = null,
+    val source: String? = null,
+    /** True when the value came from the built-in simulator, not real imagery. */
+    val sourceIsSimulated: Boolean = false,
+)
+
+data class NdviConfidence(val level: String, val note: String)
+
+data class NdviScaleRow(val range: String, val meaning: String)
 
 data class ProduceListing(
     val listingId: String,

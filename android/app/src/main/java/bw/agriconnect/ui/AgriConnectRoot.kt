@@ -122,12 +122,18 @@ fun AgriConnectRoot(
                     onForgotPassword = { navController.navigate(Routes.FORGOT_PASSWORD) },
                     onRegister = { navController.navigate(Routes.REGISTER) },
                     onServerSettings = { navController.navigate(Routes.SERVER) },
+                    // Back to the main (welcome) screen. After sign-out the stack holds
+                    // only LOGIN, so popping fails — fall back to clearing to Welcome.
+                    onBack = { if (!navController.popBackStack()) clearTo(Routes.WELCOME) },
                 )
             }
             composable(Routes.REGISTER) {
                 RegisterScreen(
                     onRegistered = { clearTo(AgriNavItems.homeRouteFor(rootViewModel.session.value?.role)) },
                     onBackToLogin = { navController.popBackStack() },
+                    // Sign-up can be reached from onboarding as well as from sign-in, so go
+                    // straight to the main screen rather than relying on the back stack.
+                    onBackToMain = { clearTo(Routes.WELCOME) },
                 )
             }
             composable(Routes.FORGOT_PASSWORD) {

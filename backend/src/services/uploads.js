@@ -69,6 +69,33 @@ export function extensionFor(mimeType) {
 }
 
 /**
+ * The shape of every filename this service writes.
+ *
+ * This is a security control as much as a format: `GET /uploads/:name` only
+ * redirects names matching it, so a client cannot address a file we did not create.
+ *
+ * It lives here, next to [storedNameFor], and not inline in the route. The two once
+ * drifted apart: the avatar route passed the prefix as `'avatar-'`, [storedNameFor]
+ * adds its own separator, and every profile photo was therefore written as
+ * `avatar--<uuid>.png` — rejected by the (separately written) route pattern and served
+ * as a 404. Producer and validator being one source of truth is the fix.
+ *
+ * `-{1,2}` keeps those historical double-hyphen avatars resolving, so photos uploaded
+ * before the fix do not have to be re-taken.
+ */
+export const STORED_NAME_PATTERN =
+  /^(?:image|avatar)-{1,2}[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:jpg|png|webp)$/;
+
+/**
+ * The filename an upload is stored under. [prefix] must **not** include the trailing
+ * separator — this function adds it, so every caller produces `image-<uuid>.<ext>` or
+ * `avatar-<uuid>.<ext>` and nothing else.
+ */
+export function storedNameFor(prefix, mimeType) {
+  return `${prefix}-${randomUUID()}${extensionFor(mimeType)}`;
+}
+
+/**
  * The public URL path a stored file is served from. Pure — the value that is
  * persisted in `users.avatar_url`, `produce_listings.image_url`, … so storage
  * can move (disk → object storage) without a data migration.
@@ -176,7 +203,7 @@ function imageStorage(prefix) {
         cb(err);
       }
     },
-    filename: (_req, file, cb) => cb(null, `${prefix}-${randomUUID()}${extensionFor(file.mimetype)}`),
+    filename: (_req, file, cb) => cb(null, storedNameFor(prefix, file.mimetype)),
   });
 }
 
@@ -222,7 +249,7 @@ export function singleImage(field, prefix = 'image') {
 
       if (!useSupabase || !req.file) return next();
 
-      const filename = `${prefix}-${randomUUID()}${extensionFor(req.file.mimetype)}`;
+      const filename = storedNameFor(prefix, req.file.mimetype);
       putObject({ filename, buffer: req.file.buffer, mimeType: req.file.mimetype })
         .then(() => {
           req.file.filename = filename;
@@ -233,4 +260,15 @@ export function singleImage(field, prefix = 'image') {
   };
 }
 
-export default { singleImage, publicUrl, publicObjectUrl, isImageMime, extensionFor, uploadsDir, storageDriver, IMAGE_MIME_EXT };
+export default {
+  singleImage,
+  publicUrl,
+  publicObjectUrl,
+  isImageMime,
+  extensionFor,
+  storedNameFor,
+  STORED_NAME_PATTERN,
+  uploadsDir,
+  storageDriver,
+  IMAGE_MIME_EXT,
+};

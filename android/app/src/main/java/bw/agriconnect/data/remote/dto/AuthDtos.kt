@@ -20,7 +20,7 @@ data class RegisterRequest(
     val phoneNumber: String,
     val email: String? = null,
     val password: String,
-    /** One of `FARMER`, `FARM_EMPLOYEE`, `BUYER`. Never a privileged flag. */
+    /** One of `FARM_OWNER`, `FARMER`, `BUYER`. Never a privileged flag. */
     val role: String,
     /**
      * Consent flags are part of the register contract and must always reach the

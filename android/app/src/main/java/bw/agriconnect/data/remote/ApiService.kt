@@ -162,7 +162,7 @@ interface ApiService {
     @POST("uploads")
     suspend fun uploadImage(@Part image: MultipartBody.Part): UploadResponse
 
-    /** Link a FARM_EMPLOYEE to their employing farmer (migration 005). */
+    /** Link a FARMER to the FARM_OWNER who employs them (migration 005). */
     @POST("users/me/employer-link")
     suspend fun employerLink(@Body body: EmployerLinkRequest): MeResponse
 

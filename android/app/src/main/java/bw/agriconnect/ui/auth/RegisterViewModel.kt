@@ -19,7 +19,7 @@ data class RegisterUiState(
     val email: String = "",
     val password: String = "",
     val confirmPassword: String = "",
-    val role: UserRole = UserRole.FARMER,
+    val role: UserRole = UserRole.FARM_OWNER,
     val acceptTerms: Boolean = true,
     val fullNameError: String? = null,
     val phoneError: String? = null,

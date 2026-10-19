@@ -53,6 +53,11 @@ export async function createOrder({ userId, listingId, quantity, note }) {
     const listing = listingRes.rows[0];
     if (!listing) throw notFound('That listing is no longer available.');
 
+    // A farm owner who sells can also buy — but not from themselves.
+    if (listing.farmer_id === userId) {
+      throw badRequest('You cannot order your own listing.');
+    }
+
     const available =
       Number(listing.quantity) - Number(listing.reserved_qty) - Number(listing.sold_qty);
     if (quantity <= 0) throw badRequest('Order quantity must be greater than zero.');
@@ -108,14 +113,15 @@ export async function createOrder({ userId, listingId, quantity, note }) {
 }
 
 /**
- * Paginated order list scoped to the caller: buyers see their own orders,
- * farmers see orders placed on their listings.
+ * Paginated order list scoped to the caller: every order they are party to — the ones
+ * they placed as a buyer, and the ones placed on produce they are selling.
+ *
+ * All roles may buy, so which side of an order someone is on is not implied by their
+ * role; the row is matched on identity instead.
  */
-export async function listOrders({ userId, role, pageSize, offset }) {
-  const column = role === 'FARMER' ? 'o.farmer_id' : 'o.buyer_id';
-
+export async function listOrders({ userId, pageSize, offset }) {
   const totalRow = await one(
-    `SELECT count(*)::int AS total FROM orders o WHERE ${column} = $1`,
+    `SELECT count(*)::int AS total FROM orders o WHERE o.buyer_id = $1 OR o.farmer_id = $1`,
     [userId],
   );
 
@@ -124,7 +130,7 @@ export async function listOrders({ userId, role, pageSize, offset }) {
        FROM orders o
        JOIN produce_listings pl ON pl.id = o.listing_id
        JOIN users b ON b.id = o.buyer_id
-      WHERE ${column} = $1
+      WHERE o.buyer_id = $1 OR o.farmer_id = $1
       ORDER BY o.created_at DESC
       LIMIT $2 OFFSET $3`,
     [userId, pageSize, offset],

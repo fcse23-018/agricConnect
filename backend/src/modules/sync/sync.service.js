@@ -296,9 +296,9 @@ async function processItem({ userId, role, deviceId, item }) {
 
   // 3. Ownership — a user can never write another user's record.
   let ownerFarmerId = null;
-  if (role === ROLES.FARMER) {
+  if (role === ROLES.FARM_OWNER) {
     ownerFarmerId = userId;
-  } else if (role === ROLES.FARM_EMPLOYEE) {
+  } else if (role === ROLES.FARMER) {
     const employer = await one(`SELECT employer_farmer_id FROM users WHERE id = $1`, [userId]);
     ownerFarmerId = employer?.employer_farmer_id ?? null;
   }
@@ -373,23 +373,29 @@ async function rowsCreatedSince(table, column, value, since) {
   );
 }
 
-async function orderRowsSince(column, value, since) {
+/**
+ * Orders the caller is party to on either side. All roles can buy, so a user may be
+ * the buyer of one order and the seller of another; matching on identity rather than
+ * role is what keeps both visible.
+ */
+async function ordersSinceForUser(userId, since) {
   return many(
     `SELECT o.*, pl.produce, b.full_name AS buyer_name
        FROM orders o
        JOIN produce_listings pl ON pl.id = o.listing_id
        JOIN users b ON b.id = o.buyer_id
-      WHERE o.${column} = $1 AND o.updated_at > $2
+      WHERE (o.buyer_id = $1 OR o.farmer_id = $1) AND o.updated_at > $2
       ORDER BY o.updated_at ASC, o.id ASC
       LIMIT ${PULL_LIMIT}`,
-    [value, since],
+    [userId, since],
   );
 }
 
 /**
  * Server-authoritative deltas for the caller's scope.
- * Farmer: own records. Employee: employer's harvests/livestock + own feed.
- * Buyer: own orders + own feed.
+ * Farm owner: own plots, records, finances, listings, NDVI and every order they are
+ * party to. Farmer: the employer's plots/harvests/livestock, plus their own purchases
+ * and feed. Buyer: their own orders and feed.
  */
 export async function pullChanges({ userId, role, since }) {
   const sinceTs = since ? new Date(since) : new Date(0);
@@ -405,26 +411,29 @@ export async function pullChanges({ userId, role, since }) {
     ndvi: [],
   };
 
-  if (role === ROLES.FARMER) {
+  if (role === ROLES.FARM_OWNER) {
     changes.plots = (await rowsUpdatedSince('farm_plots', 'farmer_id', userId, sinceTs)).map(toPlot);
     changes.harvests = (await rowsUpdatedSince('harvest_records', 'farmer_id', userId, sinceTs)).map(toHarvest);
     changes.livestock = (await rowsUpdatedSince('livestock_counts', 'farmer_id', userId, sinceTs)).map(toLivestock);
     changes.sales = (await rowsUpdatedSince('sale_transactions', 'farmer_id', userId, sinceTs)).map(toSale);
     changes.expenses = (await rowsUpdatedSince('expenses', 'farmer_id', userId, sinceTs)).map(toExpense);
     changes.listings = (await rowsUpdatedSince('produce_listings', 'farmer_id', userId, sinceTs)).map(toListing);
-    changes.orders = (await orderRowsSince('farmer_id', userId, sinceTs)).map(toOrder);
+    changes.orders = (await ordersSinceForUser(userId, sinceTs)).map(toOrder);
     changes.notifications = (await rowsCreatedSince('notifications', 'user_id', userId, sinceTs)).map(toNotification);
     changes.ndvi = (await rowsCreatedSince('satellite_ndvi', 'farmer_id', userId, sinceTs)).map(toNdvi);
-  } else if (role === ROLES.FARM_EMPLOYEE) {
+  } else if (role === ROLES.FARMER) {
     const employer = await one(`SELECT employer_farmer_id FROM users WHERE id = $1`, [userId]);
     const farmerId = employer?.employer_farmer_id ?? null;
     if (farmerId) {
+      changes.plots = (await rowsUpdatedSince('farm_plots', 'farmer_id', farmerId, sinceTs)).map(toPlot);
       changes.harvests = (await rowsUpdatedSince('harvest_records', 'farmer_id', farmerId, sinceTs)).map(toHarvest);
       changes.livestock = (await rowsUpdatedSince('livestock_counts', 'farmer_id', farmerId, sinceTs)).map(toLivestock);
     }
+    // Everyone can buy, so the farmer's own purchases sync on their device too.
+    changes.orders = (await ordersSinceForUser(userId, sinceTs)).map(toOrder);
     changes.notifications = (await rowsCreatedSince('notifications', 'user_id', userId, sinceTs)).map(toNotification);
   } else if (role === ROLES.BUYER) {
-    changes.orders = (await orderRowsSince('buyer_id', userId, sinceTs)).map(toOrder);
+    changes.orders = (await ordersSinceForUser(userId, sinceTs)).map(toOrder);
     changes.notifications = (await rowsCreatedSince('notifications', 'user_id', userId, sinceTs)).map(toNotification);
   }
 

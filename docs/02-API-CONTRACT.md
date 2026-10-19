@@ -52,7 +52,7 @@ public reads 300 req / 15 min / IP.
 ```jsonc
 // User
 { "userId":"uuid", "fullName":"...", "phoneNumber":"+267...", "email":null,
-  "role":"FARMER|FARM_EMPLOYEE|BUYER", "accountStatus":"REGISTERED|UNVERIFIED|VERIFIED|SUSPENDED|PENDING_DELETION|DELETED",
+  "role":"FARM_OWNER|FARMER|BUYER", "accountStatus":"REGISTERED|UNVERIFIED|VERIFIED|SUSPENDED|PENDING_DELETION|DELETED",
   "avatarUrl":null, "notificationPreferences":{ "orders":true,"sync":true,"satellite":true,"marketplace":true },
   "createdAt":"ISO8601", "updatedAt":"ISO8601", "verifiedAt":null }
 
@@ -120,48 +120,92 @@ disclosed to the user before confirmation.
 
 | Method | Path | Roles | Notes |
 |--------|------|-------|-------|
-| GET | `/farms/plots` | farmer | own plots |
-| POST | `/farms/plots` | farmer | `{plotName, areaHectares, geoJsonBoundary, clientId?, updatedAt}` |
-| GET | `/farms/plots/{id}` | farmer | own only |
-| PATCH | `/farms/plots/{id}` | farmer | own only |
-| DELETE | `/farms/plots/{id}` | farmer | own only |
+| GET | `/farms/plots` | farm owner, farmer | the farm's plots, newest first |
+| POST | `/farms/plots` | farm owner | `{plotName, areaHectares, geoJsonBoundary, clientId?, updatedAt}` |
+| GET | `/farms/plots/{id}` | farm owner, farmer | own farm only |
+| PATCH | `/farms/plots/{id}` | farm owner | own only |
+| DELETE | `/farms/plots/{id}` | farm owner | own only |
+
+A farmer who works the land reads the plots of the owner who employs them, so field
+work can be recorded against the right plot; only the farm owner maps and edits them.
 
 ### 2.5 Farm records
 
 | Method | Path | Roles |
 |--------|------|-------|
-| GET/POST | `/farm/harvests` · `/farm/harvests/{id}` | farmer, employee |
-| GET/POST | `/farm/livestock` · `/farm/livestock/{id}` | farmer, employee |
-| GET/POST | `/finance/sales` · `/finance/sales/{id}` | **farmer only** |
-| GET/POST | `/finance/expenses` · `/finance/expenses/{id}` | **farmer only** |
-| GET | `/finance/summary?from&to` | **farmer only** → `{totalSales,totalExpenses,netBalance,series:[{period,sales,expenses}]}` |
+| GET/POST | `/farm/harvests` · `/farm/harvests/{id}` | farm owner, farmer |
+| GET/POST | `/farm/livestock` · `/farm/livestock/{id}` | farm owner, farmer |
+| GET/POST | `/finance/sales` · `/finance/sales/{id}` | **farm owner only** |
+| GET/POST | `/finance/expenses` · `/finance/expenses/{id}` | **farm owner only** |
+| GET | `/finance/summary?from&to` | **farm owner only** → `{totalSales,totalExpenses,netBalance,series:[{period,sales,expenses}]}` |
 
-Employee requests to `/finance/*` → **`403`** (explicitly tested).
+A farmer who works the land requesting `/finance/*` → **`403`** (explicitly tested).
 
 ### 2.6 Satellite NDVI — `/satellite`
 
 | Method | Path | Roles | Notes |
 |--------|------|-------|-------|
-| POST | `/satellite/ndvi` | farmer | `{plotId, geoJsonBoundary}` → `201 {ndviId, plotId, satelliteDate, meanNdviValue, stressLevel, status, compressedVectorJson, isCached:false}` |
-| GET | `/satellite/ndvi?plotId=` | farmer | history, newest first |
-| GET | `/satellite/ndvi/{id}` | farmer | one record |
+| POST | `/satellite/ndvi` | farm owner | `{plotId, geoJsonBoundary}` → `201 {ndviId, plotId, satelliteDate, meanNdviValue, stressLevel, status, compressedVectorJson, isCached:false, advice}` |
+| GET | `/satellite/ndvi?plotId=` | farm owner | history, newest first — **no `advice` on history items** |
+| GET | `/satellite/ndvi/latest?plotId=` | farm owner | newest record, or `ndvi: null` |
+| GET | `/satellite/ndvi/{id}` | farm owner | one record |
 
 Backend pipeline: validate polygon → Earth Engine `Sentinel-2` → Band 8 (NIR) / Band 4 (RED) →
 `NDVI=(NIR−RED)/(NIR+RED)` → classify with the documented thresholds → return compressed vector
 alert. Cloud cover > 80 % ⇒ `status:"FAILED"`, `meanNdviValue:null`. NDVI is **not** presented as a
 definitive agronomic diagnosis.
 
+#### 2.6.1 The `advice` block
+
+Once a reading is generated, the response also carries `advice`: what the number means, what to
+do about it, what to watch for in the field, how far the measurement can be trusted, the published
+scale it sits on, and what a vegetation index cannot say. It is built **once, server-side**
+(`backend/src/services/ndviAdvice.js`) so every client shows the same guidance for the same
+observation, and it appears on the fresh computation, on `latest` and on a single record — never on
+paginated history, where it would cost two extra queries per item.
+
+How it is derived, and what it deliberately never does:
+
+- **Trend** — compared with the plot's *previous* generated reading, and only a movement larger than
+  the noise floor (`0.05`) counts as improving or declining; otherwise the label is "stable". With no
+  previous reading it says so ("first reading for this plot") instead of pretending it is stable.
+- **Priority** — `NOW` (high stress), `SOON` (moderate), `ROUTINE` (healthy). The wording of each
+  action is investigative ("walk the plot", "check soil moisture"), because NDVI cannot name the
+  cause of a low reading.
+- **Confidence** — about the *measurement*, never about the crop: `LOW` for a simulated (`source:
+  MOCK`) or heavily cloud-covered observation, `HIGH` for a clear real one, `MEDIUM` otherwise.
+- **Never invents data** — the value echoed in `assessment.value` is the stored `meanNdviValue`; a
+  `FAILED` or in-flight record has `advice: null`, and the mock mode is labelled as demonstration
+  data in both the response and the UI.
+
+```jsonc
+// advice (excerpt) — attached to a GENERATED reading
+{ "assessment": { "value":0.42, "stressLevel":"MODERATE_STRESS", "label":"Moderate stress",
+                  "colour":"warning", "headline":"Watch closely …", "meaning":"…",
+                  "band":{"min":0.2,"max":0.45}, "summary":"…" },
+  "priority":"SOON",
+  "actions":[{"title":"Walk the plot …","detail":"…"}],
+  "watchFor":["Thin or patchy emergence"],
+  "trend":{"direction":"DECLINING","delta":-0.11,"previousValue":0.53,"previousDate":"2026-06-01","note":"…"},
+  "context":{"plotName":"North field","areaHectares":1.13,"observedOn":"2026-06-15",
+             "daysSinceObservation":5,"cloudCoverPercent":12,"source":"SENTINEL-2","sourceIsSimulated":false},
+  "confidence":{"level":"HIGH","note":"…"},
+  "scaleGuide":[{"range":"0.20 – 0.45","meaning":"…"}],
+  "limits":["It is an average over the whole plot."],
+  "disclaimer":"This is general guidance from a vegetation index, not a site-specific agronomic recommendation." }
+```
+
 ### 2.7 Marketplace — `/marketplace`
 
 | Method | Path | Roles | Notes |
 |--------|------|-------|-------|
-| GET | `/marketplace/listings` | buyer, farmer | **only `PUBLISHED` by default**; `?search=&crop=&minPrice=&maxPrice=&sort=price_asc|price_desc|recent&page=` |
-| GET | `/marketplace/listings/{id}` | buyer, farmer | PUBLISHED, or own listing in any state |
-| GET | `/marketplace/my-listings` | farmer | all own states |
-| POST | `/marketplace/listings` | farmer | creates `DRAFT` |
-| PATCH | `/marketplace/listings/{id}` | farmer | own only |
-| POST | `/marketplace/listings/{id}/publish` | farmer | `DRAFT/PENDING_PUBLISH→SYNCING→PUBLISHED` |
-| POST | `/marketplace/listings/{id}/archive` | farmer | → removed from public view |
+| GET | `/marketplace/listings` | any role | **only `PUBLISHED` by default**; `?search=&crop=&minPrice=&maxPrice=&sort=price_asc|price_desc|recent&page=` |
+| GET | `/marketplace/listings/{id}` | any role | PUBLISHED, or own listing in any state |
+| GET | `/marketplace/my-listings` | farm owner | all own states |
+| POST | `/marketplace/listings` | farm owner | creates `DRAFT` |
+| PATCH | `/marketplace/listings/{id}` | farm owner | own only |
+| POST | `/marketplace/listings/{id}/publish` | farm owner | `DRAFT/PENDING_PUBLISH→SYNCING→PUBLISHED` |
+| POST | `/marketplace/listings/{id}/archive` | farm owner | → removed from public view |
 
 Lifecycle: `DRAFT → PENDING_PUBLISH → SYNCING → (RETRY) → PUBLISHED → SOLD`.
 **A listing is never publicly visible before the server confirms `PUBLISHED`.**
@@ -195,7 +239,7 @@ Workflow (v1.1 §9.4): buyer places order → `PENDING` → farmer notified → 
 
 | Method | Path | Roles | Notes |
 |--------|------|-------|-------|
-| POST | `/sync/push` | farmer, employee, buyer | see below |
+| POST | `/sync/push` | all roles | see below |
 | GET | `/sync/pull?since=ISO8601` | any | server-authoritative deltas |
 
 **Push request**

@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import bw.agriconnect.core.util.DateFormatters
+import bw.agriconnect.domain.model.NdviProcessingStatus
 import bw.agriconnect.ui.chrome.MainScaffold
 import bw.agriconnect.ui.components.AgriPrimaryButton
 import bw.agriconnect.ui.components.EmptyState
@@ -24,6 +25,7 @@ import bw.agriconnect.ui.components.ErrorBanner
 import bw.agriconnect.ui.components.ErrorState
 import bw.agriconnect.ui.components.InfoBanner
 import bw.agriconnect.ui.components.LoadingState
+import bw.agriconnect.ui.components.NdviAdviceCard
 import bw.agriconnect.ui.components.NdviGauge
 import bw.agriconnect.ui.components.OfflineEmptyState
 import bw.agriconnect.ui.theme.AgriSpacing
@@ -119,28 +121,49 @@ fun SatelliteScreen(
 
                     Spacer(Modifier.height(AgriSpacing.sm))
 
-                    Text(
-                        text = "Source: ${ndvi.source}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    ndvi.cloudCover?.let {
-                        // The backend field's scale is not documented, so show it verbatim
-                        // rather than inventing a percentage interpretation.
+                    if (ndvi.advice == null) {
+                        // Without server guidance, show the raw reading fields verbatim. The
+                        // backend field's scale is not documented, so cloud cover is printed as
+                        // delivered rather than being reinterpreted as a percentage.
                         Text(
-                            text = "Cloud cover reading: $it",
+                            text = "Source: ${ndvi.source}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                    }
-                    ndvi.stressLevel?.let {
-                        Text(
-                            text = "Stress: ${it.name.replace("_", " ").lowercase().replaceFirstChar { c -> c.uppercase() }}",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
+                        ndvi.cloudCover?.let {
+                            Text(
+                                text = "Cloud cover reading: $it",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        ndvi.stressLevel?.let {
+                            Text(
+                                text = "Stress: ${it.name.replace("_", " ").lowercase().replaceFirstChar { c -> c.uppercase() }}",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
                     }
                     ndvi.failureReason?.let {
                         ErrorBanner(message = it)
+                    }
+
+                    // The guidance for this reading: what it means, what to do about it, how
+                    // far to trust it, and what it cannot say. It travels with the reading, so
+                    // it appears the moment a result does — and afterwards, on the next fetch.
+                    ndvi.advice?.let { advice ->
+                        Spacer(Modifier.height(AgriSpacing.md))
+                        NdviAdviceCard(advice)
+                    }
+                    if (ndvi.advice == null && ndvi.status == NdviProcessingStatus.GENERATED) {
+                        Spacer(Modifier.height(AgriSpacing.sm))
+                        InfoBanner(
+                            message = if (ndvi.isCached) {
+                                "Field guidance will appear with the next connection."
+                            } else {
+                                "Field guidance is not available for this reading."
+                            },
+                        )
                     }
 
                     if (canGenerate) {

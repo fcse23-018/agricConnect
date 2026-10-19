@@ -7,7 +7,9 @@ import {
   isImageMime,
   publicUrl,
   storageDriver,
+  storedNameFor,
   uploadsDir,
+  STORED_NAME_PATTERN,
 } from '../../src/services/uploads.js';
 
 /**
@@ -75,5 +77,51 @@ describe('driver selection', () => {
 
   it('resolves the uploads directory to an absolute path', () => {
     expect(path.isAbsolute(uploadsDir)).toBe(true);
+  });
+});
+
+describe('stored names are servable (producer ↔ validator invariant)', () => {
+  // Regression for a bug that shipped to production: `GET /uploads/:name` only serves
+  // names matching [STORED_NAME_PATTERN], and the uploader builds names with
+  // [storedNameFor]. The avatar route passed `'avatar-'` as the prefix, so every photo
+  // was written as `avatar--<uuid>.png`, failed the pattern, and 404'd — profile images
+  // never displayed. The old route tests missed it because they hand-wrote
+  // `avatar-<uuid>.jpg` instead of running a name through the uploader's own logic.
+  it('every name the uploader generates is accepted by the serving route', () => {
+    for (const prefix of ['image', 'avatar']) {
+      for (const mime of ['image/jpeg', 'image/png', 'image/webp']) {
+        expect(STORED_NAME_PATTERN.test(storedNameFor(prefix, mime))).toBe(true);
+      }
+    }
+  });
+
+  it('produces exactly <prefix>-<uuid><ext>, with a single separator', () => {
+    expect(storedNameFor('avatar', 'image/png')).toMatch(
+      /^avatar-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.png$/,
+    );
+    expect(storedNameFor('image', 'image/jpeg')).toMatch(
+      /^image-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$/,
+    );
+  });
+
+  it('still accepts the historical double-hyphen avatar names', () => {
+    // Photos uploaded before the prefix fix are stored this way; they must keep
+    // resolving so existing users do not silently lose their picture.
+    expect(STORED_NAME_PATTERN.test('avatar--b9324b0a-a656-4f4d-b689-02d0be102065.png')).toBe(true);
+  });
+
+  it('rejects anything a client could hand-write to address another file', () => {
+    for (const bad of [
+      '../etc/passwd',
+      'image-../../secret.png',
+      'avatar-..%2f..%2fetc%2fpasswd',
+      'image-12345.jpg',
+      'not-a-uuid.jpg',
+      'image-9f8e7d6c-1234-4abc-9def-000000000000.php',
+      'image-9f8e7d6c-1234-4abc-9def-000000000000',
+      'image-9f8e7d6c-1234-4abc-9def-000000000000.gif',
+    ]) {
+      expect(STORED_NAME_PATTERN.test(bad)).toBe(false);
+    }
   });
 });

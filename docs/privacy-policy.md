@@ -116,8 +116,8 @@ legally required to keep them.
 - Sign-in tokens are stored only as irreversible hashes on our servers and in encrypted storage on
   your device.
 - All traffic uses HTTPS.
-- Access is role-based: farm employees cannot see financial records, and buyers cannot see farm
-  operations.
+- Access is role-based: the farmers who work the land cannot see financial records, and buyers
+  cannot see farm operations.
 
 No system is perfectly secure, but we take these measures seriously and review them.
 

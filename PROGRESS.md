@@ -32,7 +32,7 @@
 | **Image upload / display** | 🟢 Listings, plots and avatars: pick → `POST /uploads` → store → render (unit/contract-tested; not yet device-verified) |
 | **Plot boundary (NDVI input)** | 🟢 Add/edit plot captures the polygon (GPS corners or manual lat/lng); stored in `farm_plots.geojson_boundary`, pushed via `/sync/push`, and required by `POST /satellite/ndvi` |
 | **Android build** | 🟢 `:app:assembleDebug` produces a 23.8 MB APK — `1.1.1` (build 3), re-run 2026-10-19 |
-| **Android unit tests** | 🟢 37/37 pass (`:app:testDebugUnitTest`, re-run 2026-10-19) |
+| **Android unit tests** | 🟢 46/46 pass, 9 suites, 0 failures (`:app:testDebugUnitTest`, re-run 2026-10-19) |
 | **Release distribution** | 🟢 CI uploads a debug APK named `agriconnect-debug-v<version>-<sha>.apk` (§8) |
 | **Android runtime** | 🟡 Never launched on a device/emulator — no instrumented test run |
 | **External providers** | 🔴 SMS/email, Earth Engine and push are not configured |
@@ -69,7 +69,7 @@ JWT auth, Helmet/CORS/compression, Swagger UI, Jest.
 | App bootstrap, security headers, CORS, request IDs | `src/app.js` | Versioned at `/api/v1`; health at `/health` |
 | Config (env-driven) + production secret assertions | `src/config/index.js` | Refuses to boot in prod with dev secrets |
 | DB pool, transactions, healthcheck | `src/db/index.js` | |
-| Migrations (5, ordered) + runner + seed | `backend/migrations/`, `src/db/migrate.js`, `src/db/seed.js` | `001_init` … `005_employee_link` |
+| Migrations (6, ordered) + runner + seed | `backend/migrations/`, `src/db/migrate.js`, `src/db/seed.js` | `001_init` … `006_role_rename` |
 | Auth middleware (JWT bearer) + role guard (RBAC, 3 roles) | `src/middleware/auth.js`, `roles.js` | UI is never the enforcement point |
 | Validation + error envelope + rate limiting + idempotency | `src/middleware/` | Never leaks stack traces |
 | Auth module (register→login→refresh→reset→verify) | `src/modules/auth/` | Full token lifecycle |
@@ -80,7 +80,7 @@ JWT auth, Helmet/CORS/compression, Swagger UI, Jest.
 | Satellite NDVI (mock + real GEE path) | `src/modules/satellite/`, `services/gee.js`, `services/ndvi.js` | NDVI arithmetic unit-tested |
 | Marketplace listings + orders workflow | `src/modules/marketplace/`, `orders/` | Transactional stock, no payments |
 | Notifications feed + sync push/pull + audit log | `src/modules/notifications/`, `sync/`, `services/audit.js` | In-app only |
-| Tests | `tests/unit/*` (6 files), `tests/api/smoke.test.js` | **81 tests, all passing** |
+| Tests | `tests/unit/*` (8 files), `tests/api/{smoke,uploads.supabase}.test.js` | **152 tests, all passing** |
 | OpenAPI 3 spec, Dockerfile, docker-compose | `backend/openapi.yaml`, `Dockerfile`, `docker-compose.yml` | |
 | ESLint config, lockfile | `eslint.config.js`, `package-lock.json` | |
 | Supabase schema update script | `backend/supabase-update.sql` | Idempotent; **verified** — see §6 |
@@ -154,7 +154,7 @@ WorkManager, Retrofit + kotlinx.serialization, Coil, osmdroid. JDK 17,
 | Reusable components | `ui/components/` (16 files) | Scaffold, surfaces, buttons, dialogs, state views, chips, segmented control, chart, badges, settings rows, logo, remote image, boundary editor |
 | Navigation | `ui/AgriConnectRoot.kt`, `ui/navigation/` | Root `NavHost`, `MainScaffold` chrome, `AgriNavItems.forRole`, `homeRouteFor` |
 | Screens | `ui/**` (27 `*Screen.kt`) | See §3.2 |
-| Unit tests | `app/src/test/...` (8 files) | **37/37 passing** |
+| Unit tests | `app/src/test/...` (9 files) | **46/46 passing** |
 | Instrumented test scaffold | `app/src/androidTest/.../HiltTestRunner.kt` | Runner exists; no test classes yet |
 
 ### 3.2 Implemented screens ✅
@@ -165,8 +165,13 @@ Marketplace · Listing detail · Create listing · Orders · Order detail ·
 Notifications · Profile · Settings · Notification preferences · Privacy & consent ·
 Account deletion · Offline & sync · Help · Server (debug builds only).
 
-Role-based bottom navigation: **FARMER** home/farms/finance/market/profile ·
-**FARM_EMPLOYEE** home/farms/alerts/profile · **BUYER** market/orders/alerts/profile.
+Role-based bottom navigation (no tab a role cannot open):
+**FARM_OWNER** home/farms/satellite/market/more ·
+**FARMER** home/farms/market/orders/more · **BUYER** market/orders/alerts/more.
+`more` is in every role because it is the only route to profile, settings and sign-out.
+**Every role can buy** — the marketplace is open to all three, so no role has a dead
+"buy" affordance. Orders and finance stay reachable from the dashboard shortcuts and the
+top-bar notification bell without needing a tab of their own.
 
 ### 3.3 Behaviour that is deliberately honest 🟡
 
@@ -179,6 +184,11 @@ Role-based bottom navigation: **FARMER** home/farms/finance/market/profile ·
 - **Satellite NDVI is never fabricated** on the client; an unavailable/unfabricated
   result shows an honest empty state, and `cloudCover` is shown verbatim (its scale is
   not documented by the backend).
+- **The NDVI reading comes with advice, and says what it cannot know.** What the band
+  means, what to check in the field, how far the *measurement* can be trusted, the
+  published scale it sits on, and the limits of a vegetation index. A simulated (`MOCK`)
+  reading is labelled as demonstration data in the response and on screen, and the
+  guidance never asserts a cause for a low value.
 - **Sign out** always clears the local session, even when the server call fails (§8).
 - Notification taps route only on a **known** `relatedEntityType`; anything unknown is
   ignored rather than guessed.
@@ -193,6 +203,11 @@ Role-based bottom navigation: **FARMER** home/farms/finance/market/profile ·
 | Welcome/auth backdrop rendered blank → solid brand colour behind the photo, lighter scrim, white hero text; `res/raw/keep.xml` pins brand drawables for release. **`auth_background.jpg` now confirmed inside the built APK.** | `ui/components/AuthScaffold.kt`, `ui/welcome/WelcomeScreen.kt`, `ui/components/BrandLogo.kt`, `res/raw/keep.xml` |
 | **New image support** end-to-end (listing, plot, avatar): pick → upload → store → render, including other users' images | `core/util/ImageUrls.kt`, `core/util/ImageFiles.kt`, `data/repository/MediaRepository.kt`, `ui/components/AgriRemoteImage.kt`, `ui/{marketplace,farms,profile}/…` |
 | Room bumped to **v2** with a real `MIGRATION_1_2` adding `farm_plots.image_url` (no destructive fallback) | `data/local/Migrations.kt`, `AgriDatabase.kt`, `DatabaseProvider.kt`, `data/local/entity/FarmPlotEntity.kt` |
+| **Avatar/profile upload 404'd** because the stored name had a doubled hyphen (`avatar--<uuid>.png`) while the `/uploads/:name` pattern only matched one → one shared `storedNameFor()` + `STORED_NAME_PATTERN` (accepting the legacy double hyphen) used by both the writer and the reader | `src/services/uploads.js`, `src/app.js`, `src/modules/users/users.routes.js`, `tests/unit/uploads.test.js` |
+| **Roles renamed so they describe who a person is**: old `FARMER` (owns the farm) → `FARM_OWNER`, old `FARM_EMPLOYEE` (works the land) → `FARMER`, `BUYER` unchanged. In-place `ALTER TYPE … RENAME VALUE`, so existing accounts keep their capabilities; **all three roles can buy** | `migrations/006_role_rename.sql`, `src/middleware/roles.js`, finance/farms/farm-records/satellite/marketplace/orders routes, `src/services/{orders,records,auth}.service.js`, `src/sync/*`, `src/db/seed.js`, `tests/unit/roles.test.js` |
+| **Landing route is now role-appropriate** and no role has a tab it cannot open; `more` is in every role because it is the only route to profile/settings/sign-out | `ui/navigation/AgriNavItems.kt`, `domain/model/Enums.kt`, `ui/AgriConnectRoot.kt`, `ui/dashboard/DashboardScreen.kt` |
+| **Sign-up and sign-in had no way back to the main screen** → shared translucent circular back arrow on both, pinned top-start inside the safe drawing area | `ui/components/AuthScaffold.kt`, `ui/auth/LoginScreen.kt`, `ui/auth/RegisterScreen.kt`, `ui/AgriConnectRoot.kt` |
+| **Guidance after the vegetation index is computed**: what the band means, what to check in the field, the trend against the previous reading, the area averaged and the observation's age, how far the measurement can be trusted, the published scale, and what a vegetation index cannot say. Built once server-side and carried by the response; never invented, never a stated cause | `src/services/ndviAdvice.js`, `src/modules/satellite/satellite.{service,routes}.js`, `ui/components/NdviAdviceCard.kt`, `ui/satellite/Satellite{Screen,ViewModel}.kt`, `data/remote/dto/{SatelliteDtos,Mappers}.kt`, `domain/model/FarmModels.kt` |
 
 ### 3.5 Not verified ❌
 
@@ -248,10 +263,18 @@ No dead links remain in the README deliverable index.
 ## 6. Supabase schema update
 
 `backend/supabase-update.sql` is a single, **idempotent** script that brings a Supabase
-database to the state described by `migrations/001…005`. Run it in the Supabase SQL
-editor; it ends with verification queries. It also records the five migration filenames
+database to the state described by `migrations/001…006`. Run it in the Supabase SQL
+editor; it ends with verification queries. It also records the six migration filenames
 in `schema_migrations`, so a later `npm run migrate` skips them rather than failing with
 "already exists".
+
+`backend/scripts/apply-role-rename.sql` applies **only** migration 006 idempotently, for a
+database that is already up to date but still on the old role labels. Run it in the
+Supabase SQL editor and it is safe in either order: run it first and the next deploy skips
+006, or deploy first (Render runs `npm run migrate` at start) and the script finds the new
+labels and does nothing. That bookkeeping matters because 006 is *not* itself re-runnable —
+a second `ALTER TYPE … RENAME VALUE 'FARMER' TO 'FARM_OWNER'` fails once `FARM_OWNER`
+exists, and that failure would stop the API from starting.
 
 **Verified** on a throwaway PostgreSQL 17 cluster in this environment:
 
@@ -260,7 +283,7 @@ in `schema_migrations`, so a later `npm run migrate` skips them rather than fail
 | Runs cleanly on an empty database | ✅ |
 | Re-runnable (3 consecutive runs, no error) | ✅ |
 | Schema identical to the official migrations (columns, enums, indexes, constraints, triggers, functions) | ✅ (only expected extra: `schema_migrations`) |
-| Bookkeeping records all 5 migrations | ✅ |
+| Bookkeeping records all 6 migrations | ✅ |
 | RLS enabled on all 20 tables; `FORCE` never used | ✅ |
 | Functional: `set_updated_at` fires; self-employment is rejected | ✅ |
 
@@ -279,7 +302,7 @@ cd backend
 cp .env.example .env          # fill in DB + secrets
 npm install
 npm run migrate               # or paste backend/supabase-update.sql into Supabase
-npm test                      # 81 tests — 76 unit + 5 HTTP smoke (no database needed)
+npm test                      # 152 tests — unit + HTTP smoke (no database needed)
 npm start                     # http://localhost:4000  ·  docs at /api-docs
 ```
 

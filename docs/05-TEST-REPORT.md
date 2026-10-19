@@ -3,7 +3,7 @@
 > **Purpose.** An honest record of what was executed, what passed, what failed, and what
 > could **not** be run — and why. Nothing here is claimed as passing unless it actually ran.
 >
-> **Last updated:** 2026-10-18
+> **Last updated:** 2026-10-19
 > **Environment:** Windows 11 (amd64) · Temurin JDK 17.0.20 · Android SDK (compileSdk 35)
 > · Gradle 8.9 (wrapper) · AGP 8.7.3 · Node 24.21.0 · Python 3.12.10
 
@@ -13,20 +13,21 @@
 
 | Suite | Tests | Result | Executed here? |
 |-------|------:|--------|:--------------:|
-| Backend — unit (`backend/tests/unit`) | 76 | ✅ **Pass — re-run 2026-10-18** | ✅ Yes (bundled Node) |
-| Backend — API smoke (`backend/tests/api`) | 5 | ✅ **Pass — re-run 2026-10-18** | ✅ Yes (bundled Node) |
-| Backend — ESLint (`npm run lint`) | — | ✅ 0 errors (22 pre-existing warnings) | ✅ Yes |
+| Backend — unit (`backend/tests/unit`, 8 suites) | 139 | ✅ **Pass — re-run 2026-10-19** | ✅ Yes (bundled Node) |
+| Backend — API (`backend/tests/api`, 2 suites) | 13 | ✅ **Pass — re-run 2026-10-19** (`uploads.supabase` needs the network) | ✅ Yes (bundled Node) |
+| Backend — ESLint (`npm run lint`) | — | ✅ 0 errors (25 pre-existing warnings) | ✅ Yes |
 | Crop API — `crop-api` (`pytest`) | 34 | ✅ **Pass — re-run 2026-10-18** | ✅ Yes |
-| Android — unit (`app/src/test`) | 28 | ✅ **Pass — re-run 2026-10-18** | ✅ Yes |
+| Android — unit (`app/src/test`, 9 classes) | 46 | ✅ **Pass — re-run 2026-10-19** | ✅ Yes |
 | Android — instrumented (`app/src/androidTest`) | 0 authored | ⏭️ Not run | ❌ No emulator/device |
 | Android — `:app:assembleDebug` | — | ✅ **BUILD SUCCESSFUL** | ✅ Yes |
 | Manual on-device walkthrough | — | ⏭️ Not run | ❌ No emulator/device |
 
 Legend: ✅ executed and passed · ❌ could not be executed here · ⏭️ deliberately not run.
 
-On 2026-10-18 the backend, crop-API and Android suites were all executed on this machine
-(Node 24.21.0 and JDK 17 are installed under `C:\Users\src.president\agri-tooling\`, just not
-on `PATH`). The backend suites are also run by CI (`.github/workflows/ci.yml`).
+On 2026-10-19 the backend and Android suites were re-executed on this machine (Node 24.21.0
+and JDK 17 are installed under `C:\Users\src.president\agri-tooling\`, just not on `PATH`);
+the crop-API figure is from 2026-10-18. The backend suites are also run by CI
+(`.github/workflows/ci.yml`).
 
 ---
 
@@ -35,12 +36,12 @@ on `PATH`). The backend suites are also run by CI (`.github/workflows/ci.yml`).
 | Item | Value |
 |------|-------|
 | Command | `./gradlew :app:assembleDebug` |
-| Result | **BUILD SUCCESSFUL** (re-run 2026-10-18) |
-| Tasks | 52 actionable (27 executed, 25 up-to-date) |
+| Result | **BUILD SUCCESSFUL** (re-run 2026-10-19) |
+| Tasks | 52 actionable (17 executed, 35 up-to-date) |
 | Artifact | `android/app/build/outputs/apk/debug/app-debug.apk` |
-| Size | **22.5 MB** |
-| Version | `1.1.0` (`versionCode` 2) — shown in-app on Settings |
-| Warnings | None blocking. (`usesCleartextTraffic` is declared only in the debug manifest, so the merge note about replacing nothing is expected.) |
+| Size | **22.7 MiB / 23.8 MB** (23 812 038 bytes) |
+| Version | `1.1.1` (`versionCode` 3) — shown in-app on Settings |
+| Warnings | None blocking. Deprecated `Icons.Filled.ReceiptLong`/`Trending*` usages remain in three files (the AutoMirrored names are used in the new advice card). |
 
 The debug APK is signed with the debug keystore and is installable on a device/emulator.
 Release minification rules (`proguard-rules.pro`) are present but `assembleRelease` was **not**
@@ -55,20 +56,24 @@ run here (it requires `android/keystore.properties`).
 
 ## 3. Android unit tests (`:app:testDebugUnitTest`)
 
-Executed 2026-10-18 with `./gradlew :app:testDebugUnitTest`.
-**28 tests · 0 failures · 0 errors · 0 skipped.**
+Executed 2026-10-19 with `./gradlew :app:testDebugUnitTest`.
+**46 tests · 0 failures · 0 errors · 0 skipped (9 classes).**
 
 | Class | Tests | Focus |
 |-------|------:|-------|
 | `data.local.AgriDatabaseTest` | 5 | Room persistence, enum converters, sync-queue enqueue on write/delete, plot `imageUrl` round-trip |
-| `data.remote.AuthApiTest` | 4 | Wire contract: `POST /auth/login`, `POST /auth/register` (path + idempotency key + body), 400 error-envelope → field errors, 5xx never leaks server text |
+| `data.remote.AuthApiTest` | 4 | Wire contract: `POST /auth/login`, `POST /auth/register` (path + idempotency key + body), 400 error-envelope → field errors, 5xx never leaks server text. The register fixture uses `FARM_OWNER`, the role that owns the farm |
 | `data.remote.MediaApiTest` | 3 | Wire contract: `POST /uploads` (path + `image` multipart field + `{url}` parse), repository success path, 5xx never leaks server text |
 | `data.remote.SyncApiTest` | 1 | `sync/push` parses `synced` / `conflict` / `failed` results |
 | `data.remote.TokenAuthenticatorTest` | 2 | 401 → single refresh + retry + rotated token persisted; refresh failure → session cleared |
+| `data.remote.dto.NdviAdviceMappingTest` | 9 | NDVI advice wire contract → domain: full block, trend/context/confidence, a missing `advice`, an advice block with no `assessment`, unknown enum values, a blank action title, a simulated source, and a partial block |
 | `core.util.ImageUrlsTest` | 7 | Origin-relative `/uploads/…` → absolute API-origin URL, absolute/`content://` untouched, blank → null |
 | `core.util.BaseUrlTest` | 6 | Server-override validation: trailing `/` added, whitespace trimmed, host-only accepted, and null/blank/relative/non-`http(s)` values rejected |
+| `core.util.PlotBoundaryTest` | 9 | Corner → closed GeoJSON `Polygon`, ring closure, degenerate rings rejected, local hectares/centroid estimate, and the boundary that `POST /satellite/ndvi` requires |
 
-These are pure JVM tests (Robolectric/MockWebServer) — no device required.
+These are pure JVM tests (Robolectric/MockWebServer) — no device required. The advice
+mapping tests decode the **real** payload shape the backend emits, so the client and the
+server cannot drift apart silently on the guidance contract.
 
 ---
 
@@ -81,7 +86,8 @@ These are pure JVM tests (Robolectric/MockWebServer) — no device required.
 | Image upload end-to-end | The upload → store → render → cross-user path is unit/contract-tested and reviewed, but was **not** exercised against a live backend on a device/emulator. |
 | Release build / store bundle | Requires `keystore.properties` (never committed). |
 | Real SMS/email delivery | No provider credentials (see `docs/07-EXTERNAL-CREDENTIALS.md`). |
-| Real Sentinel-2 NDVI | No Earth Engine account; both the Express mock and the standalone crop API tag results `source: "mock"` in this environment. |
+| Real Sentinel-2 NDVI | No Earth Engine account; both the Express mock and the standalone crop API tag results `source: "MOCK"` in this environment. |
+| NDVI advice shown on screen | The advice block is unit-tested on both sides (builder + wire contract), but no device run has displayed it — see §4 of `08-KNOWN-LIMITATIONS-AND-UNVERIFIED.md`. |
 
 ---
 
@@ -122,7 +128,7 @@ cd backend
 cp .env.example .env          # fill in DB + secrets
 npm install
 npm run migrate
-npm test                      # 81 tests — unit + HTTP smoke
+npm test                      # 152 tests — unit + HTTP smoke
 
 # Crop monitoring API (Python 3.12)
 cd crop-api
@@ -140,7 +146,7 @@ cd android
 ## 7. Honesty statement
 
 Numbers throughout this file were produced on the dates shown by the commands shown and are
-reproducible. The backend, crop-API and Android figures were all re-executed on 2026-10-18 and
+reproducible. The backend, crop-API and Android figures were all re-executed on 2026-10-19 and
 are green. Any item marked "not executed" should be treated as unverified until someone runs
 it — in particular, **no run of the app on a device/emulator has happened**, so the image
 upload/display flow is verified only at the unit and wire-contract level, not visually. See

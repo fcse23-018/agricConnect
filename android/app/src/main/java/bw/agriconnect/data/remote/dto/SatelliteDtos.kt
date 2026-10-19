@@ -30,7 +30,77 @@ data class NdviDto(
     /** `SENTINEL-2` in production, `MOCK` when Earth Engine is not configured. */
     val source: String? = null,
     val createdAt: String? = null,
+    val advice: NdviAdviceDto? = null,
 )
+
+/**
+ * The advisory block the backend attaches to a GENERATED reading
+ * (`backend/src/services/ndviAdvice.js`). Every field is optional here because a
+ * client must survive an older or partial server: a missing piece renders as absent
+ * rather than crashing the screen.
+ */
+@Serializable
+data class NdviAdviceDto(
+    val assessment: NdviAssessmentDto? = null,
+    /** `NOW` | `SOON` | `ROUTINE`. */
+    val priority: String? = null,
+    val actions: List<NdviActionDto> = emptyList(),
+    val watchFor: List<String> = emptyList(),
+    val trend: NdviTrendDto? = null,
+    val context: NdviAdviceContextDto? = null,
+    val confidence: NdviConfidenceDto? = null,
+    /** The published NDVI ranges the reading sits within. */
+    val scaleGuide: List<NdviScaleRowDto> = emptyList(),
+    val limits: List<String> = emptyList(),
+    val disclaimer: String? = null,
+)
+
+@Serializable
+data class NdviAssessmentDto(
+    val value: Double? = null,
+    /** `HIGH_STRESS` | `MODERATE_STRESS` | `HEALTHY_VEGETATION`. */
+    val stressLevel: String? = null,
+    val label: String? = null,
+    /** `success` | `warning` | `error` | `neutral`. */
+    val colour: String? = null,
+    val headline: String? = null,
+    val meaning: String? = null,
+    val band: NdviBandDto? = null,
+    val summary: String? = null,
+)
+
+@Serializable
+data class NdviBandDto(val min: Double? = null, val max: Double? = null)
+
+@Serializable
+data class NdviActionDto(val title: String? = null, val detail: String? = null)
+
+@Serializable
+data class NdviTrendDto(
+    /** `FIRST_READING` | `IMPROVING` | `DECLINING` | `STABLE`. */
+    val direction: String? = null,
+    val delta: Double? = null,
+    val previousValue: Double? = null,
+    val previousDate: String? = null,
+    val note: String? = null,
+)
+
+@Serializable
+data class NdviAdviceContextDto(
+    val plotName: String? = null,
+    val areaHectares: Double? = null,
+    val observedOn: String? = null,
+    val daysSinceObservation: Int? = null,
+    val cloudCoverPercent: Double? = null,
+    val source: String? = null,
+    val sourceIsSimulated: Boolean = false,
+)
+
+@Serializable
+data class NdviConfidenceDto(val level: String? = null, val note: String? = null)
+
+@Serializable
+data class NdviScaleRowDto(val range: String? = null, val meaning: String? = null)
 
 @Serializable
 data class NdviRequest(

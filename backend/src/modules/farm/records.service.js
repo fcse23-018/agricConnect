@@ -2,16 +2,16 @@ import { many, one, withTransaction } from '../../db/index.js';
 import { badRequest, forbidden } from '../../utils/errors.js';
 
 /**
- * Resolve which farmer a caller's field records belong to.
+ * Resolve which farm a caller's field records belong to.
  *
- * A FARMER owns their own records. A FARM_EMPLOYEE writes on behalf of their
- * employer (migration 005 links an employee to exactly one employing farmer).
- * An unlinked employee is refused with a clear, actionable 403 rather than
- * silently writing orphaned rows.
+ * A FARM_OWNER owns their own records. A FARMER works someone else's land and writes
+ * on behalf of the owner who employs them (migration 005 links a farmer to exactly one
+ * employing owner). An unlinked farmer is refused with a clear, actionable 403 rather
+ * than silently writing orphaned rows.
  */
 export async function resolveOwnerFarmerId(user) {
   if (!user) throw forbidden();
-  if (user.role === 'FARMER') return user.id;
+  if (user.role === 'FARM_OWNER') return user.id;
 
   const row = await one('SELECT employer_farmer_id FROM users WHERE id = $1', [user.id]);
   if (!row?.employer_farmer_id) {

@@ -61,8 +61,8 @@ data class SyncResultDto(
  * The [SyncChangesDto] collections are typed to the existing `*Dto` shapes (which
  * mirror `backend/src/utils/serialize.js` exactly) so a pulled row decodes straight
  * into the same model the repositories already use. Because the individual fields
- * default to `emptyList`, a role that receives only a subset (e.g. an employee gets
- * no `plots`) and a response that omits a collection both decode cleanly; an unknown
+ * default to `emptyList`, a role that receives only a subset (e.g. a FARMER gets
+ * no `plots` of their own beyond the employer's) and a response that omits a collection both decode cleanly; an unknown
  * *future* collection is dropped by `ignoreUnknownKeys` rather than failing the pull.
  *
  * Note: pull rows carry no `deletedAt`, so a soft-delete cannot currently be

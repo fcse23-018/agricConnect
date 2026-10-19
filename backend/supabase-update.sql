@@ -46,7 +46,7 @@ DECLARE
 BEGIN
   FOR t IN
     SELECT * FROM (VALUES
-      ('user_role',       'ENUM (''FARMER'',''FARM_EMPLOYEE'',''BUYER'')'),
+      ('user_role',       'ENUM (''FARM_OWNER'',''FARMER'',''BUYER'')'),
       ('account_status',  'ENUM (''REGISTERED'',''UNVERIFIED'',''VERIFIED'',''SUSPENDED'',''PENDING_DELETION'',''DELETED'')'),
       ('sync_status',     'ENUM (''PENDING'',''SYNCED'',''CONFLICT'',''FAILED'')'),
       ('listing_status',  'ENUM (''DRAFT'',''PENDING_PUBLISH'',''SYNCING'',''RETRY'',''PUBLISHED'',''SOLD'')'),
@@ -82,7 +82,7 @@ CREATE TABLE IF NOT EXISTS users (
   phone_number            text NOT NULL,
   email                   citext,
   password_hash           text NOT NULL,
-  role                    user_role NOT NULL DEFAULT 'FARMER',
+  role                    user_role NOT NULL DEFAULT 'FARM_OWNER',
   account_status          account_status NOT NULL DEFAULT 'UNVERIFIED',
   avatar_url              text,
   notification_preferences jsonb NOT NULL DEFAULT
@@ -400,7 +400,7 @@ CREATE TABLE IF NOT EXISTS message_outbox (
 CREATE INDEX IF NOT EXISTS message_outbox_dest_idx ON message_outbox (destination, created_at DESC);
 
 -- ---------------------------------------------------------------------------
--- 4e. 005_employee_link — link a FARM_EMPLOYEE to exactly one FARMER
+-- 4e. 005_employee_link — link a FARMER to exactly one employing FARM_OWNER
 -- ---------------------------------------------------------------------------
 ALTER TABLE users ADD COLUMN IF NOT EXISTS employer_farmer_id uuid REFERENCES users(id) ON DELETE SET NULL;
 
@@ -420,8 +420,8 @@ BEGIN
   IF employer_role IS NULL THEN
     RAISE EXCEPTION 'Employer does not exist';
   END IF;
-  IF employer_role <> 'FARMER' THEN
-    RAISE EXCEPTION 'Only a FARMER can be an employer';
+  IF employer_role <> 'FARM_OWNER' THEN
+    RAISE EXCEPTION 'Only a farm owner can be an employer';
   END IF;
   RETURN NEW;
 END;
@@ -431,6 +431,36 @@ $fn$ LANGUAGE plpgsql;
 -- 4f. plot photos — /uploads path of a farm-plot photo (optional)
 -- ---------------------------------------------------------------------------
 ALTER TABLE farm_plots ADD COLUMN IF NOT EXISTS image_url text;
+
+-- ---------------------------------------------------------------------------
+-- 4g. 006_role_rename — display-accurate role labels
+--
+--     FARMER (owns the farm)        → FARM_OWNER
+--     FARM_EMPLOYEE (works the land) → FARMER
+--
+--     In-place rename: no row is touched, so every account keeps its capabilities
+--     and only its label changes. Guarded so it is a no-op when the labels are
+--     already new (fresh database built by section 2) and when they are old
+--     (an existing database). Section 4e's function was already written against
+--     FARM_OWNER above.
+-- ---------------------------------------------------------------------------
+DO $roles$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+     WHERE t.typname = 'user_role' AND e.enumlabel = 'FARMER'
+  ) AND EXISTS (
+    SELECT 1 FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+     WHERE t.typname = 'user_role' AND e.enumlabel = 'FARM_EMPLOYEE'
+  ) THEN
+    ALTER TYPE user_role RENAME VALUE 'FARMER' TO 'FARM_OWNER';
+    ALTER TYPE user_role RENAME VALUE 'FARM_EMPLOYEE' TO 'FARMER';
+    RAISE NOTICE 'user_role renamed: FARMER -> FARM_OWNER, FARM_EMPLOYEE -> FARMER';
+  END IF;
+END
+$roles$;
+
+ALTER TABLE users ALTER COLUMN role SET DEFAULT 'FARM_OWNER';
 
 -- ---------------------------------------------------------------------------
 -- 5. Triggers (CREATE TRIGGER has no IF NOT EXISTS → drop then recreate)
@@ -487,7 +517,8 @@ INSERT INTO schema_migrations (filename) VALUES
   ('002_domain.sql'),
   ('003_marketplace.sql'),
   ('004_sync_notifications_retention.sql'),
-  ('005_employee_link.sql')
+  ('005_employee_link.sql'),
+  ('006_role_rename.sql')
 ON CONFLICT (filename) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
@@ -542,8 +573,12 @@ LEFT JOIN information_schema.tables actual
   AND actual.table_type = 'BASE TABLE'
 ORDER BY exists_now, table_name;
 
--- Migration bookkeeping should list all five files:
+-- Migration bookkeeping should list all six files:
 SELECT filename, applied_at FROM schema_migrations ORDER BY filename;
+
+-- The role labels should read FARM_OWNER, FARMER, BUYER — in that order.
+SELECT enumlabel FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+ WHERE t.typname = 'user_role' ORDER BY e.enumsortorder;
 
 -- Which columns did 005 add? Should return exactly one row.
 SELECT column_name, data_type

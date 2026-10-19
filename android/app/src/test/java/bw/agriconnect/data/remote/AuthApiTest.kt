@@ -66,7 +66,7 @@ class AuthApiTest {
                 fullName = "Ada Mokoena",
                 phoneNumber = "+26771234567",
                 password = "s3cret-pass",
-                role = "FARMER",
+                role = "FARM_OWNER",
             ),
         )
 
@@ -77,7 +77,7 @@ class AuthApiTest {
 
         val body = recorded.body.readUtf8()
         assertThat(body).contains("\"fullName\":\"Ada Mokoena\"")
-        assertThat(body).contains("\"role\":\"FARMER\"")
+        assertThat(body).contains("\"role\":\"FARM_OWNER\"")
         assertThat(body).contains("\"acceptTerms\":true")
         // Nulls are omitted by explicitNulls = false.
         assertThat(body).doesNotContain("\"email\"")
@@ -88,7 +88,7 @@ class AuthApiTest {
 
         val user = response.user.toDomain()
         assertThat(user.fullName).isEqualTo("Ada Mokoena")
-        assertThat(user.role).isEqualTo(UserRole.FARMER)
+        assertThat(user.role).isEqualTo(UserRole.FARM_OWNER)
         assertThat(user.accountStatus).isEqualTo(AccountStatus.VERIFIED)
         assertThat(user.notificationPreferences.marketplace).isTrue()
     }
@@ -165,7 +165,7 @@ class AuthApiTest {
                 "fullName": "Ada Mokoena",
                 "phoneNumber": "+26771234567",
                 "email": null,
-                "role": "FARMER",
+                "role": "FARM_OWNER",
                 "accountStatus": "VERIFIED",
                 "avatarUrl": null,
                 "notificationPreferences": {

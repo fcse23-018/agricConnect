@@ -14,7 +14,7 @@ data class UserDto(
     val fullName: String,
     val phoneNumber: String,
     val email: String? = null,
-    /** `FARMER` | `FARM_EMPLOYEE` | `BUYER`; the server's value, never client-chosen. */
+    /** `FARM_OWNER` | `FARMER` | `BUYER`; the server's value, never client-chosen. */
     val role: String,
     /** `REGISTERED` | `UNVERIFIED` | `VERIFIED` | `SUSPENDED` | `PENDING_DELETION` | `DELETED`. */
     val accountStatus: String,
@@ -23,7 +23,7 @@ data class UserDto(
     val verifiedAt: String? = null,
     val createdAt: String,
     val updatedAt: String,
-    /** Present for employees once an owner has linked them (migration 005). */
+    /** Present for a FARMER once a farm owner has linked them (migration 005). */
     val employerFarmerId: String? = null,
 )
 
@@ -49,9 +49,9 @@ data class ChangePasswordRequest(
 )
 
 /**
- * An employee links to exactly one employing farmer (migration 005). The server
+ * A FARMER links to exactly one employing FARM_OWNER (migration 005). The server
  * resolves the employer by *phone number* (`employerPhone`), so the body carries the
- * owner's phone handle — the employee cannot supply an arbitrary farmer id.
+ * owner's phone handle — a farmer cannot supply an arbitrary owner id.
  */
 @Serializable
 data class EmployerLinkRequest(val employerPhone: String)

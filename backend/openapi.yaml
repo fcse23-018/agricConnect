@@ -419,7 +419,7 @@ paths:
   /users/me/employer-link:
     post:
       tags: [Profile]
-      summary: Link a FARM_EMPLOYEE to their employing farmer
+      summary: Link a farmer to the farm owner who employs them
       description: |
         Not enumerated in the narrative contract; added by migration 005. The
         employee supplies the employer's phone number.
@@ -535,7 +535,7 @@ paths:
   /farms/plots:
     get:
       tags: [Farms]
-      summary: The farmer's own plots
+      summary: The plots on your farm
       responses:
         '200':
           description: Plots, newest first
@@ -783,7 +783,7 @@ paths:
   /finance/sales:
     get:
       tags: [Finance]
-      summary: List sales (farmer only)
+      summary: List sales (farm owner only)
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -866,7 +866,7 @@ paths:
   /finance/expenses:
     get:
       tags: [Finance]
-      summary: List expenses (farmer only)
+      summary: List expenses (farm owner only)
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -949,7 +949,7 @@ paths:
   /finance/summary:
     get:
       tags: [Finance]
-      summary: Sales/expense totals and monthly series (farmer only)
+      summary: Sales/expense totals and monthly series (farm owner only)
       parameters:
         - name: from
           in: query
@@ -968,10 +968,19 @@ paths:
   /satellite/ndvi:
     post:
       tags: [Satellite]
-      summary: Request an NDVI computation for a plot (farmer only)
+      summary: Request an NDVI computation for a plot (farm owner only)
       description: |
         A cloud-covered observation returns `201` with `status: FAILED` and
         `meanNdviValue: null` — never a fabricated value.
+
+        A `GENERATED` result also carries an `advice` block, built once on the
+        server from the reading's own value, its trend against the plot's previous
+        generated reading, the area averaged, the observation's age and cloud cover.
+        The advice never invents a measurement and never asserts a cause; it states
+        what the band means, what to check, and how far the measurement can be
+        trusted. It is attached to this response, to `/satellite/ndvi/latest` and to
+        `/satellite/ndvi/{id}` — deliberately not to the paginated history, where it
+        would cost two extra queries per item.
       requestBody:
         required: true
         content:
@@ -991,7 +1000,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
     get:
       tags: [Satellite]
-      summary: NDVI history for a plot (farmer only)
+      summary: NDVI history for a plot (farm owner only)
       parameters:
         - name: plotId
           in: query
@@ -1016,7 +1025,7 @@ paths:
   /satellite/ndvi/latest:
     get:
       tags: [Satellite]
-      summary: Latest NDVI for a plot (farmer only)
+      summary: Latest NDVI for a plot (farm owner only)
       description: Not enumerated in the narrative contract; convenience endpoint.
       parameters:
         - name: plotId
@@ -1038,7 +1047,7 @@ paths:
       - $ref: '#/components/parameters/ResourceId'
     get:
       tags: [Satellite]
-      summary: Get one NDVI record (farmer only)
+      summary: Get one NDVI record (farm owner only)
       responses:
         '200':
           description: NDVI record
@@ -1085,7 +1094,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
     post:
       tags: [Marketplace]
-      summary: Create a draft listing (farmer only)
+      summary: Create a draft listing (farm owner only)
       requestBody:
         required: true
         content:
@@ -1102,7 +1111,7 @@ paths:
   /marketplace/my-listings:
     get:
       tags: [Marketplace]
-      summary: The farmer's own listings in every state
+      summary: Your own listings in every state
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -1136,7 +1145,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
     patch:
       tags: [Marketplace]
-      summary: Update an owned listing (farmer only)
+      summary: Update an owned listing (farm owner only)
       description: Status changes flow exclusively through publish/archive.
       requestBody:
         required: true
@@ -1166,7 +1175,7 @@ paths:
       - $ref: '#/components/parameters/ResourceId'
     post:
       tags: [Marketplace]
-      summary: Publish a draft listing (farmer only)
+      summary: Publish a draft listing (farm owner only)
       description: A listing with no stock cannot be published. Publishing is idempotent.
       responses:
         '200':
@@ -1187,7 +1196,7 @@ paths:
       - $ref: '#/components/parameters/ResourceId'
     post:
       tags: [Marketplace]
-      summary: Archive (unpublish) a listing (farmer only)
+      summary: Archive (unpublish) a listing (farm owner only)
       description: Returns the listing to `DRAFT`; the row and stock history are preserved.
       responses:
         '200':
@@ -1230,7 +1239,7 @@ paths:
               schema: { $ref: '#/components/schemas/ErrorEnvelope' }
     get:
       tags: [Orders]
-      summary: List own orders (buyer) or orders on own listings (farmer)
+      summary: List own orders (buyer) or orders on own listings (farm owner)
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -1254,7 +1263,7 @@ paths:
       - $ref: '#/components/parameters/ResourceId'
     get:
       tags: [Orders]
-      summary: Get one order (its buyer or its farmer)
+      summary: Get one order (its buyer or the seller)
       responses:
         '200':
           description: Order
@@ -1268,7 +1277,7 @@ paths:
       - $ref: '#/components/parameters/ResourceId'
     post:
       tags: [Orders]
-      summary: Confirm a pending order (farmer owner)
+      summary: Confirm a pending order (farm owner)
       responses:
         '200':
           description: Confirmed
@@ -1288,7 +1297,7 @@ paths:
       - $ref: '#/components/parameters/ResourceId'
     post:
       tags: [Orders]
-      summary: Reject a pending order (farmer owner)
+      summary: Reject a pending order (farm owner)
       description: Stock is restored to the listing.
       responses:
         '200':
@@ -1325,7 +1334,7 @@ paths:
       - $ref: '#/components/parameters/ResourceId'
     post:
       tags: [Orders]
-      summary: Complete a confirmed order (farmer owner)
+      summary: Complete a confirmed order (farm owner)
       responses:
         '200':
           description: Completed
@@ -1579,7 +1588,7 @@ components:
         fullName: { type: string }
         phoneNumber: { type: string }
         email: { type: string, nullable: true }
-        role: { type: string, enum: [FARMER, FARM_EMPLOYEE, BUYER] }
+        role: { type: string, enum: [FARM_OWNER, FARMER, BUYER] }
         accountStatus:
           type: string
           enum: [REGISTERED, UNVERIFIED, VERIFIED, SUSPENDED, PENDING_DELETION, DELETED]
@@ -1597,7 +1606,7 @@ components:
         phoneNumber: { type: string }
         email: { type: string, format: email, nullable: true }
         password: { type: string, minLength: 8 }
-        role: { type: string, enum: [FARMER, FARM_EMPLOYEE, BUYER] }
+        role: { type: string, enum: [FARM_OWNER, FARMER, BUYER] }
         acceptTerms: { type: boolean, default: true }
         acceptPrivacy: { type: boolean, default: true }
 
@@ -1814,18 +1823,121 @@ components:
         farmerId: { type: string, format: uuid }
         satelliteDate: { type: string, format: date, nullable: true }
         meanNdviValue: { type: number, nullable: true }
-        stressLevel: { type: string, nullable: true }
-        status: { type: string, example: COMPLETED }
+        stressLevel:
+          type: string
+          nullable: true
+          enum: [HIGH_STRESS, MODERATE_STRESS, HEALTHY_VEGETATION]
+        status:
+          type: string
+          enum: [REQUESTED, FETCHING_IMAGERY, COMPUTING_NDVI, GENERATED, FAILED]
         failureReason: { type: string, nullable: true }
         cloudCover: { type: number, nullable: true }
         compressedVectorJson: { type: string, nullable: true }
         isCached: { type: boolean }
-        source: { type: string, example: mock }
+        source: { type: string, example: SENTINEL-2 }
         createdAt: { type: string, format: date-time }
+        advice:
+          allOf: [{ $ref: '#/components/schemas/NdviAdvice' }]
+          nullable: true
       description: |
         `status` may be `FAILED` (for example cloud cover > 80%) with
         `meanNdviValue: null`. NDVI is not presented as a definitive agronomic
         diagnosis.
+
+        `advice` is present on a fresh computation, on the latest observation and on
+        a single record; it is `null` on history items, while a computation is in
+        flight, and on a failure. `source` is `MOCK` when Earth Engine is not
+        configured — every MOCK value is a demonstration value, and the advice says so.
+
+    NdviAdvice:
+      type: object
+      description: |
+        Guidance attached to a generated reading. General guidance derived from a
+        vegetation index — not a site-specific agronomic recommendation.
+      properties:
+        assessment: { $ref: '#/components/schemas/NdviAssessment' }
+        priority:
+          type: string
+          enum: [NOW, SOON, ROUTINE]
+          description: How urgently the guidance should be read.
+        actions:
+          type: array
+          items: { $ref: '#/components/schemas/NdviAction' }
+        watchFor:
+          type: array
+          items: { type: string }
+          description: What to look for in the field, not a diagnosis.
+        trend: { $ref: '#/components/schemas/NdviTrend' }
+        context: { $ref: '#/components/schemas/NdviAdviceContext' }
+        confidence: { $ref: '#/components/schemas/NdviConfidence' }
+        scaleGuide:
+          type: array
+          description: The published NDVI ranges, so the number can be read without trusting a colour.
+          items: { $ref: '#/components/schemas/NdviScaleRow' }
+        limits:
+          type: array
+          items: { type: string }
+          description: What a vegetation index cannot tell a farmer.
+        disclaimer: { type: string }
+
+    NdviAssessment:
+      type: object
+      properties:
+        value: { type: number }
+        stressLevel: { type: string, enum: [HIGH_STRESS, MODERATE_STRESS, HEALTHY_VEGETATION] }
+        label: { type: string, example: High stress }
+        colour: { type: string, enum: [success, warning, error, neutral] }
+        headline: { type: string, example: Act now — crop vigour is very low }
+        meaning: { type: string }
+        band: { $ref: '#/components/schemas/NdviBand' }
+        summary: { type: string }
+
+    NdviBand:
+      type: object
+      properties:
+        min: { type: number }
+        max: { type: number, nullable: true }
+
+    NdviAction:
+      type: object
+      properties:
+        title: { type: string }
+        detail: { type: string }
+
+    NdviTrend:
+      type: object
+      description: Direction of travel against the plot's previous generated reading.
+      properties:
+        direction: { type: string, enum: [FIRST_READING, IMPROVING, DECLINING, STABLE] }
+        delta: { type: number, nullable: true }
+        previousValue: { type: number, nullable: true }
+        previousDate: { type: string, format: date, nullable: true }
+        note: { type: string }
+
+    NdviAdviceContext:
+      type: object
+      description: The facts the reading is true under, so it can be checked rather than trusted blindly.
+      properties:
+        plotName: { type: string, nullable: true }
+        areaHectares: { type: number, nullable: true }
+        observedOn: { type: string, format: date, nullable: true }
+        daysSinceObservation: { type: integer, nullable: true }
+        cloudCoverPercent: { type: number, nullable: true }
+        source: { type: string, nullable: true }
+        sourceIsSimulated: { type: boolean }
+
+    NdviConfidence:
+      type: object
+      description: How far the measurement can be trusted — about the data, never about the crop.
+      properties:
+        level: { type: string, enum: [HIGH, MEDIUM, LOW] }
+        note: { type: string }
+
+    NdviScaleRow:
+      type: object
+      properties:
+        range: { type: string, example: '0.20 – 0.45' }
+        meaning: { type: string }
 
     ProduceListing:
       type: object

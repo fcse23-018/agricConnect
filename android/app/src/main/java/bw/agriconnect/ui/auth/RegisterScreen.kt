@@ -32,12 +32,13 @@ import bw.agriconnect.ui.theme.AgriSpacing
 fun RegisterScreen(
     onRegistered: () -> Unit,
     onBackToLogin: () -> Unit,
+    onBackToMain: (() -> Unit)? = null,
     viewModel: RegisterViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    AuthScaffold {
+    AuthScaffold(onBack = onBackToMain) {
         Text("Create account", style = MaterialTheme.typography.headlineMedium)
-        Text("Join AgriConnect as a farmer, employee or buyer.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Join AgriConnect as a farm owner, farmer or buyer.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(AgriSpacing.xl))
         AgriTextField(value = state.fullName, onValueChange = viewModel::onFullNameChange, label = "Full name", error = state.fullNameError)
         Spacer(Modifier.height(AgriSpacing.md))
@@ -50,10 +51,16 @@ fun RegisterScreen(
         AgriPasswordField(value = state.confirmPassword, onValueChange = viewModel::onConfirmPasswordChange, label = "Confirm password", error = state.confirmPasswordError)
         Spacer(Modifier.height(AgriSpacing.md))
         Row(horizontalArrangement = Arrangement.spacedBy(AgriSpacing.sm)) {
-            listOf(UserRole.FARMER, UserRole.FARM_EMPLOYEE, UserRole.BUYER).forEach { r ->
+            listOf(UserRole.FARM_OWNER, UserRole.FARMER, UserRole.BUYER).forEach { r ->
                 FilterChip(selected = state.role == r, onClick = { viewModel.onRoleChange(r) }, label = { Text(r.displayName) })
             }
         }
+        Spacer(Modifier.height(AgriSpacing.xs))
+        Text(
+            text = roleHelper(state.role),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         if (state.formError != null) {
             Spacer(Modifier.height(AgriSpacing.md))
             Text(state.formError.orEmpty(), color = AgriColors.ErrorRed, style = MaterialTheme.typography.bodyMedium)
@@ -63,4 +70,11 @@ fun RegisterScreen(
         Spacer(Modifier.height(AgriSpacing.md))
         AgriPrimaryButton(text = "Back to sign in", onClick = onBackToLogin, enabled = !state.isSubmitting)
     }
+}
+
+/** One line telling the person what the role they picked actually means. */
+private fun roleHelper(role: UserRole): String = when (role) {
+    UserRole.FARM_OWNER -> "Farm Owner — you own the farm: map plots, see finances, sell produce and buy."
+    UserRole.FARMER -> "Farmer — you work the land: record harvests and livestock, and buy."
+    UserRole.BUYER -> "Buyer — browse the marketplace and track your orders."
 }
