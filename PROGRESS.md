@@ -37,7 +37,7 @@
 | **Release distribution** | 🟢 CI uploads a debug APK named `agriconnect-debug-v<version>-<sha>.apk` (§8) |
 | **Android runtime** | 🟡 Never launched on a device/emulator — no instrumented test run |
 | **External providers** | 🔴 SMS/email, Earth Engine and push are not configured |
-| **Docs / deliverables** | 🟢 All referenced docs present — adds `docs/10-CROP-MONITORING-API.md` |
+| **Docs / deliverables** | 🟢 All referenced docs present — adds `docs/11-SYSTEM-INVENTORY-AND-STATUS.md` (Phase 1) |
 
 ---
 
@@ -246,6 +246,7 @@ top-bar notification bell without needing a tab of their own.
 | — | `08-KNOWN-LIMITATIONS-AND-UNVERIFIED.md` | ✅ |
 | 11 | `09-DEPLOYMENT.md` | ✅ |
 | — | `10-CROP-MONITORING-API.md` | ✅ (added 2026-10-18) |
+| — | `11-SYSTEM-INVENTORY-AND-STATUS.md` | ✅ (added 2026-10-19, Phase 1) |
 | 12 | `privacy-policy.md` | ✅ |
 | 13 | `terms-of-service.md` | ✅ |
 | 14 | `account-deletion.html` | ✅ |

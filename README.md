@@ -66,6 +66,7 @@ agriConnect/
 | 19 | Account lifecycle (register→delete) | [`backend/src/modules/auth`](backend/src/modules/auth) · [`account`](backend/src/modules/account) |
 | 20 | Crop-monitoring API (Earth Engine · Sentinel-2) | [`crop-api/`](crop-api) · [`docs/10-CROP-MONITORING-API.md`](docs/10-CROP-MONITORING-API.md) |
 | 21 | Image upload & display (listings, plots, avatars) | [`MediaRepository`](android/app/src/main/java/bw/agriconnect/data/repository/MediaRepository.kt) · [`AgriRemoteImage`](android/app/src/main/java/bw/agriconnect/ui/components/AgriRemoteImage.kt) · [`backend/.../uploads`](backend/src/modules/uploads) |
+| 22 | System inventory & status (as-built, Phase 1) | [`docs/11-SYSTEM-INVENTORY-AND-STATUS.md`](docs/11-SYSTEM-INVENTORY-AND-STATUS.md) |
 
 ---
 
