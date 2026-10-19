@@ -65,8 +65,68 @@ Botswana offline-first pilot. It is isolated behind a map abstraction so it can 
 | 🔴 Host | VM / container host for the Node service + PostgreSQL 15+ |
 | 🔴 TLS certificate | Valid cert for `api.agriconnect.bw` (Let's Encrypt acceptable) |
 | 🔴 Domain | DNS for API + the public account-deletion page |
-| 🟡 Object storage | S3-compatible bucket for avatars/listing images (or serve locally at small scale) |
+| 🟡 Object storage | Supabase Storage bucket `agriconnect-uploads` (or serve locally at small scale) — see §4.1 |
 | ⚪ Monitoring | Uptime + error monitoring (Sentry or equivalent) |
+
+### 4.1 Supabase Storage bucket — one-time SQL
+
+Image uploads need a bucket to exist before they can work. `UPLOAD_DRIVER=supabase` is
+required on a free host, because the free filesystem is ephemeral and anything written to
+disk is destroyed on every redeploy and every spindown. With no bucket, Supabase answers
+every upload with `NoSuchBucket` (HTTP 400), `POST /uploads` returns a generic 500, and
+the app shows its image placeholder — which is what "uploaded photos render blank"
+actually is.
+
+The API creates the bucket itself on first upload, but only if
+`SUPABASE_SERVICE_ROLE_KEY` is the true `service_role` secret. To remove that dependency,
+run [`backend/scripts/create-storage-bucket.sql`](../backend/scripts/create-storage-bucket.sql)
+once in the Supabase SQL editor (Dashboard → SQL Editor → New query). It is idempotent and
+sets `public = true`, a 2 MB limit and the three accepted MIME types.
+
+Verify the bucket, the migrations, and how much data still lacks an NDVI boundary:
+
+```sql
+-- Bucket exists, is public, and carries the documented limits.
+select id, name, public, file_size_limit, allowed_mime_types
+from storage.buckets
+where id = 'agriconnect-uploads';
+
+-- Objects that have actually reached storage.
+select count(*) from storage.objects where bucket_id = 'agriconnect-uploads';
+
+-- Migrations the API has applied (the runner is backend/src/db/migrate.js).
+select filename, applied_at from schema_migrations order by filename;
+
+-- Plots with no NDVI boundary — these cannot produce an NDVI reading.
+select count(*) filter (where geojson_boundary is null)                    as without_boundary,
+       count(*) filter (where jsonb_typeof(geojson_boundary) <> 'object')  as malformed,
+       count(*)                                                            as plots
+from farm_plots
+where deleted_at is null;
+```
+
+`farm_plots.geojson_boundary` already exists (`migrations/002_domain.sql`, jsonb) and is
+written by the sync engine, so **no schema change is needed** for the boundary. To exercise
+NDVI end to end before walking a field — or before installing the build that can draw a
+boundary — a square can be seeded directly:
+
+```sql
+update farm_plots
+set geojson_boundary = jsonb_build_object(
+      'type', 'Polygon',
+      'coordinates', jsonb_build_array(jsonb_build_array(
+        jsonb_build_array(25.9100, -24.6500),
+        jsonb_build_array(25.9110, -24.6500),
+        jsonb_build_array(25.9110, -24.6490),
+        jsonb_build_array(25.9100, -24.6490),
+        jsonb_build_array(25.9100, -24.6500)   -- GeoJSON rings must close
+      ))
+    ),
+    area_hectares = 1.13,
+    centroid_lat  = -24.6495,
+    centroid_lng  = 25.9105
+where id = '<plot-uuid>';                       -- replace with a real plot id
+```
 
 ---
 
