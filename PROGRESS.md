@@ -33,7 +33,7 @@
 | **Image upload / display** | 🟢 Listings, plots and avatars: pick → `POST /uploads` → store → render (unit/contract-tested; not yet device-verified) |
 | **Plot boundary (NDVI input)** | 🟢 Add/edit plot captures the polygon (GPS corners or manual lat/lng); stored in `farm_plots.geojson_boundary`, pushed via `/sync/push`, and required by `POST /satellite/ndvi` |
 | **Android build** | 🟢 `:app:assembleDebug` produces a 24.0 MB APK — `1.1.1` (build 3), re-run 2026-10-19 |
-| **Android unit tests** | 🟢 46/46 pass, 9 suites, 0 failures (`:app:testDebugUnitTest`, re-run 2026-10-19) |
+| **Android unit tests** | 🟢 50/50 pass, 9 suites, 0 failures (`:app:testDebugUnitTest`, re-run 2026-10-19) |
 | **Release distribution** | 🟢 CI uploads a debug APK named `agriconnect-debug-v<version>-<sha>.apk` (§8) |
 | **Android runtime** | 🟡 Never launched on a device/emulator — no instrumented test run |
 | **External providers** | 🔴 SMS/email, Earth Engine and push are not configured |
@@ -155,7 +155,7 @@ WorkManager, Retrofit + kotlinx.serialization, Coil, osmdroid. JDK 17,
 | Reusable components | `ui/components/` (16 files) | Scaffold, surfaces, buttons, dialogs, state views, chips, segmented control, chart, badges, settings rows, logo, remote image, boundary editor |
 | Navigation | `ui/AgriConnectRoot.kt`, `ui/navigation/` | Root `NavHost`, `MainScaffold` chrome, `AgriNavItems.forRole`, `homeRouteFor` |
 | Screens | `ui/**` (27 `*Screen.kt`) | See §3.2 |
-| Unit tests | `app/src/test/...` (9 files) | **46/46 passing** |
+| Unit tests | `app/src/test/...` (9 files) | **50/50 passing** |
 | Instrumented test scaffold | `app/src/androidTest/.../HiltTestRunner.kt` | Runner exists; no test classes yet |
 
 ### 3.2 Implemented screens ✅
@@ -165,6 +165,12 @@ Farm (plots) · Farm detail · Harvests · Livestock · Satellite insights · Fi
 Marketplace · Listing detail · Create listing · Orders · Order detail ·
 Notifications · Profile · Settings · Notification preferences · Privacy & consent ·
 Account deletion · Offline & sync · Help · Server (debug builds only).
+
+The **Satellite** tab is a real destination: it resolves the owner's plots from the
+local cache, defaults to the first one, and offers a chip row to switch plots when
+there is more than one. An empty plot list shows an "Add a plot" state that routes to
+the Farm tab. A pushed `satellite/{plotId}` route opens the same screen with a back
+arrow and a fixed plot.
 
 Role-based bottom navigation (no tab a role cannot open):
 **FARM_OWNER** home/farms/satellite/market/more ·

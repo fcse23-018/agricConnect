@@ -15,9 +15,9 @@
 |-------|------:|--------|:--------------:|
 | Backend — unit (`backend/tests/unit`, 8 suites) | 139 | ✅ **Pass — re-run 2026-10-19** | ✅ Yes (bundled Node) |
 | Backend — API (`backend/tests/api`, 2 suites) | 13 | ✅ **Pass — re-run 2026-10-19** (`uploads.supabase` needs the network) | ✅ Yes (bundled Node) |
-| Backend — ESLint (`npm run lint`) | — | ✅ 0 errors (25 pre-existing warnings) | ✅ Yes |
+| Backend — ESLint (`npm run lint`) | — | ✅ 0 errors (24 pre-existing warnings) | ✅ Yes |
 | Crop API — `crop-api` (`pytest`) | 34 | ✅ **Pass — re-run 2026-10-18** | ✅ Yes |
-| Android — unit (`app/src/test`, 9 classes) | 46 | ✅ **Pass — re-run 2026-10-19** | ✅ Yes |
+| Android — unit (`app/src/test`, 9 classes) | 50 | ✅ **Pass — re-run 2026-10-19** | ✅ Yes |
 | Android — instrumented (`app/src/androidTest`) | 0 authored | ⏭️ Not run | ❌ No emulator/device |
 | Android — `:app:assembleDebug` | — | ✅ **BUILD SUCCESSFUL** | ✅ Yes |
 | Manual on-device walkthrough | — | ⏭️ Not run | ❌ No emulator/device |
@@ -40,6 +40,7 @@ the crop-API figure is from 2026-10-18. The backend suites are also run by CI
 | Tasks | 52 actionable (17 executed, 35 up-to-date) |
 | Artifact | `android/app/build/outputs/apk/debug/app-debug.apk` |
 | Size | **≈22.9 MiB / 24.0 MB** (24 022 469 bytes on the last run; the exact byte count moves by a few hundred bytes between builds) |
+| SHA-256 | `4CE25C28FC0D76D59783DD4530756F735CD26CE4AAD0621D2B828D7B55281625` (last build, commit `c20e29a`) |
 | Version | `1.1.1` (`versionCode` 3) — shown in-app on Settings |
 | Warnings | None blocking. Deprecated `Icons.Filled.ReceiptLong`/`Trending*` usages remain in three files (the AutoMirrored names are used in the new advice card). |
 
@@ -57,19 +58,19 @@ run here (it requires `android/keystore.properties`).
 ## 3. Android unit tests (`:app:testDebugUnitTest`)
 
 Executed 2026-10-19 with `./gradlew :app:testDebugUnitTest`.
-**46 tests · 0 failures · 0 errors · 0 skipped (9 classes).**
+**50 tests · 0 failures · 0 errors · 0 skipped (9 classes).**
 
 | Class | Tests | Focus |
 |-------|------:|-------|
 | `data.local.AgriDatabaseTest` | 5 | Room persistence, enum converters, sync-queue enqueue on write/delete, plot `imageUrl` round-trip |
-| `data.remote.AuthApiTest` | 4 | Wire contract: `POST /auth/login`, `POST /auth/register` (path + idempotency key + body), 400 error-envelope → field errors, 5xx never leaks server text. The register fixture uses `FARM_OWNER`, the role that owns the farm |
+| `data.remote.AuthApiTest` | 6 | Wire contract: `POST /auth/login`, `POST /auth/register` (path + idempotency key + body), 400 error-envelope → field errors, the generic "highlighted fields" copy replaced by the joined field messages, a specific server message kept verbatim even when details exist, 5xx never leaks server text. The register fixture uses `FARM_OWNER`, the role that owns the farm |
 | `data.remote.MediaApiTest` | 3 | Wire contract: `POST /uploads` (path + `image` multipart field + `{url}` parse), repository success path, 5xx never leaks server text |
 | `data.remote.SyncApiTest` | 1 | `sync/push` parses `synced` / `conflict` / `failed` results |
 | `data.remote.TokenAuthenticatorTest` | 2 | 401 → single refresh + retry + rotated token persisted; refresh failure → session cleared |
 | `data.remote.dto.NdviAdviceMappingTest` | 9 | NDVI advice wire contract → domain: full block, trend/context/confidence, a missing `advice`, an advice block with no `assessment`, unknown enum values, a blank action title, a simulated source, and a partial block |
 | `core.util.ImageUrlsTest` | 7 | Origin-relative `/uploads/…` → absolute API-origin URL, absolute/`content://` untouched, blank → null |
 | `core.util.BaseUrlTest` | 6 | Server-override validation: trailing `/` added, whitespace trimmed, host-only accepted, and null/blank/relative/non-`http(s)` values rejected |
-| `core.util.PlotBoundaryTest` | 9 | Corner → closed GeoJSON `Polygon`, ring closure, degenerate rings rejected, local hectares/centroid estimate, and the boundary that `POST /satellite/ndvi` requires |
+| `core.util.PlotBoundaryTest` | 11 | Corner → closed GeoJSON `Polygon`, ring closure, degenerate rings rejected, local hectares/centroid estimate, the boundary that `POST /satellite/ndvi` requires, and `isUsableBoundary` (accepts Polygon/MultiPolygon/Feature with coordinates; rejects null, blank, malformed, empty and non-polygon input) |
 
 These are pure JVM tests (Robolectric/MockWebServer) — no device required. The advice
 mapping tests decode the **real** payload shape the backend emits, so the client and the
