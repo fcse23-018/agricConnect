@@ -22,32 +22,25 @@ val keystoreProps = Properties().apply {
 // Priority for the compiled-in URL:
 //   1. -PapiBaseUrl=...            (explicit, wins everywhere)
 //   2. apiBaseUrl=... in local.properties  (persistent, git-ignored)
-//   3. the Codespace-forwarded port (auto-detected; see below)
-//   4. the per-build-type default passed by the caller
+//   3. the per-build-type default passed by the caller
 //
 // local.properties.example:
 //   apiBaseUrl=https://my-host.example/api/v1/
 //
-// Codespace detection: GitHub Codespaces exports CODESPACE_NAME and
-// GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN, so a build run there can reach the
-// backend on its forwarded port without any manual URL. Make port 4000 "Public"
-// in the Ports tab for the device to connect.
+// There is deliberately NO environment-detected default. An earlier revision
+// auto-detected a GitHub Codespaces forwarded port from CODESPACE_NAME; that made
+// a handed-out APK silently point at a host that only worked from one machine, and
+// a stopped codespace answers 401 with a non-JSON body — which the client could
+// only surface as "Invalid credentials or session expired". A build now points at
+// a real host unless the caller overrides it explicitly.
 val localProps = Properties().apply {
     val file = rootProject.file("local.properties")
     if (file.exists()) file.inputStream().use { load(it) }
 }
 
-fun codespaceApiBaseUrl(): String? {
-    val name = System.getenv("CODESPACE_NAME") ?: return null
-    val domain = System.getenv("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN") ?: return null
-    val port = System.getenv("API_PORT") ?: "4000"
-    return "https://$name-$port.$domain/api/v1/"
-}
-
 fun apiBaseUrl(default: String): String {
     val raw = (project.findProperty("apiBaseUrl") as String?)
         ?: localProps.getProperty("apiBaseUrl")
-        ?: codespaceApiBaseUrl()
         ?: default
     return if (raw.endsWith("/")) raw else "$raw/"
 }
@@ -69,23 +62,25 @@ android {
         targetSdk = 35
         // Bump on every build you hand out. Settings → footer shows this, so "which
         // build is on the phone?" is answerable without inspecting the APK.
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.1.1"
 
         testInstrumentationRunner = "bw.agriconnect.HiltTestRunner"
         vectorDrawables { useSupportLibrary = true }
 
         resourceConfigurations += listOf("en")
 
-        // Base URL is injected per build type; debug points at the local dev server.
-        buildConfigField("String", "API_BASE_URL", "\"${apiBaseUrl("https://api.agriconnect.bw/api/v1/")}\"")
+        // Base URL is injected per build type. Both point at the deployed service so a
+        // handed-out APK works on a physical device with no configuration; pass
+        // -PapiBaseUrl=... (or local.properties) to target a local/emulator server.
+        buildConfigField("String", "API_BASE_URL", "\"${apiBaseUrl("https://agriconnect-api-f55x.onrender.com/api/v1/")}\"")
     }
 
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
             isMinifyEnabled = false
-            buildConfigField("String", "API_BASE_URL", "\"${apiBaseUrl("https://cautious-space-winner-69w4rgqxjv6gf5qxv-4000.app.github.dev/api/v1/")}\"")
+            buildConfigField("String", "API_BASE_URL", "\"${apiBaseUrl("https://agriconnect-api-f55x.onrender.com/api/v1/")}\"")
             buildConfigField("boolean", "VERBOSE_LOGGING", "true")
         }
         release {

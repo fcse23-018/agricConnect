@@ -110,6 +110,7 @@ fun AgriConnectRoot(
                 WelcomeScreen(
                     onGetStarted = { navController.navigate(Routes.ONBOARDING) },
                     onSignIn = { navController.navigate(Routes.LOGIN) },
+                    onServerSettings = { navController.navigate(Routes.SERVER) },
                 )
             }
             composable(Routes.ONBOARDING) {
@@ -120,6 +121,7 @@ fun AgriConnectRoot(
                     onLoggedIn = { clearTo(AgriNavItems.homeRouteFor(rootViewModel.session.value?.role)) },
                     onForgotPassword = { navController.navigate(Routes.FORGOT_PASSWORD) },
                     onRegister = { navController.navigate(Routes.REGISTER) },
+                    onServerSettings = { navController.navigate(Routes.SERVER) },
                 )
             }
             composable(Routes.REGISTER) {

@@ -299,11 +299,12 @@ $env:JAVA_HOME="C:\Users\src.president\agri-tooling\jdk"
 Verified in this environment (2026-10-18): **BUILD SUCCESSFUL**, 28/28 unit tests,
 `app/build/outputs/apk/debug/app-debug.apk` (`1.1.0`/build 2, 22.5 MB, with
 `auth_background.jpg` inside).
-The API base URL defaults to
-`http://10.0.2.2:4000/api/v1/` (debug) and `https://api.agriconnect.bw/api/v1/` (release),
-and can be overridden with `-PapiBaseUrl=…`, `local.properties`, the auto-detected
-Codespaces forwarded port, or at runtime in a debug build (Settings → Server) — see the
-README.
+The API base URL defaults to the deployed service
+(`https://agriconnect-api-f55x.onrender.com/api/v1/`) for both build types, and can be
+overridden with `-PapiBaseUrl=…` or `local.properties`, or at runtime in a debug build
+(**Server** settings, reachable from Welcome/Sign-in as well as Settings) — see the
+README. The former auto-detected Codespaces forwarded port was removed: it could bake a
+dead address that surfaced to users as an unexplained "session expired" 401.
 
 ---
 

@@ -101,11 +101,12 @@ at fault.
 - There was no supported way to target a real or forwarded backend without editing the
   build file.
 
-**Fix (commit `f4736ed`):** `API_BASE_URL` now resolves in priority order —
-`-PapiBaseUrl=…` → `apiBaseUrl` in `local.properties` → the auto-detected GitHub Codespaces
-forwarded port → the per-build-type default. Cleartext to a dev server is already enabled
-for debug builds via `src/debug/AndroidManifest.xml`; release remains HTTPS-only. The README
-documents the override.
+**Fix (commit `f4736ed`):** `API_BASE_URL` resolves in priority order —
+`-PapiBaseUrl=…` → `apiBaseUrl` in `local.properties` → the per-build-type default.
+Cleartext to a dev server is already enabled for debug builds via
+`src/debug/AndroidManifest.xml`; release remains HTTPS-only. The README documents the
+override. (The intermediate Codespaces auto-detection was later removed: it could bake an
+address that only worked from one machine.)
 
 **Verification:** re-ran `:app:assembleDebug` (BUILD SUCCESSFUL) and `:app:testDebugUnitTest`
 (12/12) after the change. End-to-end sign-in against a live backend is **not** asserted here

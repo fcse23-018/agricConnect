@@ -97,30 +97,35 @@ The release build requires `android/keystore.properties` (never committed — se
 [`docs/06-STORE-READINESS-CHECKLIST.md`](docs/06-STORE-READINESS-CHECKLIST.md)).
 
 **Pointing the app at your backend.** The app talks to the URL compiled into
-`API_BASE_URL` (`android/app/build.gradle.kts`). Its defaults — release:
-`https://api.agriconnect.bw/api/v1/`, debug: `http://10.0.2.2:4000/api/v1/` — only
-work once that server exists, or from an emulator. Override it at build time:
+`API_BASE_URL` (`android/app/build.gradle.kts`). It defaults to the deployed
+service (`https://agriconnect-api-f55x.onrender.com/api/v1/`), so a debug APK
+works on a physical device with no configuration. Override it at build time to
+target a local or emulator server:
 
 ```bash
-# Recommended in a Codespace: it is detected automatically (make port 4000
-# "Public" in the Ports tab), so a plain build already points at the backend.
-# To be explicit, or anywhere else, pass the URL:
 cd android
-./gradlew :app:assembleDebug -PapiBaseUrl=https://<host>/api/v1/
+./gradlew :app:assembleDebug -PapiBaseUrl=http://10.0.2.2:4000/api/v1/
 
 # Persistently, and never committed (local.properties is git-ignored)
-echo "apiBaseUrl=https://<host>/api/v1/" >> local.properties
+echo "apiBaseUrl=http://10.0.2.2:4000/api/v1/" >> local.properties
 ```
+
+There is deliberately **no environment-detected default**. An earlier build
+auto-detected a GitHub Codespaces forwarded port, which silently baked an address
+that only worked from one machine; a stopped Codespace answers `401`, which the
+client could only report as an unexplained "session expired".
 
 Cleartext HTTP is permitted in **debug** builds (via
 `android/app/src/debug/AndroidManifest.xml`, so an emulator or LAN device can reach
 a plain-`http` dev server); **release** builds are HTTPS-only. Login and sign-up
 cannot succeed until the app can reach a running backend.
 
-**Changing the server without rebuilding.** A debug build exposes Settings → **Server**,
-where you can save any base URL on the device; the app restarts to apply it. This is the
-quickest way to move an already-installed APK onto a new Codespaces forward or a LAN
-address, and Settings' footer always shows the version and build number in use.
+**Changing the server without rebuilding.** A debug build exposes **Server** settings,
+where you can save any base URL on the device; the app restarts to apply it. Because a
+wrong address otherwise locks you out of the app entirely, it is reachable from Settings
+*and* directly from the Welcome and Sign-in screens, so a stale address can always be
+reset before signing in. Settings' footer always shows the version and build number in
+use.
 
 **Getting a build off CI.** Every push to `main` attaches
 `agriconnect-debug-v<version>-<commit>.apk` to the workflow run (Actions → a run →

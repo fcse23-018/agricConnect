@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -17,9 +18,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import bw.agriconnect.BuildConfig
 import bw.agriconnect.ui.components.AgriPasswordField
 import bw.agriconnect.ui.components.AgriPrimaryButton
 import bw.agriconnect.ui.components.AgriTextField
@@ -38,6 +41,7 @@ fun LoginScreen(
     onLoggedIn: () -> Unit,
     onForgotPassword: () -> Unit = {},
     onRegister: () -> Unit = {},
+    onServerSettings: (() -> Unit)? = null,
     viewModel: LoginViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -107,6 +111,19 @@ fun LoginScreen(
         Spacer(Modifier.height(AgriSpacing.xs))
 
         AgriTextFieldButton(text = "Create an account", onClick = onRegister, enabled = !state.isSubmitting)
+
+        // Debug builds only: recover from a wrong server address before signing in.
+        if (BuildConfig.DEBUG && onServerSettings != null) {
+            Spacer(Modifier.height(AgriSpacing.md))
+            AgriTextFieldButton(text = "Server settings", onClick = onServerSettings, enabled = true)
+            Text(
+                text = BuildConfig.API_BASE_URL,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 }
 
