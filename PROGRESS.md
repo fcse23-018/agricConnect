@@ -31,7 +31,7 @@
 | **Android UI** | 🟢 26 Compose screens, role-based navigation, offline/sync affordances |
 | **Image upload / display** | 🟢 Listings, plots and avatars: pick → `POST /uploads` → store → render (unit/contract-tested; not yet device-verified) |
 | **Plot boundary (NDVI input)** | 🟢 Add/edit plot captures the polygon (GPS corners or manual lat/lng); stored in `farm_plots.geojson_boundary`, pushed via `/sync/push`, and required by `POST /satellite/ndvi` |
-| **Android build** | 🟢 `:app:assembleDebug` produces a 23.8 MB APK — `1.1.1` (build 3), re-run 2026-10-19 |
+| **Android build** | 🟢 `:app:assembleDebug` produces a 24.0 MB APK — `1.1.1` (build 3), re-run 2026-10-19 |
 | **Android unit tests** | 🟢 46/46 pass, 9 suites, 0 failures (`:app:testDebugUnitTest`, re-run 2026-10-19) |
 | **Release distribution** | 🟢 CI uploads a debug APK named `agriconnect-debug-v<version>-<sha>.apk` (§8) |
 | **Android runtime** | 🟡 Never launched on a device/emulator — no instrumented test run |

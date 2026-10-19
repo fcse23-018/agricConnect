@@ -39,7 +39,7 @@ the crop-API figure is from 2026-10-18. The backend suites are also run by CI
 | Result | **BUILD SUCCESSFUL** (re-run 2026-10-19) |
 | Tasks | 52 actionable (17 executed, 35 up-to-date) |
 | Artifact | `android/app/build/outputs/apk/debug/app-debug.apk` |
-| Size | **22.7 MiB / 23.8 MB** (23 812 038 bytes) |
+| Size | **22.9 MiB / 24.0 MB** (24 022 739 bytes) |
 | Version | `1.1.1` (`versionCode` 3) — shown in-app on Settings |
 | Warnings | None blocking. Deprecated `Icons.Filled.ReceiptLong`/`Trending*` usages remain in three files (the AutoMirrored names are used in the new advice card). |
 
