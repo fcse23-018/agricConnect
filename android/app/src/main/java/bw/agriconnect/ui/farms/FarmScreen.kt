@@ -12,7 +12,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Grass
@@ -35,6 +37,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import bw.agriconnect.core.util.CurrentLocation
 import bw.agriconnect.core.util.ImageFiles
 import bw.agriconnect.ui.chrome.MainScaffold
 import bw.agriconnect.ui.components.AgriCard
@@ -43,6 +46,7 @@ import bw.agriconnect.ui.components.AgriRemoteImage
 import bw.agriconnect.ui.components.AgriSecondaryButton
 import bw.agriconnect.ui.components.AgriSettingsRow
 import bw.agriconnect.ui.components.AgriTextField
+import bw.agriconnect.ui.components.BoundaryEditor
 import bw.agriconnect.ui.components.EmptyState as AgriEmptyState
 import bw.agriconnect.ui.components.SyncStatusBadge
 import bw.agriconnect.ui.theme.AgriColors
@@ -78,6 +82,35 @@ fun FarmScreen(
     }
 
     LaunchedEffect(Unit) { viewModel.refresh() }
+
+    // GPS-assisted boundary mapping: the location permission is requested only when the
+    // user taps, and a refusal degrades to manual corner entry instead of blocking.
+    suspend fun captureCorner() {
+        viewModel.setLocating(true)
+        val vertex = CurrentLocation.capture(context)
+        if (vertex == null) {
+            viewModel.onLocationFailed("Could not read your location. Add corners manually instead.")
+        } else {
+            viewModel.setLocating(false)
+            viewModel.addVertex(vertex)
+        }
+    }
+
+    val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            scope.launch { captureCorner() }
+        } else {
+            viewModel.onLocationFailed("Location permission denied. Add corners manually instead.")
+        }
+    }
+
+    fun useMyLocation() {
+        if (CurrentLocation.hasPermission(context)) {
+            scope.launch { captureCorner() }
+        } else {
+            locationPermission.launch(CurrentLocation.FINE_PERMISSION)
+        }
+    }
 
     MainScaffold(
         title = "Farms",
@@ -162,14 +195,34 @@ fun FarmScreen(
             onDismissRequest = { viewModel.showForm(false) },
             title = { Text("Add plot") },
             text = {
-                Column {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
                     AgriTextField(value = form.name, onValueChange = viewModel::onNameChange, label = "Plot name")
                     Spacer(Modifier.height(AgriSpacing.sm))
-                    AgriTextField(value = form.area, onValueChange = viewModel::onAreaChange, label = "Area (ha)", keyboardType = KeyboardType.Number)
+                    AgriTextField(
+                        value = form.area,
+                        onValueChange = viewModel::onAreaChange,
+                        label = "Area (ha)",
+                        helper = if (form.hasBoundary) "Optional — estimated from the boundary." else null,
+                        keyboardType = KeyboardType.Number,
+                    )
+                    Spacer(Modifier.height(AgriSpacing.md))
+                    BoundaryEditor(
+                        vertices = form.boundary,
+                        manualLat = form.vertexLat,
+                        onManualLatChange = viewModel::onVertexLatChange,
+                        manualLng = form.vertexLng,
+                        onManualLngChange = viewModel::onVertexLngChange,
+                        onAddManual = viewModel::addManualVertex,
+                        onUseMyLocation = ::useMyLocation,
+                        onRemoveVertex = viewModel::removeVertex,
+                        onClear = viewModel::clearBoundary,
+                        isLocating = form.isLocating,
+                        enabled = !form.isBusy,
+                    )
+                    Spacer(Modifier.height(AgriSpacing.md))
+                    AgriTextField(value = form.lat, onValueChange = viewModel::onLatChange, label = "Centre latitude (optional)", placeholder = "e.g. -24.6543", helper = "Used only when no boundary is drawn.", keyboardType = KeyboardType.Text)
                     Spacer(Modifier.height(AgriSpacing.sm))
-                    AgriTextField(value = form.lat, onValueChange = viewModel::onLatChange, label = "Latitude (optional)", keyboardType = KeyboardType.Number)
-                    Spacer(Modifier.height(AgriSpacing.sm))
-                    AgriTextField(value = form.lng, onValueChange = viewModel::onLngChange, label = "Longitude (optional)", keyboardType = KeyboardType.Number)
+                    AgriTextField(value = form.lng, onValueChange = viewModel::onLngChange, label = "Centre longitude (optional)", placeholder = "e.g. 25.9123", keyboardType = KeyboardType.Text)
                     Spacer(Modifier.height(AgriSpacing.sm))
                     AgriTextField(value = form.notes, onValueChange = viewModel::onNotesChange, label = "Notes (optional)")
                     Spacer(Modifier.height(AgriSpacing.md))

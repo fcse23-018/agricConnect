@@ -31,6 +31,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import bw.agriconnect.core.util.CurrentLocation
 import bw.agriconnect.core.util.ImageFiles
 import bw.agriconnect.ui.chrome.MainScaffold
 import bw.agriconnect.ui.components.AgriCard
@@ -38,6 +39,7 @@ import bw.agriconnect.ui.components.AgriPrimaryButton
 import bw.agriconnect.ui.components.AgriRemoteImage
 import bw.agriconnect.ui.components.AgriSecondaryButton
 import bw.agriconnect.ui.components.AgriTextField
+import bw.agriconnect.ui.components.BoundaryEditor
 import bw.agriconnect.ui.components.ConfirmationDialog
 import bw.agriconnect.ui.components.EmptyState
 import bw.agriconnect.ui.components.LoadingState
@@ -73,6 +75,35 @@ fun FarmDetailScreen(
     }
 
     LaunchedEffect(plotId) { viewModel.setPlotId(plotId) }
+
+    // GPS-assisted boundary mapping, mirroring the add-plot flow: permission is requested
+    // only on tap, and a refusal falls back to manual corner entry.
+    suspend fun captureCorner() {
+        viewModel.setLocating(true)
+        val vertex = CurrentLocation.capture(context)
+        if (vertex == null) {
+            viewModel.onLocationFailed("Could not read your location. Add corners manually instead.")
+        } else {
+            viewModel.setLocating(false)
+            viewModel.addVertex(vertex)
+        }
+    }
+
+    val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            scope.launch { captureCorner() }
+        } else {
+            viewModel.onLocationFailed("Location permission denied. Add corners manually instead.")
+        }
+    }
+
+    fun useMyLocation() {
+        if (CurrentLocation.hasPermission(context)) {
+            scope.launch { captureCorner() }
+        } else {
+            locationPermission.launch(CurrentLocation.FINE_PERMISSION)
+        }
+    }
 
     MainScaffold(
         title = state.plot?.plotName ?: "Plot details",
@@ -118,6 +149,15 @@ fun FarmDetailScreen(
                         if (it.centroidLat != null && it.centroidLng != null) {
                             Text("Location: ${it.centroidLat}, ${it.centroidLng}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
+                        Text(
+                            text = if (it.geoJsonBoundary != null) {
+                                "Plot boundary saved — NDVI can be computed."
+                            } else {
+                                "No boundary yet — add one to enable NDVI (satellite crop health)."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (it.geoJsonBoundary != null) AgriColors.SuccessGreen else AgriColors.WarningAmber,
+                        )
                         it.imageUrl?.takeIf { img -> img.isNotBlank() }?.let { img ->
                             Spacer(Modifier.height(AgriSpacing.sm))
                             AgriRemoteImage(
@@ -178,11 +218,24 @@ fun FarmDetailScreen(
             onDismissRequest = { if (!state.isSaving) viewModel.showEdit(false) },
             title = { Text("Edit plot") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(AgriSpacing.sm)) {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(AgriSpacing.sm)) {
                     AgriTextField(value = state.name, onValueChange = viewModel::onNameChange, label = "Plot name")
-                    AgriTextField(value = state.area, onValueChange = viewModel::onAreaChange, label = "Area (ha)", keyboardType = KeyboardType.Number)
-                    AgriTextField(value = state.lat, onValueChange = viewModel::onLatChange, label = "Latitude", keyboardType = KeyboardType.Number)
-                    AgriTextField(value = state.lng, onValueChange = viewModel::onLngChange, label = "Longitude", keyboardType = KeyboardType.Number)
+                    AgriTextField(value = state.area, onValueChange = viewModel::onAreaChange, label = "Area (ha)", helper = if (state.hasBoundary) "Optional — estimated from the boundary." else null, keyboardType = KeyboardType.Number)
+                    BoundaryEditor(
+                        vertices = state.boundary,
+                        manualLat = state.vertexLat,
+                        onManualLatChange = viewModel::onVertexLatChange,
+                        manualLng = state.vertexLng,
+                        onManualLngChange = viewModel::onVertexLngChange,
+                        onAddManual = viewModel::addManualVertex,
+                        onUseMyLocation = ::useMyLocation,
+                        onRemoveVertex = viewModel::removeVertex,
+                        onClear = viewModel::clearBoundary,
+                        isLocating = state.isLocating,
+                        enabled = !state.isBusy,
+                    )
+                    AgriTextField(value = state.lat, onValueChange = viewModel::onLatChange, label = "Centre latitude (optional)", helper = "Used only when no boundary is drawn.", keyboardType = KeyboardType.Text)
+                    AgriTextField(value = state.lng, onValueChange = viewModel::onLngChange, label = "Centre longitude (optional)", keyboardType = KeyboardType.Text)
                     AgriTextField(value = state.notes, onValueChange = viewModel::onNotesChange, label = "Notes")
                     Text("Photo", style = MaterialTheme.typography.titleSmall)
                     state.imagePreview?.let { preview ->

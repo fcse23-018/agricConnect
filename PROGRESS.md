@@ -4,7 +4,7 @@
 > stubbed or mocked, and what is still missing — so a developer joining the project
 > can orient in minutes and know exactly where to start.
 >
-> **Last updated:** 2026-10-18 · **Baseline commit:** `9cde496` (+ uncommitted work
+> **Last updated:** 2026-10-19 · **Baseline commit:** `005bdbf` (+ uncommitted work
 > described below) · **Platform:** Windows, JDK 17, Node 24, Python 3.12, PostgreSQL 17
 >
 > **How to read the status markers**
@@ -23,15 +23,16 @@
 | Area | State |
 |------|-------|
 | **Backend REST API** | 🟢 Every endpoint in the contract is implemented |
-| **Backend tests** | 🟢 81/81 pass — 76 unit + 5 HTTP smoke (re-run 2026-10-18) |
+| **Backend tests** | 🟢 102/102 pass (re-run 2026-10-19) |
 | **Crop-monitoring API** | 🟢 `crop-api/` FastAPI service — 34/34 pytest pass (mock GEE by default) |
 | **Backend ↔ Supabase schema** | 🟢 `backend/supabase-update.sql` verified against PostgreSQL 17 (§6) |
 | **Android data + domain layer** | 🟢 Room (v2), Retrofit, sync engine, session, 12 repositories |
 | **Android app shell** | 🟢 `AgriConnectApp`, `MainActivity`, Hilt modules, nav host all present |
 | **Android UI** | 🟢 26 Compose screens, role-based navigation, offline/sync affordances |
 | **Image upload / display** | 🟢 Listings, plots and avatars: pick → `POST /uploads` → store → render (unit/contract-tested; not yet device-verified) |
-| **Android build** | 🟢 `:app:assembleDebug` produces a 22.5 MB APK — `1.1.0` (build 2), re-run 2026-10-18 |
-| **Android unit tests** | 🟢 28/28 pass (`:app:testDebugUnitTest`, re-run 2026-10-18) |
+| **Plot boundary (NDVI input)** | 🟢 Add/edit plot captures the polygon (GPS corners or manual lat/lng); stored in `farm_plots.geojson_boundary`, pushed via `/sync/push`, and required by `POST /satellite/ndvi` |
+| **Android build** | 🟢 `:app:assembleDebug` produces a 23.8 MB APK — `1.1.1` (build 3), re-run 2026-10-19 |
+| **Android unit tests** | 🟢 36/36 pass (`:app:testDebugUnitTest`, re-run 2026-10-19) |
 | **Release distribution** | 🟢 CI uploads a debug APK named `agriconnect-debug-v<version>-<sha>.apk` (§8) |
 | **Android runtime** | 🟡 Never launched on a device/emulator — no instrumented test run |
 | **External providers** | 🔴 SMS/email, Earth Engine and push are not configured |
@@ -146,13 +147,14 @@ WorkManager, Retrofit + kotlinx.serialization, Coil, osmdroid. JDK 17,
 | Sync engine | `data/sync/` | `SyncEngine`, `SyncQueue`, `SyncApplier`, `ConflictResolver`, `SyncScheduler`, `SyncWorker` (WorkManager) |
 | Repositories | `data/repository/` (12) | Auth, FarmPlot, Harvest, Livestock, Finance, Marketplace, Order, Notification, Satellite, Account, **Media** (generic image upload) |
 | Image pipeline | `core/util/ImageUrls.kt`, `ImageFiles.kt`, `data/repository/MediaRepository.kt`, `ui/components/AgriRemoteImage.kt` | Pick → `POST /uploads` → store the origin-relative path on the record → Coil renders it after resolving against the API origin (also shows images uploaded by other users) |
+| Plot boundary mapping | `core/util/PlotBoundary.kt`, `core/util/CurrentLocation.kt`, `ui/components/BoundaryEditor.kt` | Corners from GPS or manual lat/lng, serialised to a closed GeoJSON Polygon with a local area/centroid estimate; the input NDVI cannot be computed without. Pure geometry is unit-tested |
 | Server endpoint | `core/config/ServerConfig.kt`, `core/util/BaseUrl.kt`, `ui/settings/ServerSettingsScreen.kt` | Defaults to the URL compiled into the build type; a **debug** build can persist an override (Settings → Server) and restarts to apply it, so an installed APK can point at a Codespaces forward or a LAN host with no rebuild |
 | Result type | `core/result/AppResult.kt` | `AppResult.Success/Failure`, `AppError.message/isNetwork` |
 | Design system | `ui/theme/` | Tokens match [`docs/01-DESIGN-SYSTEM.md`](docs/01-DESIGN-SYSTEM.md) |
-| Reusable components | `ui/components/` (15 files) | Scaffold, surfaces, buttons, dialogs, state views, chips, segmented control, chart, badges, settings rows, logo, remote image |
+| Reusable components | `ui/components/` (16 files) | Scaffold, surfaces, buttons, dialogs, state views, chips, segmented control, chart, badges, settings rows, logo, remote image, boundary editor |
 | Navigation | `ui/AgriConnectRoot.kt`, `ui/navigation/` | Root `NavHost`, `MainScaffold` chrome, `AgriNavItems.forRole`, `homeRouteFor` |
 | Screens | `ui/**` (27 `*Screen.kt`) | See §3.2 |
-| Unit tests | `app/src/test/...` (7 files) | **28/28 passing** |
+| Unit tests | `app/src/test/...` (8 files) | **36/36 passing** |
 | Instrumented test scaffold | `app/src/androidTest/.../HiltTestRunner.kt` | Runner exists; no test classes yet |
 
 ### 3.2 Implemented screens ✅

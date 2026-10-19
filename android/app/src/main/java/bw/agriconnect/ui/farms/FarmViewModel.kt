@@ -3,7 +3,9 @@ package bw.agriconnect.ui.farms
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import bw.agriconnect.core.result.AppResult
+import bw.agriconnect.core.util.GeoVertex
 import bw.agriconnect.core.util.ImageFiles
+import bw.agriconnect.core.util.PlotBoundary
 import bw.agriconnect.data.repository.AuthRepository
 import bw.agriconnect.data.repository.FarmPlotRepository
 import bw.agriconnect.data.repository.MediaRepository
@@ -33,12 +35,24 @@ data class FarmFormState(
     /** Device-local URI of a picked-but-not-yet-uploaded photo, for the preview. */
     val imagePreview: String? = null,
     val pendingImage: ImageFiles.Picked? = null,
+    /**
+     * The plot polygon corners, in the order drawn. Required to compute NDVI; stored as a
+     * GeoJSON Polygon in `farm_plots.geojson_boundary`.
+     */
+    val boundary: List<GeoVertex> = emptyList(),
+    /** Staged corner coordinates for manual entry (cleared once a corner is added). */
+    val vertexLat: String = "",
+    val vertexLng: String = "",
+    val isLocating: Boolean = false,
     val isUploading: Boolean = false,
     val error: String? = null,
     val isSaving: Boolean = false,
     val showForm: Boolean = false,
 ) {
     val isBusy: Boolean get() = isSaving || isUploading
+
+    /** True once enough corners exist to enclose an area — i.e. NDVI is possible. */
+    val hasBoundary: Boolean get() = boundary.size >= PlotBoundary.MIN_VERTICES
 }
 
 @HiltViewModel
@@ -63,6 +77,33 @@ class FarmViewModel @Inject constructor(
     fun onLngChange(v: String) = _form.update { it.copy(lng = v) }
     fun onNotesChange(v: String) = _form.update { it.copy(notes = v) }
 
+    fun onVertexLatChange(v: String) = _form.update { it.copy(vertexLat = v, error = null) }
+    fun onVertexLngChange(v: String) = _form.update { it.copy(vertexLng = v, error = null) }
+
+    /** Appends a corner typed by hand, rejecting anything that is not a usable coordinate. */
+    fun addManualVertex() {
+        val latitude = _form.value.vertexLat.trim().toDoubleOrNull()
+        val longitude = _form.value.vertexLng.trim().toDoubleOrNull()
+        val vertex = if (latitude != null && longitude != null) GeoVertex(latitude, longitude) else null
+        if (vertex == null || !PlotBoundary.isValid(vertex)) {
+            _form.update { it.copy(error = "Enter a valid corner latitude (-90 to 90) and longitude (-180 to 180).") }
+            return
+        }
+        _form.update { it.copy(boundary = it.boundary + vertex, vertexLat = "", vertexLng = "", error = null) }
+    }
+
+    /** Appends a corner captured from GPS. */
+    fun addVertex(vertex: GeoVertex) = _form.update { it.copy(boundary = it.boundary + vertex, error = null) }
+
+    fun removeVertex(index: Int) =
+        _form.update { it.copy(boundary = it.boundary.filterIndexed { i, _ -> i != index }) }
+
+    fun clearBoundary() = _form.update { it.copy(boundary = emptyList(), error = null) }
+
+    fun setLocating(locating: Boolean) = _form.update { it.copy(isLocating = locating) }
+
+    fun onLocationFailed(message: String) = _form.update { it.copy(isLocating = false, error = message) }
+
     fun onImagePicked(preview: String, picked: ImageFiles.Picked) =
         _form.update { it.copy(imagePreview = preview, pendingImage = picked, error = null) }
 
@@ -74,9 +115,15 @@ class FarmViewModel @Inject constructor(
         val s = _form.value
         val farmerId = auth.session.value?.userId ?: return
         if (s.name.isBlank()) { _form.update { it.copy(error = "Plot name required.") }; return }
-        val area = s.area.toDoubleOrNull()
-        val lat = s.lat.toDoubleOrNull()
-        val lng = s.lng.toDoubleOrNull()
+
+        // When a boundary is drawn it is authoritative: it is what NDVI is computed over,
+        // and its centroid/area supersede the optional manual location fields. The area
+        // falls back to a planar estimate so the offline row is never left blank.
+        val boundary = PlotBoundary.toGeoJsonPolygon(s.boundary)
+        val centre = PlotBoundary.centroid(s.boundary)
+        val area = s.area.toDoubleOrNull() ?: PlotBoundary.estimateAreaHectares(s.boundary)
+        val lat = centre?.latitude ?: s.lat.toDoubleOrNull()
+        val lng = centre?.longitude ?: s.lng.toDoubleOrNull()
         viewModelScope.launch {
             _form.update { it.copy(isSaving = true, error = null) }
 
@@ -100,7 +147,7 @@ class FarmViewModel @Inject constructor(
                 farmerId = farmerId,
                 plotName = s.name.trim(),
                 areaHectares = area,
-                geoJsonBoundary = null,
+                geoJsonBoundary = boundary,
                 centroidLat = lat,
                 centroidLng = lng,
                 notes = s.notes.trim().ifBlank { null },

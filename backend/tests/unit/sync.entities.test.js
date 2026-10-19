@@ -121,3 +121,68 @@ describe('FarmPlot sync descriptor — plot photo', () => {
     );
   });
 });
+
+/**
+ * The plot boundary is the geometry NDVI is reduced over, so it must reach the jsonb
+ * column as an object — a stringified polygon left in the column would break the Earth
+ * Engine geometry. The device may send either form, so both are verified here.
+ */
+describe('FarmPlot sync descriptor — NDVI boundary', () => {
+  const polygon = {
+    type: 'Polygon',
+    coordinates: [[[25.91, -24.65], [25.911, -24.65], [25.911, -24.649], [25.91, -24.65]]],
+  };
+
+  it('binds a GeoJSON object decoded into the jsonb column', () => {
+    const payload = ENTITIES.FarmPlot.validate({
+      clientId: 'plot-1',
+      plotName: 'North field',
+      geoJsonBoundary: polygon,
+    });
+
+    const { sql, params } = ENTITIES.FarmPlot.buildInsert({
+      payload,
+      ownerFarmerId: 'farmer-uuid',
+      clientId: 'plot-1',
+    });
+
+    expect(sql).toContain('geojson_boundary');
+    // farmer_id, client_id, plot_name, area, boundary, lat, lng, notes, image_url
+    expect(params[4]).toEqual(polygon);
+  });
+
+  it('accepts a stringified polygon and stores it as an object', () => {
+    const payload = ENTITIES.FarmPlot.validate({
+      clientId: 'plot-1',
+      plotName: 'North field',
+      geoJsonBoundary: JSON.stringify(polygon),
+    });
+
+    const { params } = ENTITIES.FarmPlot.buildInsert({
+      payload,
+      ownerFarmerId: 'farmer-uuid',
+      clientId: 'plot-1',
+    });
+
+    expect(typeof params[4]).toBe('object');
+    expect(params[4]).toEqual(polygon);
+  });
+
+  it('clears the stored boundary when the payload carries none', () => {
+    const payload = ENTITIES.FarmPlot.validate({ clientId: 'plot-1', plotName: 'North field' });
+
+    const { params } = ENTITIES.FarmPlot.buildUpdate({ payload, existingId: 'existing-uuid' });
+
+    expect(params[2]).toBeNull();
+  });
+
+  it('rejects a stringified boundary that is not valid JSON', () => {
+    expect(() =>
+      ENTITIES.FarmPlot.validate({
+        clientId: 'plot-1',
+        plotName: 'North field',
+        geoJsonBoundary: '{not json',
+      }),
+    ).toThrow();
+  });
+});

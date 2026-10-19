@@ -3,7 +3,9 @@ package bw.agriconnect.ui.farms
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import bw.agriconnect.core.result.AppResult
+import bw.agriconnect.core.util.GeoVertex
 import bw.agriconnect.core.util.ImageFiles
+import bw.agriconnect.core.util.PlotBoundary
 import bw.agriconnect.data.repository.FarmPlotRepository
 import bw.agriconnect.data.repository.HarvestRepository
 import bw.agriconnect.data.repository.MediaRepository
@@ -49,9 +51,17 @@ data class FarmDetailUiState(
     /** Current photo reference: a server path, a just-picked `content://` URI, or null. */
     val imagePreview: String? = null,
     val pendingImage: ImageFiles.Picked? = null,
+    /** The plot polygon corners, editable so an existing plot can gain a boundary for NDVI. */
+    val boundary: List<GeoVertex> = emptyList(),
+    val vertexLat: String = "",
+    val vertexLng: String = "",
+    val isLocating: Boolean = false,
     val formError: String? = null,
 ) {
     val isBusy: Boolean get() = isSaving || isUploading
+
+    /** True once enough corners exist to enclose an area — i.e. NDVI is possible. */
+    val hasBoundary: Boolean get() = boundary.size >= PlotBoundary.MIN_VERTICES
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -95,6 +105,10 @@ class FarmDetailViewModel @Inject constructor(
                             notes = plot?.notes.orEmpty(),
                             imagePreview = plot?.imageUrl,
                             pendingImage = null,
+                            boundary = PlotBoundary.fromGeoJson(plot?.geoJsonBoundary),
+                            vertexLat = "",
+                            vertexLng = "",
+                            isLocating = false,
                         )
                     }
                     loadExtras(id)
@@ -123,9 +137,13 @@ class FarmDetailViewModel @Inject constructor(
             it.copy(
                 showEdit = show,
                 formError = null,
-                // Re-opening the editor discards any staged (unsaved) photo change.
+                // Re-opening the editor discards any staged (unsaved) change.
                 imagePreview = if (show) it.plot?.imageUrl else it.imagePreview,
                 pendingImage = if (show) null else it.pendingImage,
+                boundary = if (show) PlotBoundary.fromGeoJson(it.plot?.geoJsonBoundary) else it.boundary,
+                vertexLat = if (show) "" else it.vertexLat,
+                vertexLng = if (show) "" else it.vertexLng,
+                isLocating = false,
             )
         }
     }
@@ -147,16 +165,48 @@ class FarmDetailViewModel @Inject constructor(
 
     fun onImageError(message: String) = _state.update { it.copy(formError = message) }
 
+    fun onVertexLatChange(v: String) = _state.update { it.copy(vertexLat = v, formError = null) }
+    fun onVertexLngChange(v: String) = _state.update { it.copy(vertexLng = v, formError = null) }
+
+    /** Appends a corner typed by hand, rejecting anything that is not a usable coordinate. */
+    fun addManualVertex() {
+        val latitude = _state.value.vertexLat.trim().toDoubleOrNull()
+        val longitude = _state.value.vertexLng.trim().toDoubleOrNull()
+        val vertex = if (latitude != null && longitude != null) GeoVertex(latitude, longitude) else null
+        if (vertex == null || !PlotBoundary.isValid(vertex)) {
+            _state.update { it.copy(formError = "Enter a valid corner latitude (-90 to 90) and longitude (-180 to 180).") }
+            return
+        }
+        _state.update { it.copy(boundary = it.boundary + vertex, vertexLat = "", vertexLng = "", formError = null) }
+    }
+
+    /** Appends a corner captured from GPS. */
+    fun addVertex(vertex: GeoVertex) = _state.update { it.copy(boundary = it.boundary + vertex, formError = null) }
+
+    fun removeVertex(index: Int) =
+        _state.update { it.copy(boundary = it.boundary.filterIndexed { i, _ -> i != index }) }
+
+    fun clearBoundary() = _state.update { it.copy(boundary = emptyList(), formError = null) }
+
+    fun setLocating(locating: Boolean) = _state.update { it.copy(isLocating = locating) }
+
+    fun onLocationFailed(message: String) = _state.update { it.copy(isLocating = false, formError = message) }
+
     fun save(onSaved: () -> Unit) {
         val plot = _state.value.plot ?: return
         val s = _state.value
-        val area = s.area.toDoubleOrNull()
-        val lat = s.lat.toDoubleOrNull()
-        val lng = s.lng.toDoubleOrNull()
         if (s.name.isBlank()) {
             _state.update { it.copy(formError = "Plot name required.") }
             return
         }
+        // The boundary is authoritative when drawn: it is what NDVI is computed over, and
+        // its centroid/area supersede the optional manual fields. Clearing it (fewer than
+        // three corners) sends no boundary, which removes the stored ring.
+        val boundary = PlotBoundary.toGeoJsonPolygon(s.boundary)
+        val centre = PlotBoundary.centroid(s.boundary)
+        val area = s.area.toDoubleOrNull() ?: PlotBoundary.estimateAreaHectares(s.boundary)
+        val lat = centre?.latitude ?: s.lat.toDoubleOrNull()
+        val lng = centre?.longitude ?: s.lng.toDoubleOrNull()
         viewModelScope.launch {
             _state.update { it.copy(isSaving = true, formError = null) }
 
@@ -178,6 +228,7 @@ class FarmDetailViewModel @Inject constructor(
             val updated = plot.copy(
                 plotName = s.name.trim(),
                 areaHectares = area,
+                geoJsonBoundary = boundary,
                 centroidLat = lat,
                 centroidLng = lng,
                 notes = s.notes.trim().ifBlank { null },
