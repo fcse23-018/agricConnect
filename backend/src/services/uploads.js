@@ -98,6 +98,14 @@ let bucketEnsured = false;
 async function ensureBucket() {
   if (bucketEnsured) return;
   const base = config.uploads.supabaseUrl.replace(/\/+$/, '');
+
+  if (!config.uploads.supabaseServiceRoleKey) {
+    console.error(
+      '[uploads] SUPABASE_SERVICE_ROLE_KEY is empty — the bucket cannot be created and every upload will fail.',
+    );
+    return;
+  }
+
   try {
     const res = await fetch(`${base}/storage/v1/bucket`, {
       method: 'POST',
@@ -107,10 +115,21 @@ async function ensureBucket() {
       },
       body: JSON.stringify({ name: config.uploads.supabaseBucket, public: true }),
     });
-    // 200 created, 409 already exists — both fine. Anything else: let the upload decide.
-    if (res.ok || res.status === 409) bucketEnsured = true;
-  } catch {
-    /* the upload below reports the real failure */
+    // 200 created, 409 already exists — both fine.
+    if (res.ok || res.status === 409) {
+      bucketEnsured = true;
+      return;
+    }
+    // Anything else is swallowed by the upload below, which reports a generic 500 to
+    // the client. Log the real status so an operator can tell a missing bucket from a
+    // rejected key: a 401/403 here means SUPABASE_SERVICE_ROLE_KEY is not the
+    // service_role secret, and no upload can ever succeed.
+    const detail = await res.text().catch(() => '');
+    console.error(
+      `[uploads] Could not ensure bucket "${config.uploads.supabaseBucket}": ${res.status} ${detail.slice(0, 300)}`,
+    );
+  } catch (err) {
+    console.error(`[uploads] Could not reach Supabase Storage to ensure the bucket: ${err?.message || err}`);
   }
 }
 
