@@ -63,9 +63,26 @@ class NetworkErrorParser(private val json: Json) {
             ?.associate { it.field to it.message }
             .orEmpty()
 
+        val serverMessage = error.message
+        val message = when {
+            fieldErrors.isNotEmpty() -> {
+                val joined = fieldErrors.values.distinct().joinToString(" ")
+                // Prefer specific field messages when the server gave a generic "highlighted fields" copy
+                if (serverMessage.contains("highlighted fields", ignoreCase = true) && joined.isNotBlank()) {
+                    joined
+                } else if (serverMessage.isBlank()) {
+                    joined
+                } else {
+                    serverMessage
+                }
+            }
+            serverMessage.isBlank() -> defaultApiError(exception).message
+            else -> serverMessage
+        }
+
         return AppError(
             code = error.code.ifBlank { defaultApiError(exception).code },
-            message = error.message.ifBlank { defaultApiError(exception).message },
+            message = message,
             fieldErrors = fieldErrors,
             httpStatus = status,
         )

@@ -134,6 +134,18 @@ object PlotBoundary {
         return runCatching { Json.parseToJsonElement(raw) }.getOrNull()
     }
 
+    /** True if [element] is a usable GeoJSON boundary that the backend can accept. */
+    fun isUsableBoundary(element: JsonElement?): Boolean {
+        val obj = element as? JsonObject ?: return false
+        val type = obj["type"]?.jsonPrimitive?.content ?: return false
+        if (type != "Polygon" && type != "MultiPolygon" && type != "Feature") return false
+        val coordinates = when (type) {
+            "Feature" -> obj["geometry"]?.jsonObject?.get("coordinates")
+            else -> obj["coordinates"]
+        }?.jsonArray ?: return false
+        return coordinates.size > 0
+    }
+
     private fun coordinate(vertex: GeoVertex): JsonArray = buildJsonArray {
         // GeoJSON positions are [longitude, latitude].
         add(JsonPrimitive(round6(vertex.longitude)))

@@ -11,7 +11,7 @@ export function validate(schema, source = 'body') {
         field: i.path.join('.') || source,
         message: i.message,
       }));
-      return next(new AppError(ErrorCode.VALIDATION_ERROR, 'Please correct the highlighted fields.', { details }));
+      return next(new AppError(ErrorCode.VALIDATION_ERROR, 'Please check your entries and try again.', { details }));
     }
     req[source] = result.data;
     next();
@@ -44,7 +44,7 @@ export function errorHandler(err, req, res, _next) {
     return res.status(400).json({
       error: {
         code: ErrorCode.VALIDATION_ERROR,
-        message: 'Please correct the highlighted fields.',
+        message: 'Please check your entries and try again.',
         details: err.issues.map((i) => ({ field: i.path.join('.'), message: i.message })),
       },
       requestId,

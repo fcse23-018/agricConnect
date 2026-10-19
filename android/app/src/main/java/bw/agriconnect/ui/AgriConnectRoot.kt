@@ -162,11 +162,11 @@ fun AgriConnectRoot(
                 FinanceScreen(onBack = null)
             }
             composable(Routes.SATELLITE_TAB) {
-                // Show satellite overview - pick first plot if available later
-                // For now show empty/placeholder with scaffold
                 bw.agriconnect.ui.satellite.SatelliteScreen(
-                    plotId = "overview",
-                    onBack = { navController.popBackStack() },
+                    plotId = null,
+                    onBack = null,
+                    onOpenPlot = { id -> if (id.isNotBlank()) navController.navigate(Routes.farmDetail(id)) },
+                    onAddPlot = { navController.navigate(Routes.FARMS) },
                 )
             }
             composable(Routes.MARKETPLACE) {
@@ -232,7 +232,12 @@ fun AgriConnectRoot(
                 arguments = listOf(navArgument(Routes.ARG_PLOT_ID) { type = NavType.StringType }),
             ) { entry ->
                 val plotId = entry.arguments?.getString(Routes.ARG_PLOT_ID) ?: return@composable
-                SatelliteScreen(plotId = plotId, onBack = { navController.popBackStack() })
+                SatelliteScreen(
+                    plotId = plotId,
+                    onBack = { navController.popBackStack() },
+                    onOpenPlot = { id -> if (id.isNotBlank()) navController.navigate(Routes.farmDetail(id)) },
+                    onAddPlot = { navController.navigate(Routes.FARMS) },
+                )
             }
             composable(Routes.LISTING_NEW) {
                 CreateListingScreen(

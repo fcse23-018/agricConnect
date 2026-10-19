@@ -90,6 +90,35 @@ class PlotBoundaryTest {
     }
 
     @Test
+    fun `isUsableBoundary accepts a polygon, multi polygon and feature with coordinates`() {
+        val json = PlotBoundary.toGeoJsonPolygon(square)!!
+        assertThat(PlotBoundary.isUsableBoundary(PlotBoundary.toJsonElement(json))).isTrue()
+
+        val multiPolygon = """{"type":"MultiPolygon","coordinates":[[[[25.91,-24.65],[25.911,-24.65],[25.911,-24.649],[25.91,-24.65]]]]}"""
+        assertThat(PlotBoundary.isUsableBoundary(PlotBoundary.toJsonElement(multiPolygon))).isTrue()
+
+        val feature = """{"type":"Feature","properties":{},"geometry":{"type":"Polygon","coordinates":[[[25.91,-24.65],[25.911,-24.65],[25.911,-24.649],[25.91,-24.65]]]}}"""
+        assertThat(PlotBoundary.isUsableBoundary(PlotBoundary.toJsonElement(feature))).isTrue()
+    }
+
+    @Test
+    fun `isUsableBoundary rejects null, malformed, empty and non polygon input`() {
+        assertThat(PlotBoundary.isUsableBoundary(null)).isFalse()
+        assertThat(PlotBoundary.isUsableBoundary(PlotBoundary.toJsonElement(""))).isFalse()
+        assertThat(PlotBoundary.isUsableBoundary(PlotBoundary.toJsonElement("not json"))).isFalse()
+        assertThat(PlotBoundary.isUsableBoundary(PlotBoundary.toJsonElement("""{"type":"Polygon"}"""))).isFalse()
+        assertThat(
+            PlotBoundary.isUsableBoundary(PlotBoundary.toJsonElement("""{"type":"Polygon","coordinates":[]}""")),
+        ).isFalse()
+        assertThat(
+            PlotBoundary.isUsableBoundary(PlotBoundary.toJsonElement("""{"type":"Point","coordinates":[25.91,-24.65]}""")),
+        ).isFalse()
+        assertThat(
+            PlotBoundary.isUsableBoundary(PlotBoundary.toJsonElement("""{"type":"Feature","geometry":{}}""")),
+        ).isFalse()
+    }
+
+    @Test
     fun `area estimate matches the backend planar model`() {
         assertThat(PlotBoundary.estimateAreaHectares(square)!!).isWithin(0.02).of(1.1262)
     }

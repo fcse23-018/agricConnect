@@ -129,10 +129,76 @@ class AuthApiTest {
         assertThat(result).isInstanceOf(AppResult.Failure::class.java)
         val error = (result as AppResult.Failure).error
         assertThat(error.code).isEqualTo("VALIDATION_ERROR")
-        assertThat(error.message).isEqualTo("Please correct the highlighted fields.")
+        assertThat(error.message).isEqualTo("Phone number is required. Password must be at least 6 characters.")
         assertThat(error.httpStatus).isEqualTo(400)
-        assertThat(error.fieldErrors["phoneNumber"]).isEqualTo("Required")
-        assertThat(error.fieldErrors["password"]).isEqualTo("Too short")
+        assertThat(error.fieldErrors["phoneNumber"]).isEqualTo("Phone number is required.")
+        assertThat(error.fieldErrors["password"]).isEqualTo("Password must be at least 6 characters.")
+    }
+
+    @Test
+    fun `a generic validation message is replaced by the joined field errors`() = runTest {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(400)
+                .setHeader("Content-Type", "application/json")
+                .setBody(
+                    """
+                    {
+                      "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "Please correct the highlighted fields.",
+                        "details": [
+                          { "field": "plotId", "message": "A valid plot identifier is required." }
+                        ]
+                      },
+                      "requestId": "req-2"
+                    }
+                    """.trimIndent(),
+                ),
+        )
+
+        val parser = NetworkErrorParser(json)
+        val result = runCatchingApi(parser::parse) {
+            api.latestNdvi("not-a-uuid")
+        }
+
+        val error = (result as AppResult.Failure).error
+        // The screen has no "highlighted" field, so the useful message must surface.
+        assertThat(error.message).isEqualTo("A valid plot identifier is required.")
+        assertThat(error.message).doesNotContain("highlighted")
+        assertThat(error.fieldErrors["plotId"]).isEqualTo("A valid plot identifier is required.")
+    }
+
+    @Test
+    fun `a specific server message is kept even when field errors exist`() = runTest {
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(400)
+                .setHeader("Content-Type", "application/json")
+                .setBody(
+                    """
+                    {
+                      "error": {
+                        "code": "VALIDATION_ERROR",
+                        "message": "A plot boundary is required to compute NDVI.",
+                        "details": [
+                          { "field": "geoJsonBoundary", "message": "This plot has no saved boundary." }
+                        ]
+                      },
+                      "requestId": "req-3"
+                    }
+                    """.trimIndent(),
+                ),
+        )
+
+        val parser = NetworkErrorParser(json)
+        val result = runCatchingApi(parser::parse) {
+            api.latestNdvi("11111111-2222-3333-4444-555555555555")
+        }
+
+        val error = (result as AppResult.Failure).error
+        // A specific, actionable server message wins over the per-field text.
+        assertThat(error.message).isEqualTo("A plot boundary is required to compute NDVI.")
     }
 
     @Test
@@ -187,8 +253,8 @@ class AuthApiTest {
                 "code": "VALIDATION_ERROR",
                 "message": "Please correct the highlighted fields.",
                 "details": [
-                  { "field": "phoneNumber", "message": "Required" },
-                  { "field": "password", "message": "Too short" }
+                  { "field": "phoneNumber", "message": "Phone number is required." },
+                  { "field": "password", "message": "Password must be at least 6 characters." }
                 ]
               },
               "requestId": "req-1"

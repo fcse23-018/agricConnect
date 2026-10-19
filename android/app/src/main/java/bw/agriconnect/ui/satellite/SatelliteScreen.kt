@@ -1,7 +1,9 @@
 package bw.agriconnect.ui.satellite
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
@@ -19,6 +21,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import bw.agriconnect.core.util.DateFormatters
 import bw.agriconnect.domain.model.NdviProcessingStatus
 import bw.agriconnect.ui.chrome.MainScaffold
+import bw.agriconnect.ui.components.AgriFilterChip
 import bw.agriconnect.ui.components.AgriPrimaryButton
 import bw.agriconnect.ui.components.EmptyState
 import bw.agriconnect.ui.components.ErrorBanner
@@ -39,15 +42,21 @@ import bw.agriconnect.ui.theme.AgriSpacing
  */
 @Composable
 fun SatelliteScreen(
-    plotId: String,
-    onBack: () -> Unit,
+    plotId: String? = null,
+    onBack: (() -> Unit)? = null,
+    onOpenPlot: ((String) -> Unit)? = null,
+    onAddPlot: (() -> Unit)? = null,
     viewModel: SatelliteViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val canGenerate by viewModel.canGenerate.collectAsStateWithLifecycle()
+    val plots by viewModel.plots.collectAsStateWithLifecycle()
+    val selected by viewModel.selectedPlotId.collectAsStateWithLifecycle()
     val errorMessage = state.error
 
-    LaunchedEffect(plotId) { viewModel.load(plotId) }
+    // `start` is a one-shot: it selects the preferred (or first) plot and loads it. It must
+    // NOT depend on `plots`, or every cache emission would reset the user's chip choice.
+    LaunchedEffect(plotId) { viewModel.start(plotId) }
 
     MainScaffold(
         title = "Satellite insights",
@@ -68,25 +77,31 @@ fun SatelliteScreen(
 
                 state.error != null && state.ndvi == null -> {
                     if (state.offline) {
-                        OfflineEmptyState(onRetry = { viewModel.load(plotId) })
+                        OfflineEmptyState(onRetry = { selected?.let { viewModel.load(it) } })
                     } else {
                         ErrorState(
                             message = errorMessage.orEmpty(),
-                            onRetry = { viewModel.load(plotId) },
+                            onRetry = { selected?.let { viewModel.load(it) } },
                         )
                     }
                 }
 
                 state.ndvi == null -> {
-                    if (canGenerate) {
-                        EmptyState(
+                    val currentId = selected ?: plotId ?: plots.firstOrNull()?.plotId
+                    when {
+                        plots.isEmpty() -> EmptyState(
+                            title = "No plots yet",
+                            message = "Add a plot with a boundary to monitor its vegetation health.",
+                            actionLabel = "Add a plot",
+                            onAction = { onAddPlot?.invoke() },
+                        )
+                        canGenerate -> EmptyState(
                             title = "No satellite data yet",
                             message = "Generate a fresh NDVI result for this plot. If the plot has no saved boundary, you'll need to add one first.",
                             actionLabel = if (state.isGenerating) "Generating…" else "Generate satellite data",
-                            onAction = { if (!state.isGenerating) viewModel.generate(plotId) },
+                            onAction = { if (!state.isGenerating) currentId?.let { viewModel.generate(it) } },
                         )
-                    } else {
-                        EmptyState(
+                        else -> EmptyState(
                             title = "No satellite data yet",
                             message = "Only the farm owner can generate satellite data. The last computed result will appear here if available.",
                         )
@@ -95,9 +110,25 @@ fun SatelliteScreen(
 
                 else -> {
                     val ndvi = state.ndvi ?: return@Column
+                    val currentId = selected ?: plotId ?: ndvi.plotId
+
+                    if (plots.size > 1) {
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(AgriSpacing.sm),
+                        ) {
+                            plots.forEach { p ->
+                                AgriFilterChip(
+                                    label = p.plotName.ifBlank { p.plotId },
+                                    selected = (currentId == p.plotId),
+                                    onClick = { viewModel.selectPlot(p.plotId) },
+                                )
+                            }
+                        }
+                    }
 
                     if (state.error != null) {
-                        ErrorBanner(message = errorMessage.orEmpty(), onRetry = { viewModel.load(plotId) })
+                        ErrorBanner(message = errorMessage.orEmpty(), onRetry = { currentId?.let { viewModel.load(it) } })
                     }
                     if (state.infoMessage != null) {
                         InfoBanner(message = state.infoMessage.orEmpty())
@@ -170,7 +201,7 @@ fun SatelliteScreen(
                         Spacer(Modifier.height(AgriSpacing.md))
                         AgriPrimaryButton(
                             text = if (state.isGenerating) "Generating…" else "Generate satellite data",
-                            onClick = { if (!state.isGenerating) viewModel.generate(plotId) },
+                            onClick = { if (!state.isGenerating) (currentId)?.let { viewModel.generate(it) } },
                             enabled = !state.offline && !state.isGenerating,
                             loading = state.isGenerating,
                             fillWidth = true,
