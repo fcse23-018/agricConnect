@@ -23,9 +23,10 @@
 | Area | State |
 |------|-------|
 | **Backend REST API** | 🟢 Every endpoint in the contract is implemented |
-| **Backend tests** | 🟢 102/102 pass (re-run 2026-10-19) |
+| **Backend tests** | 🟢 152/152 pass — 139 unit + 13 API (re-run 2026-10-19) |
 | **Crop-monitoring API** | 🟢 `crop-api/` FastAPI service — 34/34 pytest pass (mock GEE by default) |
 | **Backend ↔ Supabase schema** | 🟢 `backend/supabase-update.sql` verified against PostgreSQL 17 (§6) |
+| **Live deployment** | 🟢 Render + Supabase: `/health` 200, `/version` 200, protected routes 401, upload round trip `201 → 302 → 200`, and the role rename confirmed on the live API (`05-TEST-REPORT.md` §6) |
 | **Android data + domain layer** | 🟢 Room (v2), Retrofit, sync engine, session, 12 repositories |
 | **Android app shell** | 🟢 `AgriConnectApp`, `MainActivity`, Hilt modules, nav host all present |
 | **Android UI** | 🟢 26 Compose screens, role-based navigation, offline/sync affordances |
@@ -208,6 +209,7 @@ top-bar notification bell without needing a tab of their own.
 | **Landing route is now role-appropriate** and no role has a tab it cannot open; `more` is in every role because it is the only route to profile/settings/sign-out | `ui/navigation/AgriNavItems.kt`, `domain/model/Enums.kt`, `ui/AgriConnectRoot.kt`, `ui/dashboard/DashboardScreen.kt` |
 | **Sign-up and sign-in had no way back to the main screen** → shared translucent circular back arrow on both, pinned top-start inside the safe drawing area | `ui/components/AuthScaffold.kt`, `ui/auth/LoginScreen.kt`, `ui/auth/RegisterScreen.kt`, `ui/AgriConnectRoot.kt` |
 | **Guidance after the vegetation index is computed**: what the band means, what to check in the field, the trend against the previous reading, the area averaged and the observation's age, how far the measurement can be trusted, the published scale, and what a vegetation index cannot say. Built once server-side and carried by the response; never invented, never a stated cause | `src/services/ndviAdvice.js`, `src/modules/satellite/satellite.{service,routes}.js`, `ui/components/NdviAdviceCard.kt`, `ui/satellite/Satellite{Screen,ViewModel}.kt`, `data/remote/dto/{SatelliteDtos,Mappers}.kt`, `domain/model/FarmModels.kt` |
+| **"Everything visible" pass**: every main screen already scrolled or was a `Lazy*` list; the three short screens that did not (Help & support, Offline & sync, Notification preferences) now scroll, and bottom-bar labels wrap to two lines with an ellipsis fallback instead of being clipped on a narrow phone | `ui/settings/{Help,OfflineSync,NotificationPrefs}Screen.kt`, `ui/components/AgriScaffold.kt` |
 
 ### 3.5 Not verified ❌
 

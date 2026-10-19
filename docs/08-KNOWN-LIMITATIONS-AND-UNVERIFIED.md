@@ -74,7 +74,7 @@ and provider-dependent items remain unexecuted.
 | T6 | Rate-limit storage | In-memory rate limiting is per-instance; a multi-instance deployment needs a shared store (a managed cache or the database), not the process heap. |
 | T7 | Idempotency key retention | The `idempotency_keys` table grows; add a purge job. |
 | T8 | NDVI advice on a device | The post-reading guidance is unit-tested on both sides (builder, wire contract and mapping) but has not been displayed on a device — no emulator/phone was available. |
-| T9 | Role rename deployment | `006_role_rename.sql` runs automatically at deploy (`npm run migrate`); `backend/scripts/apply-role-rename.sql` applies the same change idempotently by hand. A database left on the old labels would show `FARMER` where `FARM_OWNER` is meant. |
+| T9 | Role rename deployment | `006_role_rename.sql` runs automatically at deploy (`npm run migrate`). **Verified live 2026-10-19**: `POST /auth/register` accepts `FARM_OWNER` and `FARMER` and rejects `FARM_EMPLOYEE`, and the container only serves once its migrations exited `0` — see `05-TEST-REPORT.md` §6. `backend/scripts/apply-role-rename.sql` applies the same change idempotently by hand if a database is ever found on the old labels. |
 
 ---
 

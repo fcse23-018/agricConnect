@@ -39,7 +39,7 @@ the crop-API figure is from 2026-10-18. The backend suites are also run by CI
 | Result | **BUILD SUCCESSFUL** (re-run 2026-10-19) |
 | Tasks | 52 actionable (17 executed, 35 up-to-date) |
 | Artifact | `android/app/build/outputs/apk/debug/app-debug.apk` |
-| Size | **22.9 MiB / 24.0 MB** (24 022 739 bytes) |
+| Size | **≈22.9 MiB / 24.0 MB** (24 022 469 bytes on the last run; the exact byte count moves by a few hundred bytes between builds) |
 | Version | `1.1.1` (`versionCode` 3) — shown in-app on Settings |
 | Warnings | None blocking. Deprecated `Icons.Filled.ReceiptLong`/`Trending*` usages remain in three files (the AutoMirrored names are used in the new advice card). |
 
@@ -120,7 +120,39 @@ address that only worked from one machine.)
 
 ---
 
-## 6. How to reproduce
+## 6. Live production verification (Render + Supabase, 2026-10-19)
+
+Everything below was executed against the deployed service
+`https://agriconnect-api-f55x.onrender.com/api/v1/`, not a local instance.
+
+| Check | Command / probe | Result |
+|-------|-----------------|--------|
+| Liveness | `GET /health` | `200 {"status":"ok","version":"1.0.0",…}` |
+| API version | `GET /api/v1/version` | `200 {"version":"1.0.0","apiVersion":"v1"}` |
+| Auth guard | `GET` a protected route with no token | `401` |
+| Upload round trip | `POST /uploads` (multipart, `image`) → `201 {"url":"/uploads/<name>"}`, then `GET /uploads/<name>` | `302` → Supabase public URL → `200 image/png`, 14 449 bytes |
+| **Role rename is live** | `POST /auth/register` with `role: "FARM_OWNER"` and a deliberately weak password | `400` — **no `role` error**: the new enum is accepted |
+| **Role rename is live** | same with `role: "FARMER"` | `400` — **no `role` error**: accepted as the worker role |
+| **Old label is gone** | same with `role: "FARM_EMPLOYEE"` | `400` with `{"field":"role","message":"Role must be one of FARM_OWNER, FARMER or BUYER."}` |
+
+The three register probes are deliberately built to fail password-strength validation, so
+they exercise the role enum **without creating an account** — that is why the response is
+always `400` and why no row is ever written. The role messages are the whole point: the old
+build answered `Role must be one of FARMER, FARM_EMPLOYEE or BUYER.`
+
+This matters for migration `006_role_rename.sql`: the service's start command is
+`npm run migrate && npm start`, so a container that answers `/health` is a container whose
+migrations all exited `0` — the enum rename has been applied to the Supabase database, and
+the API is serving the renamed code against renamed data.
+
+**Still not verified in production:** any read that needs a signed-in session (plots,
+listings, orders, NDVI), and anything on a device. No database credentials were available
+locally, so the verification queries in `backend/scripts/apply-role-rename.sql` were not run
+by hand — they are for the owner to run in the Supabase SQL editor.
+
+---
+
+## 7. How to reproduce
 
 ```bash
 # Backend (needs Node.js + a database; CI uses a PostgreSQL service container)
@@ -143,7 +175,7 @@ cd android
 
 ---
 
-## 7. Honesty statement
+## 8. Honesty statement
 
 Numbers throughout this file were produced on the dates shown by the commands shown and are
 reproducible. The backend, crop-API and Android figures were all re-executed on 2026-10-19 and

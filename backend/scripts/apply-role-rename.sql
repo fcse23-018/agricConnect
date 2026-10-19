@@ -112,10 +112,13 @@ $fn$;
 -- ---------------------------------------------------------------------------
 DO $mark$
 BEGIN
-  IF to_regclass('public.schema_migrations') IS NULL THEN
-    RAISE NOTICE 'schema_migrations missing - the migration runner will create it and apply 006 itself';
-    RETURN;
-  END IF;
+  -- Same DDL as the runner's ensureMigrationsTable(), so creating it here can
+  -- never disagree with the table the deploy would have made.
+  CREATE TABLE IF NOT EXISTS schema_migrations (
+    filename    text PRIMARY KEY,
+    applied_at  timestamptz NOT NULL DEFAULT now(),
+    checksum    text
+  );
 
   INSERT INTO schema_migrations (filename) VALUES ('006_role_rename.sql')
   ON CONFLICT (filename) DO NOTHING;

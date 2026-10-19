@@ -25,6 +25,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import bw.agriconnect.ui.theme.AgriColors
 
@@ -118,7 +120,19 @@ fun AgriBottomBar(
                 selected = currentRoute == item.route,
                 onClick = { onNavigate(item.route) },
                 icon = { Icon(item.icon, contentDescription = item.label) },
-                label = { Text(item.label, style = MaterialTheme.typography.labelSmall) },
+                label = {
+                    // Two lines with an ellipsis fallback: on a narrow phone five
+                    // destinations leave a small column each, and a label that is
+                    // clipped off the bottom of the bar is a label nobody can read.
+                    Text(
+                        text = item.label,
+                        style = MaterialTheme.typography.labelSmall,
+                        maxLines = 2,
+                        softWrap = true,
+                        textAlign = TextAlign.Center,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
                 alwaysShowLabel = true,
                 colors = NavigationBarItemDefaults.colors(
                     selectedIconColor = AgriColors.ForestGreen,

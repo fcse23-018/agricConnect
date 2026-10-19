@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -22,7 +24,13 @@ import bw.agriconnect.ui.theme.AgriSpacing
 fun NotificationPrefsScreen(onBack: () -> Unit, viewModel: NotificationPrefsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     AgriScaffoldSettings("Notification preferences", onBack) { padding ->
-        Column(modifier = Modifier.padding(padding).padding(AgriSpacing.lg), verticalArrangement = Arrangement.spacedBy(AgriSpacing.md)) {
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(AgriSpacing.lg),
+            verticalArrangement = Arrangement.spacedBy(AgriSpacing.md),
+        ) {
             AgriCard {
                 Column(verticalArrangement = Arrangement.spacedBy(AgriSpacing.md)) {
                     SwitchRow("Orders", state.orders, viewModel::setOrders)
