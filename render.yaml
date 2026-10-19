@@ -1,0 +1,108 @@
+# Render Blueprint — AgriConnect API
+#
+# Deploy: Render dashboard → New → Blueprint → pick this repo. Render reads this
+# file, creates the web service, and applies the environment variables below.
+#
+# Two things this file exists to get right, both of which will silently break a
+# naive deploy:
+#
+#  1. `UPLOAD_DRIVER=supabase`. Render's free tier has an **ephemeral** filesystem:
+#     everything under the service's working directory is destroyed on every
+#     redeploy *and every spindown*. With the default `local` driver every uploaded
+#     avatar and listing photo would vanish without warning. `supabase` writes to
+#     Supabase Storage instead, which survives all of it. See
+#     `backend/src/services/uploads.js`.
+#
+#  2. `PGSSLMODE=require`. Supabase rejects non-SSL connections, and the backend
+#     only enables TLS when this is set explicitly (`src/config/index.js`). Without
+#     it every query fails with a confusing handshake error rather than a clear one.
+#
+# Free-tier note: the instance spins down after ~15 min without traffic and takes
+# about a minute to wake. The Android client's OkHttp `callTimeout` is set to 120s
+# for exactly this reason.
+services:
+  - type: web
+    name: agriconnect-api
+    runtime: node
+    plan: free
+    rootDir: backend
+
+    # Migrations run before the new version takes traffic, and they are idempotent
+    # (`schema_migrations` tracks what has applied), so a failed deploy can be
+    # re-run safely.
+    buildCommand: npm ci
+    preDeployCommand: npm run migrate
+    startCommand: npm start
+
+    healthCheckPath: /health
+
+    envVars:
+      # --- Runtime ---------------------------------------------------------
+      - key: NODE_ENV
+        value: production
+
+      # Render terminates TLS at the edge and injects the port.
+      - key: PORT
+        value: 10000
+
+      # Public base URL, used in password-recovery links and the OpenAPI servers
+      # block. Set this to the `onrender.com` URL Render assigns you after the
+      # first deploy, then trigger a redeploy.
+      - key: PUBLIC_BASE_URL
+        sync: false
+
+      # Native app only — no browser origin, so CORS stays closed.
+      - key: CORS_ORIGINS
+        value: ""
+
+      # --- Database (Supabase) --------------------------------------------
+      # Paste the full connection string from
+      # Supabase → Project Settings → Database → Connection string → URI.
+      # It already encodes host, user, password and database.
+      - key: DATABASE_URL
+        sync: false
+
+      # Supabase refuses plaintext connections. Required.
+      - key: PGSSLMODE
+        value: require
+
+      # --- Secrets ---------------------------------------------------------
+      # Generate each with: openssl rand -base64 48
+      # Do NOT reuse the development defaults — the server refuses to boot in
+      # production if it sees them.
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+
+      # --- Email / SMS delivery -------------------------------------------
+      # Neither SMTP nor Twilio is implemented in this build, so a real provider
+      # cannot be configured yet. Password reset and account verification are the
+      # only features affected — **login does not require verification** — so this
+      # is acknowledged explicitly rather than hidden. Codes are written to the
+      # `message_outbox` table and never sent. Remove this and set
+      # DELIVERY_PROVIDER=SMTP once a provider is wired up.
+      - key: DELIVERY_PROVIDER
+        value: NONE
+      - key: ALLOW_DELIVERY_GAP
+        value: "true"
+
+      # --- Image storage ---------------------------------------------------
+      - key: UPLOAD_DRIVER
+        value: supabase
+      # From Supabase → Project Settings → API. The URL is the same one used for
+      # DATABASE_URL's host. The service-role key must never reach the client —
+      # it is only ever read by this server.
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      # Public read bucket; object names are UUIDs, so they are unguessable.
+      - key: SUPABASE_STORAGE_BUCKET
+        value: agriconnect-uploads
+
+      # --- Earth Engine ----------------------------------------------------
+      # Off by default: the deterministic mock backend answers every request, so
+      # the app is fully exercisable without GEE credentials.
+      - key: GEE_ENABLED
+        value: "false"

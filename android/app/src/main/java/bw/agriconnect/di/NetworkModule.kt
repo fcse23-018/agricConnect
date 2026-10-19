@@ -61,10 +61,10 @@ object NetworkModule {
     @Singleton
     @RefreshClient
     fun provideRefreshClient(): OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
-        .callTimeout(60, TimeUnit.SECONDS)
+        .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .writeTimeout(WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .callTimeout(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .build()
 
     @Provides
@@ -88,10 +88,10 @@ object NetworkModule {
             .addInterceptor(AuthInterceptor(tokenStore))
             .addInterceptor(logging)
             .authenticator(TokenAuthenticator(tokenStore, baseUrl, refreshClient, json))
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
-            .callTimeout(60, TimeUnit.SECONDS)
+            .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .writeTimeout(WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .callTimeout(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .build()
     }
 
@@ -107,4 +107,23 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideApiService(retrofit: Retrofit): ApiService = retrofit.create(ApiService::class.java)
+
+    /**
+     * Timeouts are deliberately generous rather than OkHttp's 10s defaults.
+     *
+     * Two real-world conditions drive them. A free-tier backend (Render) spins down
+     * after ~15 minutes without traffic, and the first request of a session spends
+     * up to about a minute just waking the instance — a 30s read timeout would
+     * report "can't reach AgriConnect" for a server that was about to answer.
+     * Separately, the sync worker batches a whole outbox in one push, so a cold
+     * server plus a large payload can stack two slow phases in a single call.
+     *
+     * [CALL_TIMEOUT_SECONDS] is the backstop covering the entire attempt including
+     * DNS, TLS, the authenticator's single refresh round-trip and the body read, so
+     * no request can hang a coroutine indefinitely.
+     */
+    private const val CONNECT_TIMEOUT_SECONDS = 30L
+    private const val READ_TIMEOUT_SECONDS = 60L
+    private const val WRITE_TIMEOUT_SECONDS = 60L
+    private const val CALL_TIMEOUT_SECONDS = 120L
 }

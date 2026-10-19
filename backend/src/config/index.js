@@ -53,6 +53,14 @@ export const config = {
   delivery: {
     provider: (process.env.DELIVERY_PROVIDER || 'NONE').toUpperCase(), // NONE|OUTBOX|SMTP|TWILIO
     exposeDevCodes: bool(process.env.EXPOSE_DEV_CODES, false) && env !== 'production',
+    /**
+     * Explicit acknowledgement that production runs with no working transport.
+     *
+     * Required rather than implicit because the alternative — silently pretending a
+     * recovery code was sent — is exactly the failure the brief forbids. See
+     * `assertProdSecrets()`.
+     */
+    allowGap: bool(process.env.ALLOW_DELIVERY_GAP, false),
     smtp: {
       host: process.env.SMTP_HOST || '',
       port: int(process.env.SMTP_PORT, 587),
@@ -76,8 +84,24 @@ export const config = {
   },
 
   uploads: {
+    /**
+     * Where stored images live.
+     *
+     * `local` writes to disk and serves from `/uploads` — correct for a host with a
+     * persistent filesystem (your own PC, a VM, docker-compose).
+     *
+     * `supabase` writes to Supabase Storage instead. This is what a free PaaS needs:
+     * Render's free tier has an **ephemeral** filesystem, so anything written to disk
+     * is destroyed on every redeploy and every spindown — an uploaded avatar would
+     * silently disappear. Object storage survives all of that. The URL returned is
+     * origin-relative in both cases, so the database never changes shape.
+     */
+    driver: (process.env.UPLOAD_DRIVER || 'local').toLowerCase(), // local|supabase
     dir: process.env.UPLOAD_DIR || './uploads',
     maxBytes: int(process.env.MAX_UPLOAD_BYTES, 2 * 1024 * 1024),
+    supabaseUrl: (process.env.SUPABASE_URL || '').replace(/\/+$/, ''),
+    supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+    supabaseBucket: process.env.SUPABASE_STORAGE_BUCKET || 'agriconnect-uploads',
   },
 
   rateLimit: {
@@ -93,15 +117,36 @@ export const config = {
 export function assertProdSecrets() {
   if (!config.isProd) return;
   const problems = [];
+  const warnings = [];
   if (config.jwt.accessSecret.includes('dev-only')) problems.push('JWT_ACCESS_SECRET is still the development default');
   if (config.jwt.refreshSecret.includes('dev-only')) problems.push('JWT_REFRESH_SECRET is still the development default');
   if (config.delivery.exposeDevCodes) problems.push('EXPOSE_DEV_CODES must be false in production');
   if (config.delivery.provider === 'NONE' || config.delivery.provider === 'OUTBOX') {
-    problems.push('DELIVERY_PROVIDER is not configured — password recovery cannot reach users in production');
+    // Deliberately not a hard failure when explicitly acknowledged. Neither SMTP nor
+    // Twilio is implemented in this build (services/delivery.js throws for both), so
+    // demanding a real provider here would make production unbootable — and login
+    // does not require verification; only password reset and account verification
+    // are affected. The operator must opt in knowingly rather than by omission.
+    const msg =
+      'DELIVERY_PROVIDER is not configured — password reset and account verification codes are recorded to message_outbox but never delivered';
+    if (config.delivery.allowGap) warnings.push(`ACKNOWLEDGED: ${msg}`);
+    else problems.push(`${msg}. Set DELIVERY_PROVIDER=SMTP|TWILIO, or set ALLOW_DELIVERY_GAP=true to run knowingly without one.`);
+  }
+  if (config.uploads.driver === 'supabase') {
+    if (!config.uploads.supabaseUrl) problems.push('UPLOAD_DRIVER=supabase requires SUPABASE_URL');
+    if (!config.uploads.supabaseServiceRoleKey) {
+      problems.push('UPLOAD_DRIVER=supabase requires SUPABASE_SERVICE_ROLE_KEY');
+    }
+  } else if (config.uploads.driver !== 'local') {
+    problems.push(`UPLOAD_DRIVER must be "local" or "supabase" (got "${config.uploads.driver}")`);
   }
   if (problems.length) {
     // eslint-disable-next-line no-console
     console.error('REFUSING TO START IN PRODUCTION:\n - ' + problems.join('\n - '));
     process.exit(1);
+  }
+  if (warnings.length) {
+    // eslint-disable-next-line no-console
+    console.warn('[config] production warnings:\n - ' + warnings.join('\n - '));
   }
 }
