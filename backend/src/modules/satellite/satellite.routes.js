@@ -20,12 +20,21 @@ import {
   presentNdvi,
   adviceForNdvi,
 } from './satellite.service.js';
+import monitoringRoutes from './satellite.monitoring.routes.js';
 
 const router = Router();
 
 // NDVI is a farm-owner capability: it needs a plot boundary, and mapping plots is the
 // owner's job.
 router.use(authenticate, farmOwnerOnly);
+
+/**
+ * Monitoring (overview, boundary, weather, events, alerts) shares the same
+ * guards as the NDVI endpoints below, so an employee account is refused
+ * uniformly rather than per-route. It is declared first only because its paths
+ * are more specific.
+ */
+router.use('/', monitoringRoutes);
 
 /**
  * POST /satellite/ndvi

@@ -13,6 +13,7 @@ import ordersRoutes from './orders/orders.routes.js';
 import notificationsRoutes from './notifications/notifications.routes.js';
 import syncRoutes from './sync/sync.routes.js';
 import publicRoutes from './public/public.routes.js';
+import appRoutes from './app/app.routes.js';
 
 const api = Router();
 
@@ -29,6 +30,9 @@ api.use('/orders', ordersRoutes);
 api.use('/notifications', notificationsRoutes);
 api.use('/sync', syncRoutes);
 api.use('/public', publicRoutes);
+// Public on purpose: a device must be able to check for an update before login,
+// and must keep working when this check is unavailable.
+api.use('/app', appRoutes);
 
 // Convenience: /api/v1/version
 api.get('/version', (_req, res) => {

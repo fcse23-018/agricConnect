@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { fileURLToPath } from 'node:url';
 
 function bool(v, def = false) {
   if (v === undefined || v === '') return def;
@@ -6,6 +7,11 @@ function bool(v, def = false) {
 }
 function int(v, def) {
   const n = Number.parseInt(v, 10);
+  return Number.isFinite(n) ? n : def;
+}
+function num(v, def) {
+  if (v === undefined || v === null || v === '') return def;
+  const n = Number(v);
   return Number.isFinite(n) ? n : def;
 }
 
@@ -83,6 +89,67 @@ export const config = {
     cloudCoverFailThreshold: int(process.env.NDVI_CLOUD_COVER_FAIL_THRESHOLD, 80),
   },
 
+  /**
+   * Optional FastAPI crop-monitoring service (`crop-api/`).
+   *
+   * When configured, the Node API asks it for the real NDVI/EVI series
+   * (Sentinel-2 with cloud masking). When it is not, the Node API falls back to
+   * a deterministic, clearly-labelled MOCK series so the feature can be
+   * exercised end to end. The fallback is never presented as a real observation.
+   */
+  cropApi: {
+    enabled: bool(process.env.CROP_API_ENABLED, false),
+    url: (process.env.CROP_API_URL || '').replace(/\/+$/, ''),
+    apiKey: process.env.CROP_API_KEY || '',
+    timeoutMs: int(process.env.CROP_API_TIMEOUT_MS, 30_000),
+  },
+
+  /**
+   * Weather has no credentials: Open-Meteo is free, HTTPS and needs no key.
+   * `WEATHER_ENABLED=false` disables it and the API then says so instead of
+   * inventing readings.
+   */
+  weather: {
+    enabled: bool(process.env.WEATHER_ENABLED, true),
+    baseUrl: (process.env.WEATHER_BASE_URL || 'https://api.open-meteo.com').replace(/\/+$/, ''),
+    timeoutMs: int(process.env.WEATHER_TIMEOUT_MS, 8_000),
+    cacheTtlSeconds: int(process.env.WEATHER_CACHE_TTL_SECONDS, 1_800),
+  },
+
+  /**
+   * Analysis thresholds. Documented in `docs/12-SATELLITE-MONITORING.md`; every
+   * one is overridable so a deployment can tune them without a code change.
+   */
+  satellite: {
+    defaultDays: int(process.env.SATELLITE_DEFAULT_DAYS, 120),
+    maxDays: int(process.env.SATELLITE_MAX_DAYS, 365),
+    refreshHours: int(process.env.SATELLITE_REFRESH_HOURS, 6),
+    dropAbsolute: num(process.env.SATELLITE_DROP_ABSOLUTE, 0.15),
+    dropRelative: num(process.env.SATELLITE_DROP_RELATIVE, 0.15),
+    staleDays: int(process.env.SATELLITE_STALE_DAYS, 10),
+    stressNdvi: num(process.env.SATELLITE_STRESS_NDVI, 0.3),
+    noRecoveryDays: int(process.env.SATELLITE_NO_RECOVERY_DAYS, 21),
+    dryRain14dMm: num(process.env.SATELLITE_DRY_RAIN_14D_MM, 10),
+    heatTempMaxC: num(process.env.SATELLITE_HEAT_TEMP_MAX_C, 32),
+  },
+
+  /** APK update manifest served at `GET /api/v1/app/version`. */
+  updates: {
+    enabled: bool(process.env.APP_UPDATES_ENABLED, true),
+    /**
+     * Default is the repository's `version-manifest.json`.
+     *
+     * `fileURLToPath` rather than `new URL(...).pathname`, because on Windows the
+     * latter produces `/C:/...`, which `fs` then fails to open — the endpoint
+     * would silently report "no manifest" on a developer machine while working
+     * on Linux. This was exactly that bug.
+     */
+    manifestPath: process.env.APP_VERSION_MANIFEST || fileURLToPath(new URL('../../version-manifest.json', import.meta.url)),
+    downloadUrl: process.env.APK_DOWNLOAD_URL || '',
+    packageName: process.env.APK_PACKAGE_NAME || 'bw.agriconnect',
+    releaseNotesUrl: process.env.APP_RELEASE_NOTES_URL || '',
+  },
+
   uploads: {
     /**
      * Where stored images live.
@@ -113,6 +180,8 @@ export const config = {
 
   logLevel: process.env.LOG_LEVEL || 'info',
 };
+
+export { num as numberFromEnv };
 
 export function assertProdSecrets() {
   if (!config.isProd) return;

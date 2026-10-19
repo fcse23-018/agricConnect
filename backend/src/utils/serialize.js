@@ -205,6 +205,76 @@ export function toNotification(row) {
   };
 }
 
+/**
+ * A stored observation. `source` and `isSimulated` travel with every row so a
+ * client can label a demonstration series as such and never show it as a real
+ * Sentinel-2 reading.
+ */
+export function toPlotObservation(row) {
+  return {
+    observationId: row.id,
+    plotId: row.plot_id,
+    farmerId: row.farmer_id,
+    observedOn: dateOnly(row.observed_on),
+    ndvi: row.ndvi === null || row.ndvi === undefined ? null : num(row.ndvi, 4),
+    evi: row.evi === null || row.evi === undefined ? null : num(row.evi, 4),
+    validPixelPct: row.valid_pixel_pct === null ? null : num(row.valid_pixel_pct, 2),
+    cloudCoverPct: row.cloud_cover_pct === null ? null : num(row.cloud_cover_pct, 2),
+    pixelCount: row.pixel_count ?? null,
+    quality: row.quality,
+    isSimulated: row.is_simulated,
+    source: row.source ?? null,
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at),
+  };
+}
+
+/** A farmer event-log entry, including the system's suggestion it may correct. */
+export function toPlotEvent(row) {
+  return {
+    eventId: row.id,
+    plotId: row.plot_id,
+    farmerId: row.farmer_id,
+    eventDate: dateOnly(row.event_date),
+    kind: row.kind,
+    source: row.source,
+    classification: row.classification ?? null,
+    confirmed: row.confirmed,
+    notes: row.notes ?? null,
+    ndviBefore: row.ndvi_before === null ? null : num(row.ndvi_before, 4),
+    ndviAfter: row.ndvi_after === null ? null : num(row.ndvi_after, 4),
+    magnitude: row.magnitude === null ? null : num(row.magnitude, 4),
+    confidence: row.confidence ?? null,
+    evidence: row.evidence ?? null,
+    weatherContext: row.weather_context ?? null,
+    detectedKey: row.event_key ?? null,
+    clientId: row.client_id ?? null,
+    recordedBy: row.recorded_by ?? null,
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at),
+  };
+}
+
+export function toPlotAlert(row) {
+  return {
+    alertId: row.id,
+    plotId: row.plot_id,
+    farmerId: row.farmer_id,
+    alertKey: row.alert_key,
+    alertType: row.alert_type,
+    severity: row.severity,
+    title: row.title,
+    body: row.body,
+    status: row.status,
+    raisedAt: iso(row.raised_at),
+    resolvedAt: iso(row.resolved_at),
+    acknowledgedAt: iso(row.acknowledged_at),
+    dismissedAt: iso(row.dismissed_at),
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at),
+  };
+}
+
 export function paginated(items, { page, pageSize, total }) {
   return {
     items,
@@ -217,5 +287,6 @@ export function paginated(items, { page, pageSize, total }) {
 
 export default {
   num, iso, dateOnly, toPublicUser, toPlot, toHarvest, toLivestock, toSale, toExpense,
-  toNdvi, toListing, toOrder, toNotification, paginated,
+  toNdvi, toPlotObservation, toPlotEvent, toPlotAlert, toListing, toOrder, toNotification,
+  paginated,
 };

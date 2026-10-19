@@ -1,0 +1,15 @@
+{
+  "_comment": "APK update manifest served at GET /api/v1/app/version. Update this file on every release: bump latestVersionCode to the new Android versionCode, set downloadUrl to the HTTPS location of the signed APK, add the release notes, and set releasedAt. Uploading an APK does NOT update this file automatically. While downloadUrl is empty the endpoint reports 'available: false, reason: no release is published' and clients show no update prompt. See docs/13-ANDROID-RELEASES.md.",
+  "published": false,
+  "latestVersionName": "1.1.1",
+  "latestVersionCode": 3,
+  "minSupportedVersionCode": 1,
+  "downloadUrl": "",
+  "packageName": "bw.agriconnect",
+  "releaseNotes": [],
+  "releasedAt": null,
+  "checksumSha256": null,
+  "sizeBytes": null,
+  "requiredMessage": "Please update AgriConnect to continue using satellite monitoring.",
+  "optionalMessage": "A newer version of AgriConnect is available."
+}
