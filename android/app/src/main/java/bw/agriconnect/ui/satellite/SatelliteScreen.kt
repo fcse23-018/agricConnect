@@ -51,6 +51,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -62,6 +63,7 @@ import bw.agriconnect.ui.components.StatusChip
 import bw.agriconnect.ui.components.StatTile
 import bw.agriconnect.core.result.AppResult
 import bw.agriconnect.core.util.DateFormatters
+import bw.agriconnect.core.util.GeoVertex
 import bw.agriconnect.core.util.PlotBoundary
 import bw.agriconnect.domain.model.FarmPlot
 import bw.agriconnect.domain.model.satellite.*
@@ -82,6 +84,8 @@ import bw.agriconnect.ui.components.ErrorState
 import bw.agriconnect.ui.components.InfoBanner
 import bw.agriconnect.ui.components.InlineLoading
 import bw.agriconnect.ui.components.LoadingState
+import bw.agriconnect.ui.components.MapBoundarySummary
+import bw.agriconnect.ui.components.PlotBoundaryMap
 import bw.agriconnect.data.remote.dto.EventCreateRequest
 import bw.agriconnect.data.remote.dto.EventUpdateRequest
 import bw.agriconnect.data.remote.dto.BoundaryDto
@@ -728,10 +732,37 @@ private fun BoundaryEditorSheet(
                 }
             } else {
                 Text(
-                    "Method B: add at least $MIN_POLYGON_VERTICES corners around the plot, in order. Corners are joined in the order you add them.",
+                    "Method B: tap the map to add at least $MIN_POLYGON_VERTICES corners around the plot, in order, or type coordinates. Drag a numbered pin to move it. Corners are joined in the order you add them.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+
+                // The map is the primary way to draw the polygon; the coordinate
+                // fields below let you fine-tune or work without a Maps key.
+                PlotBoundaryMap(
+                    vertices = vertices.map { GeoVertex(it.lat, it.lon) },
+                    onAddVertex = { vertex ->
+                        vertices = vertices + LatLonDto(vertex.latitude, vertex.longitude)
+                        validationError = null
+                    },
+                    onMoveVertex = { index, vertex ->
+                        if (index in vertices.indices &&
+                            vertex.latitude in -90.0..90.0 &&
+                            vertex.longitude in -180.0..180.0
+                        ) {
+                            vertices = vertices.toMutableList().apply {
+                                this[index] = LatLonDto(vertex.latitude, vertex.longitude)
+                            }
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(260.dp)
+                        .clip(RoundedCornerShape(12.dp)),
+                )
+
+                MapBoundarySummary(vertices = vertices.map { GeoVertex(it.lat, it.lon) })
+
                 Row(horizontalArrangement = Arrangement.spacedBy(AgriSpacing.sm)) {
                     AgriTextField(
                         value = manualLat,

@@ -1476,7 +1476,7 @@ paths:
                 produce: { type: string }
                 description: { type: string, nullable: true }
                 quantity: { type: number }
-                unit: { type: string }
+                unit: { $ref: '#/components/schemas/ListingUnit' }
                 price: { type: number }
                 imageUrl: { type: string, nullable: true }
                 locationText: { type: string, nullable: true }
@@ -2269,7 +2269,7 @@ components:
         reservedQty: { type: number }
         soldQty: { type: number }
         availableQty: { type: number }
-        unit: { type: string }
+        unit: { $ref: '#/components/schemas/ListingUnit' }
         price: { type: number }
         currency: { type: string, example: BWP }
         status:
@@ -2289,10 +2289,18 @@ components:
         produce: { type: string }
         description: { type: string, nullable: true }
         quantity: { type: number }
-        unit: { type: string }
+        unit: { $ref: '#/components/schemas/ListingUnit' }
         price: { type: number }
         imageUrl: { type: string, nullable: true }
         locationText: { type: string, nullable: true }
+
+    # What a listing is measured in. `head` is one animal ("20 head of cattle");
+    # `herd` and `flock` sell a whole group as a single lot (quantity 1, one price).
+    # The list mirrors the DB CHECK constraint (migrations/003 + 008) and
+    # LISTING_UNITS in src/modules/marketplace/marketplace.schemas.js.
+    ListingUnit:
+      type: string
+      enum: [kg, tonne, bag, crate, bunch, litre, head, herd, flock]
 
     Order:
       type: object

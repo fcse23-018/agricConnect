@@ -233,6 +233,8 @@ fun FarmDetailScreen(
                         onClear = viewModel::clearBoundary,
                         isLocating = state.isLocating,
                         enabled = !state.isBusy,
+                        onAddVertex = viewModel::addVertex,
+                        onMoveVertex = viewModel::moveVertex,
                     )
                     AgriTextField(value = state.lat, onValueChange = viewModel::onLatChange, label = "Centre latitude (optional)", helper = "Used only when no boundary is drawn.", keyboardType = KeyboardType.Text)
                     AgriTextField(value = state.lng, onValueChange = viewModel::onLngChange, label = "Centre longitude (optional)", keyboardType = KeyboardType.Text)

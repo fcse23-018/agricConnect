@@ -33,8 +33,8 @@
 | **Image upload / display** | 🟢 Listings, plots and avatars: pick → `POST /uploads` → store → render (unit/contract-tested; not yet device-verified) |
 | **Plot boundary (NDVI input)** | 🟢 Add/edit plot captures the polygon (GPS corners or manual lat/lng); stored in `farm_plots.geojson_boundary`, pushed via `/sync/push`, and required by `POST /satellite/ndvi` |
 | **Android build** | 🟢 `:app:assembleDebug` produces a 24.2 MB APK — `1.1.1` (build 3), re-run 2026-10-20 |
-| **Backend tests** | 🟢 302/302 pass, 19 suites, 0 failures (re-run 2026-10-20) |
-| **Android unit tests** | 🟢 94/94 pass, 12 suites, 0 failures (`:app:testDebugUnitTest`, re-run 2026-10-20) |
+| **Backend tests** | 🟢 332/332 pass, 21 suites, 0 failures (re-run 2026-10-20) |
+| **Android unit tests** | 🟢 100/100 pass, 13 suites, 0 failures (`:app:testDebugUnitTest`, re-run 2026-10-20) |
 | **Release distribution** | 🟢 CI uploads a debug APK named `agriconnect-debug-v<version>-<sha>.apk` (§8) |
 | **Android runtime** | 🟡 Never launched on a device/emulator — no instrumented test run |
 | **External providers** | 🔴 SMS/email, Earth Engine and push are not configured |
@@ -583,3 +583,71 @@ failures; APK at `android/app/build/outputs/apk/debug/app-debug.apk` (24,218,665
 **Blockers (unchanged):** no device/emulator, so acceptance scenarios 1–8 are proven at the
 unit/route level but not yet on a running app; no DB in CI, so `invalidateObservationsForPlot`
 is tested via the pure `boundaryChanged` predicate and the sync hook, not a live DELETE.
+
+## 14. Google Maps plotting + livestock listing units — 2026-10-20
+
+**Google Maps (Android).** The app previously had **no map at all**: `osmdroid` was declared
+as a dependency but never used, and a plot boundary was typed as lat/lng text. Added the
+Maps SDK for Android (`play-services-maps` 19.0.0 + `maps-compose` 6.4.1) and removed the
+unused `osmdroid` and its `WRITE_EXTERNAL_STORAGE` permission.
+
+- `ui/components/PlotBoundaryMap.kt` (new) is the one map component — tap to add a corner,
+  drag a pin to move one. It edits the same `GeoVertex` list as the coordinate fields, so the
+  map and the manual editor are two views of **one** boundary.
+- It is embedded in the shared `BoundaryEditor`, so Farm Management **and** Satellite
+  Monitoring both get it from a single implementation; `addVertex`/`moveVertex` were added to
+  `FarmViewModel`/`FarmDetailViewModel` and the polygon branch of the Satellite
+  `BoundaryEditorSheet`.
+- The map never computes the stored area — the server measures real geometry
+  (`services/geometry.js`). The on-screen figure is labelled approximate.
+- **Credential handling:** the key is read from the git-ignored `android/local.properties`
+  (`mapsApiKey=...`) and injected as `BuildConfig.MAPS_API_KEY` + the
+  `com.google.android.geo.API_KEY` manifest placeholder. There is **no default**; when absent
+  the build still succeeds and the map draws an explained "Map unavailable" panel rather than
+  a blank grey rectangle. `git grep "AIzaSy"` returns nothing — no key is tracked.
+- maps-compose 6.x has no `Marker.onDragEnd` and keeps `MarkerState.dragState` internal, so a
+  finished drag is read from `MarkerState.position` via `snapshotFlow`
+  (`.distinctUntilChanged()`), which commits once per completed drag instead of once per pixel.
+
+**Google Weather (backend, optional).** `src/services/googleWeather.js` (new) adds Google
+Weather as an opt-in second source (`WEATHER_PROVIDER=GOOGLE` + server-side
+`GOOGLE_WEATHER_API_KEY`). Open-Meteo stays the default and is unchanged. Google supplies a
+**forecast** and only 24 h of history — not the multi-week archive the drought/heat rules
+need — so the fields it cannot supply (14-day rainfall, soil moisture) come back **null, never
+zero**, and daily mean temperature is stated as the midpoint of max/min. The key is never
+echoed into a response, and an HTTP failure is reported by status code only because the request
+URL carries the key.
+
+**Livestock units (marketplace).** Farmers selling animals could not list them: the UI was a
+free-text unit box ("Unit (kg, bag, crate…)") while the server validates a fixed enum, so
+typing "herd"/"cattle" produced a 400 at publish. Fixed end to end:
+
+- Added `herd` and `flock` alongside the existing `head` (one animal): `herd`/`flock` sell a
+  whole group as one lot (quantity 1, one price). `LISTING_UNITS` in
+  `marketplace.schemas.js`, the `produce_listings.unit` CHECK constraint
+  (`migrations/008_livestock_units.sql`, additive + idempotent), the OpenAPI `ListingUnit`
+  enum and the Android `Unit` enum now all agree.
+- The sync entity registry kept its **own private copy** of the unit list; it now imports
+  `LISTING_UNITS`, so a listing valid on the REST API can no longer be silently rejected on
+  the offline path.
+- Android: the create-listing screen uses a grouped Produce/Livestock chip picker instead of
+  free text, so an invalid unit cannot be entered. The ViewModel holds the enum (not a
+  `String`), sends `unit.wire`, and rejects a fractional livestock quantity locally before a
+  round-trip.
+
+**Docs:** `docs/14-GOOGLE-MAPS.md` (new) — both keys, why they are separate, the Cloud Console
+restrictions, the debug/release SHA-1 entries, and key-rotation steps;
+`docs/02-API-CONTRACT.md` §2.7 documents the unit enum; `backend/openapi.yaml` gains a
+reusable `ListingUnit` schema (62 paths / 68 schemas, parses); README feature row 26.
+
+**Verification:** backend **332 passed / 332, 21 suites** (was 302/19; +16 Google-weather,
++14 livestock-unit). Android `:app:assembleDebug :app:testDebugUnitTest` **BUILD SUCCESSFUL**
+— **100 tests / 13 suites / 0 failures** (was 94/12); APK at
+`android/app/build/outputs/apk/debug/app-debug.apk` (23,727,981 bytes).
+
+**Blockers / not verified:** no device or emulator, so the map, the unit picker and the update
+download path are verified by compilation and unit tests only — **none has been seen rendering
+on a device**. Google Weather and the Maps SDK have not been exercised against the live
+services (no billed calls were made); the tests use injected fakes. Migration 008 has not been
+run against a database (no DB in CI); it is applied by `npm run migrate` on deploy or pasted
+into the Supabase SQL editor.

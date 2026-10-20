@@ -21,12 +21,6 @@
     <!-- Order notifications (Android 13+). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- osmdroid tile cache on legacy devices only. -->
-    <uses-permission
-        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="28"
-        tools:ignore="ScopedStorage" />
-
     <uses-feature
         android:name="android.hardware.location.gps"
         android:required="false" />
@@ -42,6 +36,14 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.AgriConnect"
         tools:targetApi="34">
+
+        <!-- Google Maps SDK for Android. The value is injected at build time from
+             the git-ignored local.properties (mapsApiKey=...). It is empty when no
+             key is configured, and the map surface then shows an "unavailable"
+             state instead of a blank grey tile. See docs/14-GOOGLE-MAPS.md. -->
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="${MAPS_API_KEY}" />
 
         <activity
             android:name=".MainActivity"

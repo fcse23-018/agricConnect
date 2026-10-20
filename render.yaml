@@ -106,18 +106,31 @@ services:
       - key: SATELLITE_HEAT_TEMP_MAX_C
         value: "32"
 
-      # Weather (Open-Meteo, no API key).
-      # Modelled daily weather for a plot centroid. Free and keyless.
+      # Weather.
+      # Modelled daily weather for a plot centroid.
       # Set WEATHER_ENABLED=false to disable; the API reports unavailability
       # rather than inventing values.
+      # WEATHER_PROVIDER=OPEN_METEO (default, free, keyless, has the multi-week
+      # archive the analysis needs) or GOOGLE (Google Weather API; needs the
+      # server-side key below and supplies forecast + 24h history only).
       - key: WEATHER_ENABLED
         value: "true"
+      - key: WEATHER_PROVIDER
+        value: OPEN_METEO
       - key: WEATHER_BASE_URL
         value: https://api.open-meteo.com
       - key: WEATHER_TIMEOUT_MS
         value: "8000"
       - key: WEATHER_CACHE_TTL_SECONDS
         value: "1800"
+      - key: GOOGLE_WEATHER_BASE_URL
+        value: https://weather.googleapis.com
+
+      # Google Weather API key - SERVER-SIDE ONLY, set in the Render dashboard
+      # when WEATHER_PROVIDER=GOOGLE. Never the key compiled into the Android
+      # app. Restrict it in Google Cloud Console.
+      - key: GOOGLE_WEATHER_API_KEY
+        sync: false
 
       # App update manifest.
       # Served (publicly, no auth) at GET /api/v1/app/version.

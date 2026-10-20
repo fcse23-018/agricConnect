@@ -218,6 +218,8 @@ fun FarmScreen(
                         onClear = viewModel::clearBoundary,
                         isLocating = form.isLocating,
                         enabled = !form.isBusy,
+                        onAddVertex = viewModel::addVertex,
+                        onMoveVertex = viewModel::moveVertex,
                     )
                     Spacer(Modifier.height(AgriSpacing.md))
                     AgriTextField(value = form.lat, onValueChange = viewModel::onLatChange, label = "Centre latitude (optional)", placeholder = "e.g. -24.6543", helper = "Used only when no boundary is drawn.", keyboardType = KeyboardType.Text)

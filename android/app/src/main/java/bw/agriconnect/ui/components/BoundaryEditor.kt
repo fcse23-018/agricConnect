@@ -4,8 +4,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
@@ -15,6 +17,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import bw.agriconnect.core.util.GeoVertex
@@ -27,15 +30,20 @@ import java.util.Locale
 /**
  * Collects the plot's polygon boundary — the input NDVI cannot be computed without.
  *
- * Two ways in, because the field reality is two ways:
+ * Three ways in, because the field reality is three ways:
+ *  - **tap the map** adds a corner where the user actually points, and dragging a
+ *    numbered corner moves it — this is how you avoid a plot on the wrong side of
+ *    the river;
  *  - **Use my location** walks the perimeter, capturing a corner per tap (GPS, needs the
  *    location permission the user may refuse);
  *  - **manual entry** types a latitude/longitude pair, for when the user is not standing
  *    on the plot or has no signal.
  *
- * The corner list and the running area estimate are shown live so the user can see the
- * boundary is complete before saving. Manual fields use a text keyboard because a numeric
- * keypad has no minus sign, and southern-hemisphere latitudes are always negative.
+ * All three write to the same corner list, so they compose: tap the rough shape on
+ * the map, then fine-tune the numbers. The corner list and the running area estimate
+ * are shown live so the user can see the boundary is complete before saving. Manual
+ * fields use a text keyboard because a numeric keypad has no minus sign, and
+ * southern-hemisphere latitudes are always negative.
  */
 @Composable
 fun BoundaryEditor(
@@ -51,6 +59,9 @@ fun BoundaryEditor(
     isLocating: Boolean,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    onAddVertex: ((GeoVertex) -> Unit)? = null,
+    onMoveVertex: ((index: Int, GeoVertex) -> Unit)? = null,
+    recentreOn: GeoVertex? = null,
 ) {
     val hasBoundary = vertices.size >= PlotBoundary.MIN_VERTICES
     val areaHectares = PlotBoundary.estimateAreaHectares(vertices)
@@ -60,6 +71,25 @@ fun BoundaryEditor(
             title = "Plot boundary",
             subtitle = "Required before NDVI (satellite crop health) can be computed.",
         )
+
+        // The map is the primary input when the build has a Maps key and the caller
+        // wired the callbacks; the coordinate fields below remain the fallback.
+        if (onAddVertex != null) {
+            Spacer(Modifier.height(AgriSpacing.sm))
+            PlotBoundaryMap(
+                vertices = vertices,
+                onAddVertex = onAddVertex,
+                onMoveVertex = onMoveVertex ?: { _, _ -> },
+                enabled = enabled,
+                recentreOn = recentreOn,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(280.dp)
+                    .clip(RoundedCornerShape(12.dp)),
+            )
+            Spacer(Modifier.height(AgriSpacing.sm))
+            MapBoundarySummary(vertices)
+        }
 
         Spacer(Modifier.height(AgriSpacing.sm))
 

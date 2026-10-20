@@ -2,10 +2,23 @@ import { z } from 'zod';
 
 /**
  * Unit enum mirrors the CHECK constraint on `produce_listings.unit`
- * (migrations/003_marketplace.sql). Keeping it here and in SQL means an invalid
- * unit is rejected with a clear 400 rather than a database constraint error.
+ * (migrations/003_marketplace.sql, extended by 008_livestock_units.sql).
+ * Keeping it here and in SQL means an invalid unit is rejected with a clear 400
+ * rather than a database constraint error.
+ *
+ * Produce is sold by weight, volume or pack. Livestock is sold two ways, and both
+ * are valid: `head` for one animal at a time (e.g. 20 head of cattle) and `herd` /
+ * `flock` for a whole group sold as a single lot (quantity 1, one price). A buyer
+ * seeing "1 herd" is buying the group, not an animal.
  */
-export const LISTING_UNITS = ['kg', 'tonne', 'bag', 'crate', 'bunch', 'head', 'litre'];
+export const LISTING_UNITS = ['kg', 'tonne', 'bag', 'crate', 'bunch', 'head', 'herd', 'flock', 'litre'];
+
+/**
+ * Units that describe a whole animal or group rather than a measured amount. The
+ * app groups its picker with this, and it is the honest split between "how much"
+ * and "how many".
+ */
+export const LIVESTOCK_UNITS = ['head', 'herd', 'flock'];
 
 /**
  * Authoritative lifecycle enum (Architecture v1.1 §9, resolved conflict C3).

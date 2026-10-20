@@ -47,14 +47,22 @@ the `@google/earthengine` package and credentials.
 
 ## 3. Map tiles / mapping SDK
 
+**Resolved:** Google Maps Platform (Maps SDK for Android) — see
+[`docs/14-GOOGLE-MAPS.md`](14-GOOGLE-MAPS.md).
+
 | Item | Needed |
 |------|--------|
-| ⚪ Decision | Confirm **OSMDroid (OpenStreetMap)** or supply a key-based provider |
-| 🟡 If Google/Mapbox | API key + billing |
+| ✅ Decision | **Google Maps SDK for Android** (was an OSMDroid placeholder; osmdroid was declared but never used and has been removed) |
+| 🟡 Android key | Maps key in the git-ignored `android/local.properties` (`mapsApiKey=...`), restricted in Cloud Console to package + signing SHA-1 |
+| 🟡 Google Weather (optional) | `GOOGLE_WEATHER_API_KEY`, **server-side only**, restricted by API + IP. Optional: Open-Meteo is the default and needs no key |
+| 🟡 Billing | Google Maps Platform billing must be enabled; Maps SDK for Android has a free monthly tier |
+| ⚪ Places / Solar | Enabled on the current key but **not used by the app**; narrow the key's API restrictions if they stay unused |
 
-**Current:** OSMDroid is used — free, no API key, supports offline tile caching, appropriate for a
-Botswana offline-first pilot. It is isolated behind a map abstraction so it can be swapped.
-**Requires product-owner sign-off** (recorded as U3).
+**Security:** an Android key inside an APK is extractable, so it is restricted rather than
+hidden (package name + SHA-1 for both `bw.agriconnect` and `bw.agriconnect.debug`). The Weather
+key is a bearer credential and stays server-side; it is never sent to a device or written to a
+log or API response. Rotate a key immediately if it is ever exposed —
+`git grep "AIzaSy"` must return nothing.
 
 ---
 

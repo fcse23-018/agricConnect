@@ -101,10 +101,31 @@ enum class NdviAdvicePriority {
 /** Direction of travel versus the plot's previous reading (backend `TrendDirection`). */
 enum class NdviTrendDirection { FIRST_READING, IMPROVING, DECLINING, STABLE }
 
-enum class Unit(val label: String) {
-    KG("kg"), TONNE("tonne"), BAG("bag"), CRATE("crate"), BUNCH("bunch"), HEAD("head"), LITRE("litre");
+/**
+ * What a listing is measured in — and the wire names the server accepts.
+ *
+ * The order is deliberate: produce first (it is what most listings are), then the
+ * livestock units, because they answer a different question — "how many animals"
+ * rather than "how much". `HEAD` is one animal (`20 head`); `HERD` and `FLOCK` are
+ * a whole group sold as one lot (`1 herd`). The list must stay identical to
+ * `LISTING_UNITS` on the server, or a listing is rejected at sync time.
+ */
+enum class Unit(val label: String, val livestock: Boolean = false) {
+    KG("kg"),
+    TONNE("tonne"),
+    BAG("bag"),
+    CRATE("crate"),
+    BUNCH("bunch"),
+    LITRE("litre"),
+    HEAD("head", livestock = true),
+    HERD("herd", livestock = true),
+    FLOCK("flock", livestock = true);
+
+    /** The value the API expects (the enum name, lower-cased). */
+    val wire: String get() = name.lowercase(java.util.Locale.US)
 
     companion object {
-        fun fromWire(value: String?): Unit = entries.firstOrNull { it.name == value } ?: KG
+        fun fromWire(value: String?): Unit =
+            entries.firstOrNull { it.name.equals(value, ignoreCase = true) } ?: KG
     }
 }

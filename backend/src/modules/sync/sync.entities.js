@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { ROLES } from '../../middleware/roles.js';
 import { boundaryChanged } from '../satellite/satellite.service.js';
+import { LISTING_UNITS } from '../marketplace/marketplace.schemas.js';
 import {
   toExpense,
   toHarvest,
@@ -139,7 +140,7 @@ const produceListingPayload = z.object({
   produce: z.string().trim().min(2).max(120),
   description: z.string().trim().max(2000).nullish(),
   quantity: z.coerce.number().min(0).max(MAX_MONEY),
-  unit: z.enum(['kg', 'tonne', 'bag', 'crate', 'bunch', 'head', 'litre']).default('kg'),
+  unit: z.enum(LISTING_UNITS).default('kg'),
   price: z.coerce.number().min(0).max(MAX_MONEY),
   imageUrl: z.string().trim().max(500).nullish(),
   locationText: z.string().trim().max(200).nullish(),

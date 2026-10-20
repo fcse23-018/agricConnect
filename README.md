@@ -70,6 +70,7 @@ agriConnect/
 | 23 | Satellite monitoring rules & thresholds | [`docs/12-SATELLITE-MONITORING.md`](docs/12-SATELLITE-MONITORING.md) |
 | 24 | Android release workflow (APK updates) | [`docs/13-ANDROID-RELEASES.md`](docs/13-ANDROID-RELEASES.md) |
 | 25 | App screenshots (per-screen capture checklist) | [`docs/screenshots/`](docs/screenshots/README.md) |
+| 26 | Google Maps Platform (plot mapping + optional weather) | [`docs/14-GOOGLE-MAPS.md`](docs/14-GOOGLE-MAPS.md) |
 
 ---
 
@@ -113,6 +114,18 @@ cd android
 # Persistently, and never committed (local.properties is git-ignored)
 echo "apiBaseUrl=http://10.0.2.2:4000/api/v1/" >> local.properties
 ```
+
+The plot map (Google Maps SDK for Android) reads its key from the same git-ignored
+file. Without it the build **still succeeds** and the map shows an explained
+"Map unavailable" panel; every other feature works:
+
+```bash
+echo "mapsApiKey=AIza..." >> local.properties
+```
+
+See [`docs/14-GOOGLE-MAPS.md`](docs/14-GOOGLE-MAPS.md) for the required Cloud Console
+restrictions (package name + signing SHA-1) and why a key compiled into an APK is
+restricted rather than hidden.
 
 There is deliberately **no environment-detected default**. An earlier build
 auto-detected a GitHub Codespaces forwarded port, which silently baked an address

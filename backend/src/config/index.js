@@ -114,6 +114,16 @@ export const config = {
     baseUrl: (process.env.WEATHER_BASE_URL || 'https://api.open-meteo.com').replace(/\/+$/, ''),
     timeoutMs: int(process.env.WEATHER_TIMEOUT_MS, 8_000),
     cacheTtlSeconds: int(process.env.WEATHER_CACHE_TTL_SECONDS, 1_800),
+
+    /**
+     * Which provider answers. `OPEN_METEO` (default, free, no key) or `GOOGLE`.
+     * Google Weather is metered and needs a *server-side* key — it must never be
+     * the same key shipped in the Android app, because a key inside an APK is
+     * extractable. Keep this one restricted by IP in Google Cloud Console.
+     */
+    provider: (process.env.WEATHER_PROVIDER || 'OPEN_METEO').trim().toUpperCase(),
+    googleApiKey: process.env.GOOGLE_WEATHER_API_KEY || '',
+    googleBaseUrl: (process.env.GOOGLE_WEATHER_BASE_URL || 'https://weather.googleapis.com').replace(/\/+$/, ''),
   },
 
   /**

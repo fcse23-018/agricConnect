@@ -360,6 +360,15 @@ How it is derived, and what it deliberately never does:
 Lifecycle: `DRAFT → PENDING_PUBLISH → SYNCING → (RETRY) → PUBLISHED → SOLD`.
 **A listing is never publicly visible before the server confirms `PUBLISHED`.**
 
+**Units** (`unit`, validated against `ListingUnit` in `openapi.yaml`): `kg`,
+`tonne`, `bag`, `crate`, `bunch`, `litre` for produce, plus the livestock units
+`head`, `herd` and `flock`. `head` counts single animals (`20 head of cattle`);
+`herd` and `flock` sell a whole group as one lot (quantity `1`, one price). The
+same list lives in the DB CHECK constraint (`migrations/003` + `008`),
+`LISTING_UNITS` in the marketplace schema, and the sync entity registry — the three
+must stay in step, so the sync path imports the API list rather than keeping a
+private copy.
+
 ### 2.8 Orders — `/orders`
 
 | Method | Path | Roles | Notes |

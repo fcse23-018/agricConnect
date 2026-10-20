@@ -20,6 +20,7 @@
  */
 
 import { config } from '../config/index.js';
+import { fetchGoogleWeather } from './googleWeather.js';
 
 const DEFAULT_PAST_DAYS = 14;
 const CACHE = new Map();
@@ -27,6 +28,15 @@ const CACHE = new Map();
 const PROVIDER = 'open-meteo';
 const SOURCE = 'Open-Meteo';
 const DATA_TYPE = 'MODELLED';
+
+/**
+ * Which provider answers is a deployment choice (`WEATHER_PROVIDER`). Open-Meteo
+ * (default) is free and returns the multi-week archive the analysis needs; Google
+ * Weather is available as an opt-in forecast source. The switch lives here so
+ * every caller keeps calling `fetchWeather` and never learns which service
+ * answered — the response already declares its own `provider`/`source`.
+ */
+const USE_GOOGLE = () => config.weather.provider === 'GOOGLE';
 
 /** Test hook: clear the process-local weather cache. */
 export function resetWeatherCache() {
@@ -128,6 +138,12 @@ export async function fetchWeather({
   }
   if (!hasCoordinate(latitude) || !hasCoordinate(longitude)) {
     return { available: false, provider: PROVIDER, reason: 'The plot has no centre coordinates to fetch weather for.' };
+  }
+
+  // A deployment may point weather at Google instead. The delegate returns the
+  // same envelope, including its own honest `available:false` when it has no key.
+  if (USE_GOOGLE()) {
+    return fetchGoogleWeather({ latitude, longitude, days, fetchImpl, now });
   }
 
   const lat = Number(latitude);

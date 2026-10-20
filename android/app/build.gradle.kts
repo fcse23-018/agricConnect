@@ -45,6 +45,25 @@ fun apiBaseUrl(default: String): String {
     return if (raw.endsWith("/")) raw else "$raw/"
 }
 
+// --- Google Maps API key ------------------------------------------------------
+// Read from (in order): a -PmapsApiKey=... Gradle property, or mapsApiKey=... in
+// the git-ignored local.properties. The key is NEVER committed to the repository
+// and there is NO default: if it is absent the placeholder is empty and the map
+// shows a "map unavailable" state instead of the build failing, so the app still
+// compiles and every non-map feature keeps working.
+//
+//   android/local.properties:
+//     mapsApiKey=AIza...
+//
+// A key compiled into an APK is extractable by anyone who has the APK. That is
+// expected for the Maps SDK; the protection is to RESTRICT the key in Google
+// Cloud Console (Android apps: package name + signing SHA-1) rather than to hide
+// it. This key is for Maps SDK for Android only. The Weather API key used by the
+// backend is a SEPARATE, server-side key (see backend/.env.example).
+val mapsApiKey: String = (project.findProperty("mapsApiKey") as String?)
+    ?: localProps.getProperty("mapsApiKey")
+    ?: ""
+
 // Room schemas are exported so migrations can be diffed and verified in review.
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
@@ -74,6 +93,12 @@ android {
         // handed-out APK works on a physical device with no configuration; pass
         // -PapiBaseUrl=... (or local.properties) to target a local/emulator server.
         buildConfigField("String", "API_BASE_URL", "\"${apiBaseUrl("https://agriconnect-api-f55x.onrender.com/api/v1/")}\"")
+        // Exposed so the UI can tell "no key configured" from "map failed to load".
+        buildConfigField("String", "MAPS_API_KEY", "\"$mapsApiKey\"")
+
+        // The Maps SDK reads the key from this manifest placeholder. Empty when no
+        // key is configured, which the map composable detects before drawing.
+        manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
     }
 
     buildTypes {
@@ -182,7 +207,8 @@ dependencies {
     implementation(libs.datastore.preferences)
     implementation(libs.security.crypto)
 
-    implementation(libs.osmdroid.android)
+    implementation(libs.play.services.maps)
+    implementation(libs.maps.compose)
     implementation(libs.play.services.location)
     implementation(libs.accompanist.permissions)
     implementation(libs.coil.compose)

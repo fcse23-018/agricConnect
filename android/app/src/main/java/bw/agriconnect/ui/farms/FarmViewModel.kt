@@ -92,8 +92,20 @@ class FarmViewModel @Inject constructor(
         _form.update { it.copy(boundary = it.boundary + vertex, vertexLat = "", vertexLng = "", error = null) }
     }
 
-    /** Appends a corner captured from GPS. */
+    /** Appends a corner captured from GPS or tapped on the map. */
     fun addVertex(vertex: GeoVertex) = _form.update { it.copy(boundary = it.boundary + vertex, error = null) }
+
+    /**
+     * Repositions a corner dragged on the map. Rejects an invalid coordinate rather
+     * than storing it, so a bad drag cannot corrupt the boundary the server measures.
+     */
+    fun moveVertex(index: Int, vertex: GeoVertex) {
+        if (!PlotBoundary.isValid(vertex)) return
+        _form.update { state ->
+            if (index !in state.boundary.indices) return@update state
+            state.copy(boundary = state.boundary.toMutableList().apply { this[index] = vertex }, error = null)
+        }
+    }
 
     fun removeVertex(index: Int) =
         _form.update { it.copy(boundary = it.boundary.filterIndexed { i, _ -> i != index }) }
