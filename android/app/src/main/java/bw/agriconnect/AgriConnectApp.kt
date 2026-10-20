@@ -6,6 +6,8 @@ import androidx.work.Configuration
 import bw.agriconnect.core.config.ServerConfig
 import bw.agriconnect.core.util.ImageUrls
 import bw.agriconnect.data.sync.SyncScheduler
+import bw.agriconnect.data.update.UpdateChecker
+import bw.agriconnect.data.update.UpdateScheduler
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 
@@ -29,6 +31,10 @@ class AgriConnectApp : Application(), Configuration.Provider {
 
     @Inject lateinit var serverConfig: ServerConfig
 
+    @Inject lateinit var updateChecker: UpdateChecker
+
+    @Inject lateinit var updateScheduler: UpdateScheduler
+
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
             .setWorkerFactory(workerFactory)
@@ -43,5 +49,10 @@ class AgriConnectApp : Application(), Configuration.Provider {
         // Establish the periodic catch-up schedule at process start. The immediate
         // "sync now" path is requested by repositories after each local write.
         syncScheduler.schedulePeriodic()
+        // Phase C: one throttled update check shortly after start (non-blocking;
+        // a failed or offline check is silent and never interrupts the user) and
+        // the 6-hourly WorkManager tick while online.
+        updateScheduler.schedulePeriodic()
+        updateChecker.checkOnStartup()
     }
 }

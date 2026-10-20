@@ -6,6 +6,13 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- In-app APK updates (Android 8+): required to be allowed to install a
+         downloaded update for THIS package. It is requested only at the moment
+         the user taps "Update now" (Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+         after an in-app explanation) — never at startup, and Android's own
+         install confirmation is always shown afterwards. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- GPS-assisted plot boundary mapping. Requested only when the user maps a
          plot, and the user may deny it and enter boundaries manually. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -69,5 +76,26 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- Dedicated FileProvider for downloaded update APKs (cache/updates/).
+             Kept separate from the image/export provider above so an update file
+             is only ever exposed, for the duration of an install, through a
+             distinct authority (see ApkInstaller's fallback path). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider.updates"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths_updates" />
+        </provider>
+
+        <!-- PackageInstaller session results (success / failure / pending user
+             action) reported back to the update flow. Not exported: only the
+             PendingIntent created at commit time can invoke it. -->
+        <receiver
+            android:name=".data.update.UpdateInstallReceiver"
+            android:exported="false" />
     </application>
 </manifest>

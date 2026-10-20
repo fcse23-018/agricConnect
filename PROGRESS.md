@@ -32,8 +32,8 @@
 | **Android UI** | 🟢 26 Compose screens, role-based navigation, offline/sync affordances |
 | **Image upload / display** | 🟢 Listings, plots and avatars: pick → `POST /uploads` → store → render (unit/contract-tested; not yet device-verified) |
 | **Plot boundary (NDVI input)** | 🟢 Add/edit plot captures the polygon (GPS corners or manual lat/lng); stored in `farm_plots.geojson_boundary`, pushed via `/sync/push`, and required by `POST /satellite/ndvi` |
-| **Android build** | 🟢 `:app:assembleDebug` produces a 24.0 MB APK — `1.1.1` (build 3), re-run 2026-10-19 |
-| **Android unit tests** | 🟢 50/50 pass, 9 suites, 0 failures (`:app:testDebugUnitTest`, re-run 2026-10-19) |
+| **Android build** | 🟢 `:app:assembleDebug` produces a 24.2 MB APK — `1.1.1` (build 3), re-run 2026-10-20 |
+| **Android unit tests** | 🟢 94/94 pass, 12 suites, 0 failures (`:app:testDebugUnitTest`, re-run 2026-10-20) |
 | **Release distribution** | 🟢 CI uploads a debug APK named `agriconnect-debug-v<version>-<sha>.apk` (§8) |
 | **Android runtime** | 🟡 Never launched on a device/emulator — no instrumented test run |
 | **External providers** | 🔴 SMS/email, Earth Engine and push are not configured |
@@ -385,3 +385,129 @@ exists, and missing files are called out even where the README implies they are 
 If you implement or verify something, **update this file** (and, where relevant,
 [`docs/08-KNOWN-LIMITATIONS-AND-UNVERIFIED.md`](docs/08-KNOWN-LIMITATIONS-AND-UNVERIFIED.md)).
 Do not mark anything ✅ without running it.
+
+---
+
+## 11. Phase C progress - automatic APK version check and update (client) - 2026-10-20
+
+Server contract (`GET /api/v1/app/version`) was already shipped and committed earlier;
+this pass implements the Android client half (Phase C).
+
+**What was added (production code, `android/app/src/main/java/bw/agriconnect/`):**
+
+- `data/remote/dto/UpdateDtos.kt` - `VersionManifestDto` for the public version manifest.
+- `data/remote/ApiService.kt` - `@GET("app/version") suspend fun getAppVersion()`.
+- `data/update/UpdateDecision.kt` - pure `decide()`: Required when
+  `installed < minSupportedVersionCode`, Optional when `installed < latestVersionCode`,
+  else None. Defensive: `available=false`, non-positive `latestVersionCode`, or a
+  missing/non-HTTPS `downloadUrl` all yield None; `minSupported` is clamped to `1..latest`.
+- `data/update/UpdateStateStore.kt` - interface + `SharedPreferencesUpdateStateStore`
+  (last successful check timestamp + dismissed version code); `isCheckDue()` /
+  `shouldPromptFor()` rules.
+- `data/update/UpdateRepository.kt`, `data/update/UpdateChecker.kt` - throttled (6h)
+  check orchestration; failures are silent and never prompt or lock out; offline checks
+  do not consume the throttle window.
+- `data/update/UpdateScheduler.kt` + `data/update/UpdateCheckWorker.kt` - WorkManager
+  periodic check (6h, CONNECTED), same pattern as `SyncScheduler`/`SyncWorker`.
+- `data/update/Checksums.kt`, `ApkDownloader.kt`, `ApkVerifier.kt`, `ApkInstaller.kt`,
+  `UpdateInstallReceiver.kt`, `UpdateException.kt` - HTTPS-only streaming download
+  (bare `@ApkDownloadClient`, no bearer token), SHA-256 + package + version + signature
+  verification, then `PackageInstaller` session install with a dedicated FileProvider
+  fallback.
+- `ui/update/UpdateViewModel.kt`, `ui/update/UpdateDialog.kt` - optional vs required
+  dialogs, unknown-sources explanation, progress and failure dialogs; hosted once at the
+  navigation root (`UpdateDialogHost()` in `ui/AgriConnectRoot.kt`).
+- `di/ApkDownloadClient.kt`, `di/NetworkModule.kt` (APK client), `di/AppModule.kt`
+  (binds `UpdateStateStore`), `AgriConnectApp.kt` (startup wiring), `AndroidManifest.xml`
+  (`REQUEST_INSTALL_PACKAGES`, update FileProvider, `exported="false"` receiver),
+  `res/xml/file_paths_updates.xml`.
+
+**Tests added (`android/app/src/test/java/bw/agriconnect/data/update/`):**
+
+- `UpdateDecisionTest` - every `decide()` branch (Required/Optional/None, clamping,
+  missing fields, non-HTTPS URL, `available=false`).
+- `UpdateVersionApiTest` - MockWebServer contract tests for the manifest wire shape.
+- `UpdateStateRulesTest` - throttle + dismissal rules, `sha256Hex`/`toHexLower`/
+  `checksumMatches`.
+
+**Verification status:**
+
+- `:app:compileDebugKotlin` - PASSED (BUILD SUCCESSFUL, 0 errors).
+- `ui/satellite/SatelliteScreen.kt` was regenerated (ASCII-only, LF, braces balanced);
+  the main source set compiles clean, so `:app:compileDebugUnitTestKotlin` and the unit
+  suite are no longer blocked.
+- `:app:assembleDebug :app:testDebugUnitTest` - PASSED. **94 Android unit tests, 0 failures**;
+  APK at `android/app/build/outputs/apk/debug/app-debug.apk` (24.2 MB, `1.1.1`/build 3).
+- No on-device run: the actual download/verify/install path (unknown-sources grant,
+  PackageInstaller session, FileProvider fallback) has NOT been exercised on a device
+  or emulator and remains unverified.
+
+**Docs updated:** `docs/13-ANDROID-RELEASES.md` section 4 rewritten to match the shipped
+client behaviour (6h cadence, pure `decide()`, verification steps, install paths,
+failure handling). Nothing committed; the coordinator commits.
+
+---
+
+## 12. Phase B/D - unified Satellite screen wired to the monitoring API - 2026-10-20
+
+The Satellite tab now renders the real monitoring contract instead of the earlier
+aspirational shapes. The screen is one unified destination with six tabs
+(Overview, Chart, Weather, Growth, Events, Alerts); no separate app or dashboard.
+
+**Contract alignment (Android side, `android/app/src/main/java/bw/agriconnect/`):**
+
+- `domain/model/satellite/MonitoringModels.kt` - rewritten to the server shapes:
+  `SatelliteOverview` (with `disclaimer`/`generatedAt`), `PlotGeometry.reason`,
+  `ObservationStatus`, `IndexSummary` (available/count/trend/dataAgeDays),
+  `GrowthCycle` (single nullable confidence), `VegetationDrop` (nullable
+  classification/label/explanation/nextStep, `List<String>` evidence),
+  `PlotAlert` (nullable plotId/farmerId), `WeatherData`/`WeatherDaily.soilMoisturePct`
+  (already a percentage), `WeatherSummary`, `MonitoringQuality`, `ModelStatus`,
+  `BoundaryPreview`, `SetBoundaryResult`, `PlotSummary`; enums use the real
+  `TRANSIENT_DIP` / `POSSIBLE_HEAT_OR_DRY_STRESS` names.
+- `data/remote/dto/SatelliteDtos.kt` - authoritative wire types (`PlotRefDto`,
+  `PlotGeometryDto`, `PlotObservationDto`, `GrowthCycleDto`, `VegetationDropDto`,
+  `PlotEventDto`, `PlotAlertDto`, `WeatherResponseDto`, `QualityDto`, `ModelStatusDto`,
+  `BoundaryDto` + wrapped request bodies, `PagedEventsDto`, `AlertListDto`,
+  `LatestPlotsDto`, `AlertStatusUpdateRequest(action)`).
+- `data/remote/dto/Mappers.kt` - mapping for every DTO; `parseClassification` accepts
+  the legacy `NOISE`/`POSSIBLE_HEAT_STRESS` strings as aliases.
+- `data/remote/ApiService.kt` - 9 monitoring endpoints aligned to the new DTOs.
+- `data/repository/SatelliteMonitoringRepository.kt` - unpacks paged envelopes,
+  maps `AlertStatus` to `ACKNOWLEDGE|DISMISS|REOPEN`, and reports weather
+  unavailability honestly (no invented numbers).
+- `ui/satellite/SatelliteViewModel.kt` - overview derives the legacy `Ndvi` from the
+  newest observation (series arrives oldest-first, picked by date), events refresh
+  after create/update/delete, and alert status refresh falls back to the on-screen
+  plot when the response omits `plotId`.
+- `ui/satellite/SatelliteScreen.kt` - regenerated cleanly (ASCII-only) and includes:
+  - a freshness banner ("Newest clear satellite image: <date> (N days old)"),
+    the observation-status note and the disclaimer banner;
+  - `EventsTab` + `EventDialog` + `EventRow`: farmer event log with confirm/correct for
+    SYSTEM rows, edit/delete for FARMER rows, a training-pending footnote, YYYY-MM-DD
+    validation and a 2000-character notes cap;
+  - `BoundaryEditorSheet`: Method A rotated rectangle (centre, width, length, bearing)
+    and Method B custom polygon (add/remove corners, range checks), both measured by
+    the server via the preview endpoint before saving, plus a save that warns old
+    observations are invalidated.
+- `data/update/**` + `ui/update/**` - Phase C APK update client (section 11).
+
+**Backend additive changes:**
+
+- `services/satelliteAnalysis.js` - `summarise(series, {now, index})` parameterised by
+  index; `analyseSeries` now also returns `eviSummary` (so the app can chart and
+  summarise both indices from one request). `summary` remains NDVI-only.
+- `modules/satellite/satellite.monitoring.service.js` - returns `eviSummary`.
+- `modules/satellite/satellite.schemas.js` - `daysBack` accepted as an alias of `days`
+  on the overview and weather queries; the route resolves `days ?? daysBack`.
+
+**Docs corrected to the real payloads:** `docs/02-API-CONTRACT.md` §2.6.2 (endpoint
+table + response excerpts + key guarantees), `backend/openapi.yaml` (satellite paths and
+all satellite component schemas), `docs/12-SATELLITE-MONITORING.md` (classification
+names, alert keys, growth-cycle and model-status fields, geometry request/response
+shapes).
+
+**Tests:** backend suite **281 passed / 281, 17 suites** (added `eviSummary` unit tests
+and `daysBack` alias schema tests). Android `:app:assembleDebug :app:testDebugUnitTest`
+passes: **94 unit tests, 0 failures**, APK at
+`android/app/build/outputs/apk/debug/app-debug.apk` (24.2 MB, `1.1.1`/build 3).

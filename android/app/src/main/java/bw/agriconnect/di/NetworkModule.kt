@@ -67,6 +67,24 @@ object NetworkModule {
         .callTimeout(CALL_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .build()
 
+    /**
+     * Bare client for APK downloads (Phase C update flow). No auth interceptor
+     * and no authenticator — the download URL can point at any host and the
+     * bearer token must never leave our own API host (see [ApkDownloadClient]).
+     * Verbose body logging is not installed either, so a partially redacted
+     * download URL is never written to logcat. The call timeout bounds a whole
+     * multi-megabyte download on a slow link.
+     */
+    @Provides
+    @Singleton
+    @ApkDownloadClient
+    fun provideApkDownloadClient(): OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .callTimeout(APK_DOWNLOAD_CALL_TIMEOUT_MINUTES, TimeUnit.MINUTES)
+        .build()
+
+
     @Provides
     @Singleton
     fun provideOkHttpClient(
@@ -126,4 +144,7 @@ object NetworkModule {
     private const val READ_TIMEOUT_SECONDS = 60L
     private const val WRITE_TIMEOUT_SECONDS = 60L
     private const val CALL_TIMEOUT_SECONDS = 120L
+
+    /** Whole-attempt cap for one APK download (large file, slow links). */
+    private const val APK_DOWNLOAD_CALL_TIMEOUT_MINUTES = 10L
 }

@@ -56,7 +56,22 @@ import bw.agriconnect.data.remote.dto.UpdateSaleRequest
 import bw.agriconnect.data.remote.dto.UpdatedCountResponse
 import bw.agriconnect.data.remote.dto.UploadResponse
 import bw.agriconnect.data.remote.dto.VerifyCodeRequest
+import bw.agriconnect.data.remote.dto.VersionManifestDto
 import bw.agriconnect.data.remote.dto.EmployerLinkRequest
+import bw.agriconnect.data.remote.dto.SatelliteOverviewDto
+import bw.agriconnect.data.remote.dto.LatestPlotsDto
+import bw.agriconnect.data.remote.dto.BoundaryPreviewRequest
+import bw.agriconnect.data.remote.dto.BoundaryPreviewResponse
+import bw.agriconnect.data.remote.dto.SetBoundaryRequest
+import bw.agriconnect.data.remote.dto.SetBoundaryResponse
+import bw.agriconnect.data.remote.dto.WeatherResponseDto
+import bw.agriconnect.data.remote.dto.PagedEventsDto
+import bw.agriconnect.data.remote.dto.PlotEventDto
+import bw.agriconnect.data.remote.dto.EventCreateRequest
+import bw.agriconnect.data.remote.dto.EventUpdateRequest
+import bw.agriconnect.data.remote.dto.AlertListDto
+import bw.agriconnect.data.remote.dto.PlotAlertDto
+import bw.agriconnect.data.remote.dto.AlertStatusUpdateRequest
 import kotlinx.serialization.json.JsonObject
 import okhttp3.MultipartBody
 import retrofit2.Response
@@ -300,6 +315,63 @@ interface ApiService {
     @GET("satellite/ndvi/{id}")
     suspend fun getNdvi(@Path("id") id: String): NdviDto
 
+    /* -------------------------------- satellite monitoring ------------------- */
+
+    @GET("satellite/overview")
+    suspend fun getSatelliteOverview(
+        @Query("plotId") plotId: String,
+        @Query("daysBack") daysBack: Int? = null,
+    ): SatelliteOverviewDto
+
+    @POST("satellite/boundary/preview")
+    suspend fun previewBoundary(@Body body: BoundaryPreviewRequest): BoundaryPreviewResponse
+
+    @PUT("satellite/plots/{plotId}/boundary")
+    suspend fun setPlotBoundary(
+        @Path("plotId") plotId: String,
+        @Body body: SetBoundaryRequest,
+    ): SetBoundaryResponse
+
+    @GET("satellite/weather")
+    suspend fun getWeather(
+        @Query("plotId") plotId: String,
+        @Query("daysBack") daysBack: Int? = null,
+    ): WeatherResponseDto
+
+    @GET("satellite/events")
+    suspend fun getPlotEvents(
+        @Query("plotId") plotId: String,
+        @Query("pageSize") pageSize: Int? = null,
+    ): PagedEventsDto
+
+    @POST("satellite/events")
+    suspend fun createPlotEvent(@Body body: EventCreateRequest): PlotEventDto
+
+    @PATCH("satellite/events/{eventId}")
+    suspend fun updatePlotEvent(
+        @Path("eventId") eventId: String,
+        @Body body: EventUpdateRequest,
+    ): PlotEventDto
+
+    @DELETE("satellite/events/{eventId}")
+    suspend fun deletePlotEvent(@Path("eventId") eventId: String): Response<Unit>
+
+    @GET("satellite/alerts")
+    suspend fun getPlotAlerts(
+        @Query("plotId") plotId: String,
+        @Query("status") status: String? = null,
+        @Query("pageSize") pageSize: Int? = null,
+    ): AlertListDto
+
+    @POST("satellite/alerts/{alertId}/status")
+    suspend fun updateAlertStatus(
+        @Path("alertId") alertId: String,
+        @Body body: AlertStatusUpdateRequest,
+    ): PlotAlertDto
+
+    @GET("satellite/plots/latest")
+    suspend fun getLatestPlots(): LatestPlotsDto
+
     /* ------------------------------- marketplace --------------------------- */
 
     @GET("marketplace/listings")
@@ -398,6 +470,17 @@ interface ApiService {
 
     @GET("sync/pull")
     suspend fun syncPull(@Query("since") since: String? = null): SyncPullResponse
+
+    /* ------------------------------ app updates --------------------------- */
+
+    /**
+     * Public update manifest (docs/13-ANDROID-RELEASES.md). Unauthenticated by
+     * contract: the check must work before login, and a device must never be
+     * locked out because the check failed — failures are swallowed upstream in
+     * `bw.agriconnect.data.update.UpdateChecker`.
+     */
+    @GET("app/version")
+    suspend fun getAppVersion(): VersionManifestDto
 
     /* -------------------------------- health ------------------------------- */
 

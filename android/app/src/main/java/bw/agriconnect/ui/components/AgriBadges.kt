@@ -2,6 +2,7 @@ package bw.agriconnect.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
@@ -86,6 +87,25 @@ fun OrderStatusBadge(status: OrderStatus, modifier: Modifier = Modifier) {
 @Composable
 internal fun statusIcon(icon: ImageVector, colour: Color) {
     Icon(icon, contentDescription = null, tint = colour, modifier = Modifier.size(18.dp))
+}
+
+/**
+ * Simple text-only status chip (no icon) for satellite monitoring.
+ * Used for classification labels, alert severity, confidence levels, etc.
+ */
+@Composable
+fun StatusChip(
+    text: String,
+    color: Color,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .background(color.copy(alpha = 0.12f), RoundedCornerShape(AgriRadius.pill))
+            .padding(horizontal = AgriSpacing.sm, vertical = 3.dp),
+    ) {
+        Text(text, style = MaterialTheme.typography.labelSmall, color = color)
+    }
 }
 
 internal val unavailableIcon: ImageVector = Icons.Filled.Block

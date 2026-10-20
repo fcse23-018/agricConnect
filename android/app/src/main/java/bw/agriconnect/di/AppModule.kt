@@ -22,6 +22,8 @@ import bw.agriconnect.data.session.TokenStore
 import bw.agriconnect.data.session.createSessionManager
 import bw.agriconnect.data.sync.RoomSyncQueue
 import bw.agriconnect.data.sync.SyncQueue
+import bw.agriconnect.data.update.SharedPreferencesUpdateStateStore
+import bw.agriconnect.data.update.UpdateStateStore
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -112,4 +114,10 @@ internal abstract class BindingsModule {
     @Binds
     @Singleton
     internal abstract fun bindAccountRepository(impl: DefaultAccountRepository): AccountRepository
+
+    @Binds
+    @Singleton
+    internal abstract fun bindUpdateStateStore(
+        impl: SharedPreferencesUpdateStateStore,
+    ): UpdateStateStore
 }

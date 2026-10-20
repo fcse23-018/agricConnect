@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Paths exposed by the dedicated update FileProvider
+     (${applicationId}.fileprovider.updates). Only the downloaded, verified APK
+     under app-private cache/updates/ is listed; the image/export provider
+     (file_paths.xml) is intentionally not touched. -->
+<paths>
+    <cache-path name="updates" path="updates/" />
+</paths>

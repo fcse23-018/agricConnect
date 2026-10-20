@@ -45,6 +45,7 @@ import bw.agriconnect.ui.settings.PrivacyScreen
 import bw.agriconnect.ui.settings.ServerSettingsScreen
 import bw.agriconnect.ui.settings.SettingsScreen
 import bw.agriconnect.ui.splash.SplashScreen
+import bw.agriconnect.ui.update.UpdateDialogHost
 import bw.agriconnect.ui.welcome.WelcomeScreen
 import java.util.Locale
 
@@ -311,6 +312,11 @@ fun AgriConnectRoot(
             }
         }
     }
+
+    // Phase C: update dialogs render above navigation so a required update can
+    // block any screen, and an optional one can appear wherever the user is.
+    // State lives in UpdateViewModel -> UpdateChecker (never in `remember`).
+    UpdateDialogHost()
 }
 
 /**

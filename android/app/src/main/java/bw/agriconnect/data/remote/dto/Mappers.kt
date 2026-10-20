@@ -35,8 +35,12 @@ import bw.agriconnect.domain.model.SyncStatus
 import bw.agriconnect.domain.model.Unit as MeasureUnit
 import bw.agriconnect.domain.model.User
 import bw.agriconnect.domain.model.UserRole
+import bw.agriconnect.domain.model.satellite.*
+import bw.agriconnect.core.util.GeoVertex
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -441,3 +445,399 @@ fun SyncResultDto.statusEnum(): SyncStatus =
 /** A pull delta's write operation, when present. */
 fun SyncChangeDto.operationEnum(): SyncOperation? =
     enumOrNull<SyncOperation>(operation)
+
+/* --------------------------------- satellite monitoring -------------------- */
+
+/** Helper to parse a Map<String, Any> from JsonObject for flexible JSON fields. */
+private fun JsonObject?.toAnyMap(): Map<String, Any?>? =
+    this?.let { obj ->
+        obj.entries.associate { (key, element) ->
+            key to elementToAny(element)
+        }
+    }
+
+private fun elementToAny(element: JsonElement): Any? = when (element) {
+    is JsonPrimitive -> {
+        if (element.content.isNotEmpty() && element.content.all { it.isDigit() || it in ".-" }) {
+            element.content.toDoubleOrNull() ?: element.content.toLongOrNull() ?: element.content
+        } else if (element.content.equals("true", ignoreCase = true) || element.content.equals("false", ignoreCase = true)) {
+            element.content.toBoolean()
+        } else {
+            element.content
+        }
+    }
+    is JsonObject -> element.toAnyMap()
+    is kotlinx.serialization.json.JsonArray -> element.map { elementToAny(it) }
+    else -> element.toString()
+}
+
+/** Fallback for unknown classification values — never crash, always fall back to UNCLEAR. */
+private fun parseClassification(value: String?): VegetationDropClassification =
+    when (value?.uppercase()) {
+        "TRANSIENT_DIP", "NOISE" -> VegetationDropClassification.TRANSIENT_DIP
+        "POSSIBLE_HARVEST" -> VegetationDropClassification.POSSIBLE_HARVEST
+        "POSSIBLE_HEAT_OR_DRY_STRESS", "POSSIBLE_HEAT_STRESS" ->
+            VegetationDropClassification.POSSIBLE_HEAT_OR_DRY_STRESS
+        "GRADUAL_DECLINE" -> VegetationDropClassification.GRADUAL_DECLINE
+        else -> VegetationDropClassification.UNCLEAR
+    }
+
+/** Fallback for unknown event kind — default to OTHER. */
+private fun parseEventKind(value: String?): PlotEventKind =
+    when (value?.uppercase()) {
+        "DETECTED_DROP" -> PlotEventKind.DETECTED_DROP
+        "HARVEST" -> PlotEventKind.HARVEST
+        "CLEARING" -> PlotEventKind.CLEARING
+        "HEAT_STRESS" -> PlotEventKind.HEAT_STRESS
+        "WATER_STRESS" -> PlotEventKind.WATER_STRESS
+        "OBSERVATION" -> PlotEventKind.OBSERVATION
+        else -> PlotEventKind.OTHER
+    }
+
+/** Fallback for unknown event source — default to FARMER. */
+private fun parseEventSource(value: String?): PlotEventSource =
+    when (value?.uppercase()) {
+        "SYSTEM" -> PlotEventSource.SYSTEM
+        else -> PlotEventSource.FARMER
+    }
+
+/** Fallback for unknown alert severity — default to INFO. */
+private fun parseAlertSeverity(value: String?): AlertSeverity =
+    when (value?.uppercase()) {
+        "WARNING" -> AlertSeverity.WARNING
+        "CRITICAL" -> AlertSeverity.CRITICAL
+        else -> AlertSeverity.INFO
+    }
+
+/** Fallback for unknown alert status — default to OPEN. */
+private fun parseAlertStatus(value: String?): AlertStatus =
+    when (value?.uppercase()) {
+        "ACKNOWLEDGED" -> AlertStatus.ACKNOWLEDGED
+        "DISMISSED" -> AlertStatus.DISMISSED
+        else -> AlertStatus.OPEN
+    }
+
+/** Fallback for unknown confidence — default to LOW. */
+private fun parseConfidence(value: String?): ConfidenceLevel =
+    when (value?.uppercase()) {
+        "HIGH" -> ConfidenceLevel.HIGH
+        "MEDIUM" -> ConfidenceLevel.MEDIUM
+        else -> ConfidenceLevel.LOW
+    }
+
+/** Fallback for unknown geometry method. */
+private fun parseGeometryMethod(value: String?): GeometryMethod =
+    when (value?.uppercase()) {
+        "RECTANGLE" -> GeometryMethod.RECTANGLE
+        "POLYGON" -> GeometryMethod.POLYGON
+        else -> GeometryMethod.UNKNOWN
+    }
+
+/** Fallback for unknown observation quality. */
+private fun parseQuality(value: String?): ObservationQuality =
+    when (value?.uppercase()) {
+        "FAIR" -> ObservationQuality.FAIR
+        "POOR" -> ObservationQuality.POOR
+        else -> ObservationQuality.GOOD
+    }
+
+fun SatelliteOverviewDto.toDomain(): SatelliteOverview = SatelliteOverview(
+    plot = plot.toPlotDomain(),
+    geometry = geometry.toDomain(),
+    observationStatus = observationStatus.toDomain(),
+    // The monitoring series carries no row ids: key each row by plot+date so the
+    // chart and list stay stable. `farmerId` is not part of this payload.
+    observations = observations.map { it.toDomain(plotId = plot.plotId, farmerId = "") },
+    summary = MonitoringSummary(
+        ndvi = summary.toNdviDomain(),
+        evi = eviSummary?.toEviDomain(),
+    ),
+    growthCycle = growthCycle?.toDomain(),
+    drops = drops.map { it.toDomain() },
+    weather = weather?.toDomain(),
+    alerts = alerts.map { it.toDomain() },
+    quality = quality?.toDomain(),
+    modelStatus = modelStatus?.toDomain(),
+    thresholds = thresholds,
+    thresholdDocumentation = thresholdDocumentation,
+    disclaimer = disclaimer,
+    generatedAt = generatedAt,
+)
+
+/**
+ * The monitoring endpoints return a compact plot reference (no owner, no
+ * timestamps). Those fields are owned by the farms endpoints and are unused on
+ * the monitoring screen, so they are filled with empty placeholders rather than
+ * fabricated values.
+ */
+fun PlotRefDto.toPlotDomain(): FarmPlot = FarmPlot(
+    plotId = plotId,
+    farmerId = "",
+    plotName = plotName,
+    areaHectares = areaHectares,
+    geoJsonBoundary = geoJsonBoundary?.toString(),
+    centroidLat = centroidLat,
+    centroidLng = centroidLng,
+    imageUrl = imageUrl,
+    createdAt = "",
+    updatedAt = "",
+)
+
+fun PlotGeometryDto.toDomain(): PlotGeometry = PlotGeometry(
+    method = parseGeometryMethod(method),
+    vertices = vertices.map { GeoVertex(latitude = it.lat, longitude = it.lon) },
+    areaM2 = areaM2,
+    areaHectares = areaHectares,
+    perimeterM = perimeterM,
+    centroid = centroid?.let { GeoVertex(latitude = it.lat, longitude = it.lon) },
+    sideLengthsM = sideLengthsM,
+    valid = valid,
+    reason = reason,
+)
+
+fun ObservationStatusDto.toDomain(): ObservationStatus = ObservationStatus(
+    isCached = isCached,
+    isSimulated = isSimulated,
+    newestObservation = newestObservation,
+    newestObservationAgeDays = newestObservationAgeDays,
+    provider = provider?.source,
+    providerError = providerError,
+    note = note,
+    returned = returned,
+    coversDays = coversDays,
+    boundaryUsable = boundaryUsable,
+)
+
+fun PlotObservationDto.toDomain(plotId: String, farmerId: String): PlotObservation = PlotObservation(
+    observationId = "$plotId:$date",
+    plotId = plotId,
+    farmerId = farmerId,
+    observedOn = date,
+    ndvi = ndvi,
+    evi = evi,
+    smoothedNdvi = smoothedNdvi,
+    smoothedEvi = smoothedEvi,
+    validPixelPct = validPct,
+    cloudCoverPct = cloudPct,
+    pixelCount = pixels,
+    quality = parseQuality(quality),
+    isOutlier = isOutlier,
+    isSimulated = isSimulated,
+    source = source,
+)
+
+fun IndexStatsDto.toNdviDomain(): NdviMonitoringSummary = NdviMonitoringSummary(
+    available = available,
+    count = count,
+    min = min,
+    max = max,
+    avg = average,
+    latest = latest?.ndvi,
+    latestDate = latest?.date ?: lastDate,
+    changeVsPrevious = change,
+    changeDate = previous?.date,
+    trend = trend,
+    dataAgeDays = dataAgeDays,
+)
+
+fun IndexStatsDto.toEviDomain(): EviMonitoringSummary = EviMonitoringSummary(
+    available = available,
+    count = count,
+    min = min,
+    max = max,
+    avg = average,
+    latest = latest?.evi,
+    latestDate = latest?.date ?: lastDate,
+    changeVsPrevious = change,
+    changeDate = previous?.date,
+    trend = trend,
+    dataAgeDays = dataAgeDays,
+)
+
+fun GrowthCycleDto.toDomain(): GrowthCycle = GrowthCycle(
+    available = available,
+    reason = reason,
+    greenUp = greenUpOn,
+    peak = peakOn,
+    endOfSeason = endOn,
+    peakValue = peakValue,
+    baseline = baseline,
+    amplitude = amplitude,
+    confidence = if (available) parseConfidence(confidence) else null,
+    strategy = strategy,
+    evidence = evidence,
+)
+
+fun VegetationDropDto.toDomain(): VegetationDrop {
+    // The server reports both index pairs; a drop is measured on NDVI when that
+    // pair exists, otherwise on EVI.
+    val onNdvi = ndviBefore != null || ndviAfter != null
+    return VegetationDrop(
+        date = date,
+        previousDate = previousDate,
+        daysBetween = daysBetween,
+        index = if (onNdvi) VegetationIndex.NDVI else VegetationIndex.EVI,
+        magnitude = magnitude,
+        valueBefore = if (onNdvi) ndviBefore else eviBefore,
+        valueAfter = if (onNdvi) ndviAfter else eviAfter,
+        relativePct = relativePct,
+        classification = if (label == null && classification == null) null else parseClassification(classification),
+        label = label,
+        explanation = explanation,
+        evidence = evidence.toEvidenceList(),
+        confidence = confidence?.let { parseConfidence(it) },
+        nextStep = nextStep,
+        disclaimer = disclaimer,
+        weatherContext = (weatherContext as? JsonObject)?.toTypedMap(),
+        recoveryFraction = recoveryFraction,
+        recoveredOn = recoveredOn,
+        gradual = gradual,
+        detectedEventId = detectedEventId,
+    )
+}
+
+fun PlotEventDto.toDomain(): PlotEvent = PlotEvent(
+    eventId = eventId,
+    plotId = plotId,
+    farmerId = farmerId,
+    eventDate = eventDate,
+    kind = parseEventKind(kind),
+    source = parseEventSource(source),
+    classification = classification,
+    confirmed = confirmed,
+    notes = notes,
+    ndviBefore = ndviBefore,
+    ndviAfter = ndviAfter,
+    magnitude = magnitude,
+    confidence = confidence?.let { parseConfidence(it) },
+    evidence = evidence?.toTypedMap(),
+    weatherContext = weatherContext?.toTypedMap(),
+    recordedBy = recordedBy,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+)
+
+fun PlotAlertDto.toDomain(): PlotAlert = PlotAlert(
+    alertId = alertId,
+    plotId = plotId,
+    farmerId = farmerId,
+    alertKey = alertKey,
+    alertType = alertType,
+    severity = parseAlertSeverity(severity),
+    title = title,
+    body = body,
+    status = parseAlertStatus(status),
+    raisedAt = raisedAt,
+    resolvedAt = resolvedAt,
+    acknowledgedAt = acknowledgedAt,
+    dismissedAt = dismissedAt,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+)
+
+fun WeatherResponseDto.toDomain(): WeatherData? = weather?.toDomain()
+
+fun WeatherDataDto.toDomain(): WeatherData = WeatherData(
+    available = available,
+    reason = reason,
+    source = source,
+    dataType = when (dataType?.uppercase()) {
+        "MEASURED" -> WeatherDataType.MEASURED
+        "ESTIMATED" -> WeatherDataType.ESTIMATED
+        else -> WeatherDataType.MODELLED
+    },
+    daily = daily.map { it.toDomain() },
+    summary = summary?.toDomain(),
+    note = note,
+    fetchedAt = fetchedAt,
+    cached = cached,
+)
+
+fun WeatherDailyDto.toDomain(): WeatherDaily = WeatherDaily(
+    date = date,
+    rainfallMm = rainfallMm,
+    tempMinC = tempMinC,
+    tempMaxC = tempMaxC,
+    tempAvgC = tempMeanC,
+    soilMoisturePct = soilMoisturePct,
+)
+
+fun WeatherSummaryDto.toDomain(): WeatherSummary = WeatherSummary(
+    periodStart = periodStart,
+    periodEnd = periodEnd,
+    rainfall7dMm = rainfall7dMm,
+    rainfall14dMm = rainfall14dMm,
+    tempMax7dC = tempMax7dC,
+    tempMin7dC = tempMin7dC,
+    avgTemp7dC = avgTemp7dC,
+    soilMoistureMeanPct = soilMoistureMeanPct,
+)
+
+fun QualityDto.toDomain(): MonitoringQuality = MonitoringQuality(
+    readingsReceived = readingsReceived,
+    readingsUsable = readingsUsable,
+    readingsRejected = readingsRejected,
+    outliers = outliers,
+    note = note,
+)
+
+fun ModelStatusDto.toDomain(): ModelStatus = ModelStatus(
+    trained = trained,
+    readyToTrain = readyToTrain,
+    labelledEvents = labelledEvents,
+    requiredLabels = requiredLabels,
+    note = note,
+)
+
+fun BoundaryPreviewResponse.toPreviewDomain(): BoundaryPreview = BoundaryPreview(
+    geometry = geometry.toDomain(),
+    note = note,
+)
+
+fun SetBoundaryResponse.toDomain(): SetBoundaryResult = SetBoundaryResult(
+    plot = plot.toPlotDomain(),
+    geometry = geometry.toDomain(),
+    observationsInvalidated = observationsInvalidated,
+    note = note,
+)
+
+fun PlotObservationSummaryDto.toDomain(): PlotSummary = PlotSummary(
+    plotId = plotId,
+    observedOn = observedOn,
+    ndvi = ndvi,
+    evi = evi,
+    quality = quality,
+    isSimulated = isSimulated,
+    source = source,
+)
+
+/**
+ * A strict object-to-map conversion for the domain models that hold
+ * `Map<String, Any>` (event evidence / weather context). Null JSON values are
+ * dropped rather than stored as a stringified "null".
+ */
+private fun JsonObject.toTypedMap(): Map<String, Any> =
+    entries.mapNotNull { (key, element) -> elementToAny(element)?.let { key to it } }.toMap()
+
+/**
+ * Evidence arrives as an array of sentences for drops, or as an object with an
+ * `items` array for stored events. Both render as sentences; anything else is
+ * reported as absent rather than stringified into something meaningless.
+ */
+private fun JsonElement?.toEvidenceList(): List<String> = when (this) {
+    is kotlinx.serialization.json.JsonArray -> mapNotNull { item ->
+        (item as? JsonPrimitive)?.takeIf { it !is kotlinx.serialization.json.JsonNull }?.content
+    }
+    is JsonObject -> {
+        val items = this["items"]
+        if (items is kotlinx.serialization.json.JsonArray) {
+            items.mapNotNull { item ->
+                (item as? JsonPrimitive)?.takeIf { it !is kotlinx.serialization.json.JsonNull }?.content
+            }
+        } else {
+            val joined = entries.joinToString(", ") { "${it.key}=${elementToAny(it.value)}" }
+            if (joined.isBlank()) emptyList() else listOf(joined)
+        }
+    }
+    else -> emptyList()
+}
