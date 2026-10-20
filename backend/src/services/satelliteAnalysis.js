@@ -249,12 +249,20 @@ export function smoothSeries(series, { window = 3, maxGapDays = 60 } = {}) {
 
 /* -------------------------------- summary -------------------------------- */
 
-export function summarise(series, { now = null } = {}) {
-  const usable = series.filter((row) => row.ndvi !== null && !row.isOutlier);
+/**
+ * Summary statistics for one vegetation index over the usable series.
+ *
+ * `index` selects the column (`ndvi` or `evi`); rows missing that index, or
+ * flagged as outliers, are excluded so a haze spike or a cloudy pass never
+ * becomes the "latest reading".
+ */
+export function summarise(series, { now = null, index = 'ndvi' } = {}) {
+  const label = index === 'evi' ? 'evi' : 'ndvi';
+  const usable = series.filter((row) => row[label] !== null && !row.isOutlier);
   if (usable.length === 0) {
     return {
       available: false,
-      reason: 'No valid vegetation-index reading is available for this plot.',
+      reason: `No valid ${label.toUpperCase()} reading is available for this plot.`,
       count: 0,
       latest: null,
       previous: null,
@@ -270,10 +278,10 @@ export function summarise(series, { now = null } = {}) {
 
   const latest = usable[usable.length - 1];
   const previous = usable.length > 1 ? usable[usable.length - 2] : null;
-  const values = usable.map((row) => row.ndvi);
+  const values = usable.map((row) => row[label]);
   const average = values.reduce((sum, value) => sum + value, 0) / values.length;
-  const change = previous && previous.ndvi !== null ? latest.ndvi - previous.ndvi : null;
-  const changePct = change !== null && previous.ndvi ? (change / previous.ndvi) * 100 : null;
+  const change = previous ? latest[label] - previous[label] : null;
+  const changePct = change !== null && previous[label] ? (change / previous[label]) * 100 : null;
   const today = now ? String(now).slice(0, 10) : new Date().toISOString().slice(0, 10);
   const dataAgeDays = daysBetween(latest.date, today);
 
@@ -287,6 +295,7 @@ export function summarise(series, { now = null } = {}) {
   return {
     available: true,
     reason: null,
+    index: label.toUpperCase(),
     count: usable.length,
     latest,
     previous,
@@ -764,7 +773,11 @@ export function analyseSeries({
 } = {}) {
   const clean = flagOutliers(sanitiseObservations(observations));
   const series = smoothSeries(clean);
-  const summary = summarise(series, { now });
+  // `summary` stays NDVI-only for backwards compatibility; `eviSummary` is the
+  // same statistics for the EVI column, so the app can chart and summarise both
+  // indices without a second request.
+  const summary = summarise(series, { now, index: 'ndvi' });
+  const eviSummary = summarise(series, { now, index: 'evi' });
   const growthCycle = detectGrowthCycle(series, thresholds);
   const rawDrops = detectDrops(series, thresholds);
   const gradual = detectGradualDecline(series, thresholds);
@@ -781,6 +794,7 @@ export function analyseSeries({
   return {
     series,
     summary,
+    eviSummary,
     growthCycle,
     drops,
     alerts,

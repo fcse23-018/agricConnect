@@ -1056,6 +1056,312 @@ paths:
               schema: { $ref: '#/components/schemas/NdviRecord' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  # =========================================================================
+  # Satellite Monitoring — Unified Dashboard
+  # =========================================================================
+
+  /satellite/overview:
+    get:
+      tags: [Satellite]
+      summary: Complete monitoring dashboard for a plot (farm owner only)
+      description: |
+        Returns the full dashboard: geometry, observation series with smoothing,
+        growth-cycle estimates, detected drops with possible explanations,
+        weather, alerts, quality metrics, and model status. All values are
+        honest — simulated data is labelled, gaps are reported, and no
+        measurement is ever invented.
+      parameters:
+        - name: plotId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: days
+          in: query
+          description: Observation window. `daysBack` is accepted as an alias.
+          schema: { type: integer, minimum: 15, maximum: 730, default: 365 }
+        - name: daysBack
+          in: query
+          description: Alias of `days`.
+          schema: { type: integer, minimum: 15, maximum: 730 }
+        - name: refresh
+          in: query
+          description: Force a fresh provider call instead of the stored series.
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: Complete monitoring overview
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SatelliteOverview' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /satellite/boundary/preview:
+    post:
+      tags: [Satellite]
+      summary: Preview a boundary geometry before saving (farm owner only)
+      description: |
+        Validates a RECTANGLE (centre, width, length, bearing) or POLYGON
+        (vertices, minimum 3) and returns the server-computed geometry with
+        area/perimeter/centroid, or `valid:false` with a `reason`. Does not
+        persist anything. Measurements come from the same code path as the save,
+        so the previewed area is the area that would be stored.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BoundaryPreviewRequest' }
+      responses:
+        '200':
+          description: Preview with the measured geometry
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BoundaryPreviewResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /satellite/plots/{plotId}/boundary:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+        name: plotId
+    put:
+      tags: [Satellite]
+      summary: Set or replace a plot boundary (farm owner only)
+      description: |
+        Accepts either a RECTANGLE (centre, width, length, bearing) or a
+        POLYGON (vertices, minimum 3). Validates geometry (no self-intersections,
+        no slivers, plausible size) and persists the boundary. Returns the
+        updated plot with the computed geometry.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetBoundaryRequest' }
+      responses:
+        '200':
+          description: Updated plot with geometry
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SetBoundaryResponse' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /satellite/weather:
+    get:
+      tags: [Satellite]
+      summary: Weather history for a plot (farm owner only)
+      description: |
+        Returns modelled weather from Open-Meteo (rainfall, min/max/avg
+        temperature, top-soil moisture) for the plot centroid, wrapped as
+        `{plotId, weather, source, dataType}`. If the weather provider is
+        disabled or fails, `weather.available` is false with a `reason` rather
+        than invented values. Source and dataType are always labelled.
+      parameters:
+        - name: plotId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: days
+          in: query
+          description: Observation window. `daysBack` is accepted as an alias.
+          schema: { type: integer, minimum: 15, maximum: 730, default: 15 }
+        - name: daysBack
+          in: query
+          description: Alias of `days`.
+          schema: { type: integer, minimum: 15, maximum: 730 }
+      responses:
+        '200':
+          description: Weather series
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WeatherResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /satellite/events:
+    get:
+      tags: [Satellite]
+      summary: Paged event log for a plot, farmer entries and detected drops (farm owner only)
+      parameters:
+        - name: plotId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: One page of events (farmer + system, newest first)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, page, pageSize, total, hasMore]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/PlotEvent' }
+                  page: { type: integer }
+                  pageSize: { type: integer }
+                  total: { type: integer }
+                  hasMore: { type: boolean }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Satellite]
+      summary: Add a farmer event (idempotent via clientId)
+      description: |
+        Creates a farmer event. If clientId is supplied and a row with the same
+        plotId+clientId already exists, the existing row is returned (no 500).
+        Supplying a detectedEventId marks the detected drop as reviewed and
+        confirmed by the farmer.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EventCreateRequest' }
+      responses:
+        '201':
+          description: Created event (or existing if replayed)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlotEvent' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /satellite/events/{eventId}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+        name: eventId
+    patch:
+      tags: [Satellite]
+      summary: Confirm or correct an event (farm owner only)
+      description: |
+        A farmer may correct the kind, confirm, add notes, or adjust the date.
+        Supplying a kind is itself a confirmation and makes the row a verified
+        training label. Works on SYSTEM-detected rows: that is the
+        confirm/correct flow, and the system's suggestion is kept in the record.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EventUpdateRequest' }
+      responses:
+        '200':
+          description: Updated event
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlotEvent' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Satellite]
+      summary: Delete a farmer event (farm owner only)
+      description: |
+        Only farmer-recorded rows can be deleted. A SYSTEM-detected row answers
+        409 CONFLICT - it must be confirmed or corrected instead, so the
+        detection history is never silently erased.
+      responses:
+        '204':
+          description: Deleted
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /satellite/alerts:
+    get:
+      tags: [Satellite]
+      summary: Paged alerts for a plot (farm owner only)
+      description: |
+        Deduplicated by alert_key (one ongoing event = one alert). Statuses:
+        OPEN, ACKNOWLEDGED, DISMISSED. A dismissed alert is never resurrected
+        by a later analysis run. Only WARNING/CRITICAL create notifications.
+        The response repeats the active thresholds so the app can show why an
+        alert fired.
+      parameters:
+        - name: plotId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: status
+          in: query
+          schema: { type: string, enum: [OPEN, ACKNOWLEDGED, DISMISSED] }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: One page of alerts, with the active thresholds
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, page, pageSize, total, hasMore, thresholds]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/PlotAlert' }
+                  page: { type: integer }
+                  pageSize: { type: integer }
+                  total: { type: integer }
+                  hasMore: { type: boolean }
+                  thresholds: { $ref: '#/components/schemas/AlertThresholds' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /satellite/alerts/{alertId}/status:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+        name: alertId
+    post:
+      tags: [Satellite]
+      summary: Acknowledge, dismiss or reopen an alert (farm owner only)
+      description: |
+        Takes an ACTION, not a target status. DISMISS is terminal: a later
+        analysis run never flips the alert back to OPEN.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AlertStatusUpdateRequest' }
+      responses:
+        '200':
+          description: Updated alert
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlotAlert' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /satellite/plots/latest:
+    get:
+      tags: [Satellite]
+      summary: Latest plots with observation status for the dashboard (farm owner only)
+      description: |
+        Returns a compact per-plot summary - newest observation date and age,
+        NDVI/EVI, quality and whether it is simulated - with no provider call.
+        Used by the mobile dashboard.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: One page of compact plot summaries
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, page, pageSize, total, hasMore]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/PlotSummary' }
+                  page: { type: integer }
+                  pageSize: { type: integer }
+                  total: { type: integer }
+                  hasMore: { type: boolean }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /marketplace/listings:
     get:
       tags: [Marketplace]
@@ -2087,3 +2393,390 @@ components:
             orders: { type: array, items: { $ref: '#/components/schemas/Order' } }
             notifications: { type: array, items: { $ref: '#/components/schemas/Notification' } }
             ndvi: { type: array, items: { $ref: '#/components/schemas/NdviRecord' } }
+
+    # =========================================================================
+    # Satellite Monitoring (new unified dashboard)
+    # =========================================================================
+
+    PlotGeometry:
+      type: object
+      description: Plot boundary with computed area, perimeter and centroid.
+      properties:
+        method: { type: string, enum: [RECTANGLE, POLYGON] }
+        vertices:
+          type: array
+          description: WGS-84 coordinates [lon, lat] of the boundary ring (closed).
+          items:
+            type: array
+            items: { type: number }
+            minItems: 2
+            maxItems: 2
+        areaM2: { type: number, description: Area in square metres (from actual geometry). }
+        areaHectares: { type: number, description: Area in hectares. }
+        perimeterM: { type: number, description: Perimeter in metres. }
+        centroid:
+          type: array
+          items: { type: number }
+          minItems: 2
+          maxItems: 2
+          description: Centroid [lon, lat].
+        sideLengthsM:
+          type: array
+          items: { type: number }
+          description: Side lengths in metres (RECTANGLE only).
+
+    PlotObservation:
+      type: object
+      description: One clean observation row (date, NDVI, EVI, quality).
+      properties:
+        observationId: { type: string, format: uuid }
+        plotId: { type: string, format: uuid }
+        farmerId: { type: string, format: uuid }
+        observedOn: { type: string, format: date }
+        ndvi: { type: number, nullable: true }
+        evi: { type: number, nullable: true }
+        smoothedNdvi: { type: number, nullable: true }
+        smoothedEvi: { type: number, nullable: true }
+        validPixelPct: { type: number, nullable: true }
+        cloudCoverPct: { type: number, nullable: true }
+        pixelCount: { type: integer, nullable: true }
+        quality: { type: string, enum: [GOOD, FAIR, POOR] }
+        isOutlier: { type: boolean }
+        isSimulated: { type: boolean }
+        source: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    ObservationStatus:
+      type: object
+      description: Provenance and freshness of the observation series.
+      properties:
+        isCached: { type: boolean }
+        isSimulated: { type: boolean }
+        newestObservation: { type: string, format: date, nullable: true }
+        newestObservationAgeDays: { type: integer, nullable: true }
+        provider: { type: string, nullable: true }
+        providerError: { type: string, nullable: true }
+        note: { type: string, nullable: true }
+
+    GrowthCycleEvent:
+      type: object
+      description: Key phenological dates estimated from the smoothed series.
+      properties:
+        greenUp: { type: string, format: date, nullable: true }
+        peak: { type: string, format: date, nullable: true }
+        endOfSeason: { type: string, format: date, nullable: true }
+        greenUpConfidence: { type: string, enum: [HIGH, MEDIUM, LOW], nullable: true }
+        peakConfidence: { type: string, enum: [HIGH, MEDIUM, LOW], nullable: true }
+        endOfSeasonConfidence: { type: string, enum: [HIGH, MEDIUM, LOW], nullable: true }
+        note: { type: string }
+
+    VegetationDrop:
+      type: object
+      description: |
+        A detected drop with possible explanations — never a confirmed diagnosis.
+        The classification is one of the restricted set and the label explains the
+        uncertainty. A drop alone is never labelled harvest, drought, disease or
+        crop failure.
+      properties:
+        date: { type: string, format: date }
+        index: { type: string, enum: [NDVI, EVI] }
+        magnitude: { type: number }
+        valueBefore: { type: number }
+        valueAfter: { type: number }
+        classification:
+          type: string
+          enum: [NOISE, POSSIBLE_HARVEST, POSSIBLE_HEAT_STRESS, GRADUAL_DECLINE, UNCLEAR]
+        label: { type: string }
+        evidence: { type: object }
+        confidence: { type: string, enum: [HIGH, MEDIUM, LOW] }
+        nextStep: { type: string }
+        weatherContext: { type: object, nullable: true }
+        detectedEventId: { type: string, format: uuid, nullable: true }
+
+    PlotEvent:
+      type: object
+      description: Farmer event log entry (confirmed or corrected by the farmer).
+      properties:
+        eventId: { type: string, format: uuid }
+        plotId: { type: string, format: uuid }
+        farmerId: { type: string, format: uuid }
+        eventDate: { type: string, format: date }
+        kind:
+          type: string
+          enum: [DETECTED_DROP, HARVEST, CLEARING, HEAT_STRESS, WATER_STRESS, OBSERVATION, OTHER]
+        source: { type: string, enum: [FARMER, SYSTEM] }
+        classification: { type: string, nullable: true }
+        confirmed: { type: boolean }
+        notes: { type: string, nullable: true }
+        ndviBefore: { type: number, nullable: true }
+        ndviAfter: { type: number, nullable: true }
+        magnitude: { type: number, nullable: true }
+        confidence: { type: string, enum: [HIGH, MEDIUM, LOW], nullable: true }
+        evidence: { type: object, nullable: true }
+        weatherContext: { type: object, nullable: true }
+        recordedBy: { type: string, format: uuid, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    PlotAlert:
+      type: object
+      description: Deduplicated alert with acknowledgement/dismissal workflow.
+      properties:
+        alertId: { type: string, format: uuid }
+        plotId: { type: string, format: uuid }
+        farmerId: { type: string, format: uuid }
+        alertKey: { type: string }
+        alertType: { type: string }
+        severity: { type: string, enum: [INFO, WARNING, CRITICAL] }
+        title: { type: string }
+        body: { type: string }
+        status: { type: string, enum: [OPEN, ACKNOWLEDGED, DISMISSED] }
+        raisedAt: { type: string, format: date-time }
+        resolvedAt: { type: string, format: date-time, nullable: true }
+        acknowledgedAt: { type: string, format: date-time, nullable: true }
+        dismissedAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    WeatherData:
+      type: object
+      description: Weather series from Open-Meteo (modelled, not measured). Unavailable provider reports `available:false` with a `reason`.
+      properties:
+        available: { type: boolean }
+        reason: { type: string, nullable: true }
+        source: { type: string, example: Open-Meteo }
+        dataType: { type: string, enum: [MEASURED, MODELLED, ESTIMATED] }
+        cached: { type: boolean }
+        fetchedAt: { type: string, format: date-time, nullable: true }
+        note: { type: string, nullable: true }
+        daily:
+          type: array
+          items:
+            type: object
+            properties:
+              date: { type: string, format: date }
+              rainfallMm: { type: number, nullable: true }
+              tempMinC: { type: number, nullable: true }
+              tempMaxC: { type: number, nullable: true }
+              tempMeanC: { type: number, nullable: true }
+              soilMoisturePct: { type: number, nullable: true }
+        summary:
+          type: object
+          properties:
+            periodStart: { type: string, format: date }
+            periodEnd: { type: string, format: date }
+            rainfall7dMm: { type: number, nullable: true }
+            rainfall14dMm: { type: number, nullable: true }
+            tempMax7dC: { type: number, nullable: true }
+            tempMin7dC: { type: number, nullable: true }
+            avgTemp7dC: { type: number, nullable: true }
+            soilMoistureMeanPct: { type: number, nullable: true }
+
+    WeatherResponse:
+      type: object
+      description: Weather endpoint envelope.
+      properties:
+        plotId: { type: string, format: uuid }
+        weather: { $ref: '#/components/schemas/WeatherData' }
+        source: { type: string, nullable: true }
+        dataType: { type: string, nullable: true }
+
+    SatelliteOverview:
+      type: object
+      description: Complete satellite monitoring dashboard for one plot.
+      properties:
+        plot: { $ref: '#/components/schemas/PlotRef' }
+        geometry: { $ref: '#/components/schemas/PlotGeometry' }
+        observationStatus: { $ref: '#/components/schemas/ObservationStatus' }
+        observations:
+          type: array
+          items: { $ref: '#/components/schemas/PlotObservation' }
+        summary: { $ref: '#/components/schemas/NdviSummary' }
+        eviSummary: { $ref: '#/components/schemas/EviSummary' }
+        growthCycle: { $ref: '#/components/schemas/GrowthCycleEvent' }
+        drops:
+          type: array
+          items: { $ref: '#/components/schemas/VegetationDrop' }
+        weather: { $ref: '#/components/schemas/WeatherData' }
+        alerts:
+          type: array
+          items: { $ref: '#/components/schemas/PlotAlert' }
+        quality:
+          type: object
+          properties:
+            readingsReceived: { type: integer }
+            readingsUsable: { type: integer }
+            readingsRejected: { type: integer }
+            outliers: { type: integer }
+            note: { type: string, nullable: true }
+        modelStatus:
+          type: object
+          properties:
+            trained: { type: boolean }
+            readyToTrain: { type: boolean }
+            labelledEvents: { type: integer }
+            requiredLabels: { type: integer }
+            note: { type: string, nullable: true }
+        thresholds: { $ref: '#/components/schemas/AlertThresholds' }
+        thresholdDocumentation: { type: string }
+        disclaimer: { type: string }
+        generatedAt: { type: string, format: date-time }
+
+    PlotRef:
+      type: object
+      description: Compact plot reference used by the overview and latest endpoints.
+      properties:
+        plotId: { type: string, format: uuid }
+        plotName: { type: string }
+        areaHectares: { type: number, nullable: true }
+        centroidLat: { type: number, nullable: true }
+        centroidLng: { type: number, nullable: true }
+        geoJsonBoundary: { type: object, nullable: true }
+        imageUrl: { type: string, nullable: true }
+
+    NdviSummary:
+      type: object
+      description: Statistics for the NDVI column. `summary` is NDVI-only; `eviSummary` is the same shape for EVI.
+      properties:
+        available: { type: boolean }
+        reason: { type: string, nullable: true }
+        index: { type: string, example: NDVI }
+        count: { type: integer }
+        latest: { type: object, nullable: true }
+        previous: { type: object, nullable: true }
+        min: { type: number, nullable: true }
+        max: { type: number, nullable: true }
+        average: { type: number, nullable: true }
+        change: { type: number, nullable: true }
+        changePct: { type: number, nullable: true }
+        trend: { type: string, enum: [RISING, STABLE, DECLINING, INSUFFICIENT] }
+        dataAgeDays: { type: integer, nullable: true }
+        firstDate: { type: string, format: date, nullable: true }
+        lastDate: { type: string, format: date, nullable: true }
+        coverageFrom: { type: string, format: date, nullable: true }
+        coverageTo: { type: string, format: date, nullable: true }
+
+    EviSummary:
+      $ref: '#/components/schemas/NdviSummary'
+
+    PlotSummary:
+      type: object
+      description: Compact per-plot summary (`GET /satellite/plots/latest`).
+      properties:
+        plotId: { type: string, format: uuid }
+        observedOn: { type: string, format: date, nullable: true }
+        ndvi: { type: number, nullable: true }
+        evi: { type: number, nullable: true }
+        quality: { type: string, nullable: true }
+        isSimulated: { type: boolean, nullable: true }
+        source: { type: string, nullable: true }
+
+    AlertThresholds:
+      type: object
+      description: Active, documented analysis thresholds - never hidden defaults.
+      properties:
+        dropAbsolute: { type: number }
+        dropRelative: { type: number }
+        staleDays: { type: integer }
+        stressNdvi: { type: number }
+        noRecoveryDays: { type: integer }
+        dryRain14dMm: { type: number }
+        heatTempMaxC: { type: number }
+        maxGapDays: { type: integer }
+        minCycleReadings: { type: integer }
+
+    BoundaryPreviewRequest:
+      type: object
+      required: [boundary]
+      properties:
+        boundary: { $ref: '#/components/schemas/PlotBoundary' }
+
+    BoundaryPreviewResponse:
+      type: object
+      description: Server-measured geometry for a boundary that has not been saved.
+      properties:
+        method: { type: string, enum: [RECTANGLE, POLYGON] }
+        geometry: { $ref: '#/components/schemas/PlotGeometry' }
+        vertices: { type: array, items: { $ref: '#/components/schemas/LatLon' } }
+        geoJsonBoundary: { type: object, nullable: true }
+        rectangle: { type: object, nullable: true }
+        areaM2: { type: number, nullable: true }
+        areaHectares: { type: number, nullable: true }
+        perimeterM: { type: number, nullable: true }
+        note: { type: string }
+
+    SetBoundaryRequest:
+      type: object
+      required: [boundary]
+      properties:
+        boundary: { $ref: '#/components/schemas/PlotBoundary' }
+        plotName: { type: string, nullable: true }
+
+    SetBoundaryResponse:
+      type: object
+      properties:
+        plot: { $ref: '#/components/schemas/PlotRef' }
+        geometry: { $ref: '#/components/schemas/PlotGeometry' }
+        observationsInvalidated: { type: integer }
+        note: { type: string, nullable: true }
+
+    LatLon:
+      type: object
+      required: [lat, lon]
+      properties:
+        lat: { type: number, minimum: -90, maximum: 90 }
+        lon: { type: number, minimum: -180, maximum: 180 }
+
+    PlotBoundary:
+      description: Method A is a rotated rectangle; Method B is a polygon ring (min 3 vertices).
+      oneOf:
+        - type: object
+          required: [method, centreLat, centreLon, widthM, lengthM, bearingDeg]
+          properties:
+            method: { type: string, enum: [RECTANGLE] }
+            centreLat: { type: number, minimum: -90, maximum: 90 }
+            centreLon: { type: number, minimum: -180, maximum: 180 }
+            widthM: { type: number, minimum: 0, maximum: 100000 }
+            lengthM: { type: number, minimum: 0, maximum: 100000 }
+            bearingDeg: { type: number, minimum: -1080, maximum: 1080 }
+        - type: object
+          required: [method, vertices]
+          properties:
+            method: { type: string, enum: [POLYGON] }
+            vertices:
+              type: array
+              minItems: 3
+              maxItems: 500
+              items: { $ref: '#/components/schemas/LatLon' }
+
+    EventCreateRequest:
+      type: object
+      required: [plotId, eventDate, kind]
+      properties:
+        plotId: { type: string, format: uuid }
+        eventDate: { type: string, format: date }
+        kind:
+          type: string
+          enum: [HARVEST, CLEARING, HEAT_STRESS, WATER_STRESS, OBSERVATION, OTHER]
+        notes: { type: string, nullable: true }
+        clientId: { type: string, nullable: true }
+        detectedEventId: { type: string, format: uuid, nullable: true }
+
+    EventUpdateRequest:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [HARVEST, CLEARING, HEAT_STRESS, WATER_STRESS, OBSERVATION, OTHER]
+        confirmed: { type: boolean }
+        notes: { type: string, nullable: true }
+        eventDate: { type: string, format: date, nullable: true }
+
+    AlertStatusUpdateRequest:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [ACKNOWLEDGE, DISMISS, REOPEN]

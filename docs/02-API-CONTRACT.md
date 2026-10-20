@@ -141,11 +141,20 @@ work can be recorded against the right plot; only the farm owner maps and edits 
 
 A farmer who works the land requesting `/finance/*` → **`403`** (explicitly tested).
 
-### 2.6 Satellite NDVI — `/satellite`
+### 2.6 Satellite — `/satellite`
+
+The satellite API has two layers:
+
+**Legacy NDVI request/response** (`/satellite/ndvi*`): on-demand Sentinel-2 NDVI for a plot.
+**Monitoring dashboard** (`/satellite/overview`, `/satellite/events`, `/satellite/alerts`, …): a
+unified, plot-centric screen that combines a clean observation cache, growth-cycle analysis,
+farmer event log, deduplicated alerts, and weather — all in one response.
+
+#### 2.6.1 Legacy NDVI endpoints
 
 | Method | Path | Roles | Notes |
 |--------|------|-------|-------|
-| POST | `/satellite/ndvi` | farm owner | `{plotId, geoJsonBoundary}` → `201 {ndviId, plotId, satelliteDate, meanNdviValue, stressLevel, status, compressedVectorJson, isCached:false, advice}` |
+| POST | `/satellite/ndvi` | farm owner | `{plotId, geoJsonBoundary?}` → `201 {ndviId, plotId, satelliteDate, meanNdviValue, stressLevel, status, compressedVectorJson, isCached:false, advice}` |
 | GET | `/satellite/ndvi?plotId=` | farm owner | history, newest first — **no `advice` on history items** |
 | GET | `/satellite/ndvi/latest?plotId=` | farm owner | newest record, or `ndvi: null` |
 | GET | `/satellite/ndvi/{id}` | farm owner | one record |
@@ -155,7 +164,7 @@ Backend pipeline: validate polygon → Earth Engine `Sentinel-2` → Band 8 (NIR
 alert. Cloud cover > 80 % ⇒ `status:"FAILED"`, `meanNdviValue:null`. NDVI is **not** presented as a
 definitive agronomic diagnosis.
 
-#### 2.6.1 The `advice` block
+##### The `advice` block (legacy)
 
 Once a reading is generated, the response also carries `advice`: what the number means, what to
 do about it, what to watch for in the field, how far the measurement can be trusted, the published
@@ -178,22 +187,151 @@ How it is derived, and what it deliberately never does:
   `FAILED` or in-flight record has `advice: null`, and the mock mode is labelled as demonstration
   data in both the response and the UI.
 
+#### 2.6.2 Monitoring dashboard endpoints (new)
+
+| Method | Path | Roles | Notes |
+|--------|------|-------|-------|
+| GET | `/satellite/overview?plotId=&days=` | farm owner | **Complete dashboard**: geometry, observation series (NDVI + EVI, raw + smoothed), growth-cycle estimates, detected drops with explanations, weather, alerts, quality metrics, model status, thresholds. `days` and `daysBack` are both accepted (15–730, either name). |
+| POST | `/satellite/boundary/preview` | farm owner | Validate RECTANGLE or POLYGON geometry; returns the server-computed geometry (area/perimeter/centroid) or `valid:false` with a `reason`. No persistence. |
+| PUT | `/satellite/plots/{plotId}/boundary` | farm owner | Persist RECTANGLE (centre, width, length, bearing) or POLYGON (vertices, min 3). Returns the compact plot ref, the geometry, and how many observations were invalidated. |
+| GET | `/satellite/weather?plotId=&days=` | farm owner | Modelled weather from **Open-Meteo** (rainfall, temp min/max/avg, soil moisture), wrapped as `{plotId, weather, source, dataType}`. `source` and `dataType` always labelled. |
+| GET | `/satellite/events?plotId=&page=&pageSize=` | farm owner | Paged farmer event log **and** system-detected drops (newest first), including the count of telemetry events kept instead of a detectable drop. |
+| POST | `/satellite/events` | farm owner | Add farmer event (idempotent via `clientId`). Supplying `detectedEventId` merges the entry with the detected drop for that date and returns `mergedFromDetected`. |
+| PATCH | `/satellite/events/{eventId}` | farm owner | Correct kind, confirm, add notes, adjust date. Supplying `kind` counts as confirmation (verified label). Works on `SYSTEM` rows — that is the confirm/correct flow. |
+| DELETE | `/satellite/events/{eventId}` | farm owner | Delete a farmer event. `SYSTEM` rows are refused (`409`) — correct them instead. |
+| GET | `/satellite/alerts?plotId=&status=&page=&pageSize=` | farm owner | Paged, deduplicated alerts (by `alert_key`) plus the active `thresholds`. Statuses: `OPEN`, `ACKNOWLEDGED`, `DISMISSED`. |
+| POST | `/satellite/alerts/{alertId}/status` | farm owner | `{"action":"ACKNOWLEDGE" | "DISMISS" | "REOPEN"}`. A `DISMISS` is terminal: a later analysis run never resurrects it. |
+| GET | `/satellite/plots/latest` | farm owner | Compact per-plot summary for the dashboard: newest observation date/age, NDVI/EVI, quality, simulation flag and source. |
+
+**Monitoring data contracts** (these match the server responses exactly; see
+`backend/src/modules/satellite/satellite.monitoring.service.js`)
+
 ```jsonc
-// advice (excerpt) — attached to a GENERATED reading
-{ "assessment": { "value":0.42, "stressLevel":"MODERATE_STRESS", "label":"Moderate stress",
-                  "colour":"warning", "headline":"Watch closely …", "meaning":"…",
-                  "band":{"min":0.2,"max":0.45}, "summary":"…" },
-  "priority":"SOON",
-  "actions":[{"title":"Walk the plot …","detail":"…"}],
-  "watchFor":["Thin or patchy emergence"],
-  "trend":{"direction":"DECLINING","delta":-0.11,"previousValue":0.53,"previousDate":"2026-06-01","note":"…"},
-  "context":{"plotName":"North field","areaHectares":1.13,"observedOn":"2026-06-15",
-             "daysSinceObservation":5,"cloudCoverPercent":12,"source":"SENTINEL-2","sourceIsSimulated":false},
-  "confidence":{"level":"HIGH","note":"…"},
-  "scaleGuide":[{"range":"0.20 – 0.45","meaning":"…"}],
-  "limits":["It is an average over the whole plot."],
-  "disclaimer":"This is general guidance from a vegetation index, not a site-specific agronomic recommendation." }
+// GET /satellite/overview response (abridged) — note `plot` is a compact ref,
+// `summary` is NDVI-only, and EVI statistics live in `eviSummary`.
+{
+  "plot": { "plotId":"...", "plotName":"North field", "areaHectares":1.13,
+            "centroidLat":-24.65, "centroidLng":25.12, "geoJsonBoundary":{...}, "imageUrl":null },
+  "geometry": { "valid":true, "method":"RECTANGLE", "reason":null, "vertexCount":4,
+                "areaM2":11342, "areaHectares":1.13, "perimeterM":432,
+                "sideLengthsM":[100,113,100,113],
+                "centroid":{"latitude":-24.65,"longitude":25.12},
+                "vertices":[ {"lat":-24.65,"lon":25.12}, ... ] },
+  "observationStatus": { "isCached":false, "isSimulated":true, "newestObservation":"2026-07-15",
+                         "newestObservationAgeDays":5, "provider":{"source":"MOCK","error":null},
+                         "providerError":null, "note":"...", "returned":12, "coversDays":365,
+                         "boundaryUsable":true },
+  "observations": [ { "date":"2026-07-15", "ndvi":0.42, "evi":0.38,
+                      "smoothedNdvi":0.41, "smoothedEvi":0.37, "validPct":87.3,
+                      "cloudPct":12, "pixels":1245, "quality":"GOOD", "isOutlier":false,
+                      "isSimulated":true, "source":"MOCK" }, ... ],
+  "summary": {
+    "available":true, "reason":null, "index":"NDVI", "count":12,
+    "latest":{ "date":"2026-07-15", "ndvi":0.42, "evi":0.38 },
+    "previous":{ "date":"2026-06-20", "ndvi":0.47, "evi":0.44 },
+    "min":0.31, "max":0.68, "average":0.49, "change":-0.05, "changePct":-10.6,
+    "trend":"DECLINING", "dataAgeDays":5,
+    "firstDate":"2025-08-01", "lastDate":"2026-07-15",
+    "coverageFrom":"2025-08-01", "coverageTo":"2026-07-15"
+  },
+  "eviSummary": { "available":true, "index":"EVI", "count":12, "min":0.28, "max":0.61,
+                  "average":0.44, "change":-0.04, "trend":"DECLINING", "dataAgeDays":5 },
+  "growthCycle": { "available":true, "reason":null, "greenUpOn":"2026-03-10",
+                   "peakOn":"2026-05-15", "endOn":"2026-08-20", "peakValue":0.74,
+                   "baseline":0.28, "amplitude":0.46, "confidence":"MEDIUM",
+                   "strategy":"smoothed-threshold", "evidence":["..."] },
+  "drops": [ { "date":"2026-07-10", "previousDate":"2026-06-20", "daysBetween":20,
+               "ndviBefore":0.54, "ndviAfter":0.42, "eviBefore":0.5, "eviAfter":0.39,
+               "magnitude":0.12, "relativePct":22.2, "quality":"GOOD",
+               "classification":"POSSIBLE_HEAT_OR_DRY_STRESS",
+               "label":"Possible heat or dry stress",
+               "explanation":"...", "evidence":["...","..."],
+               "confidence":"MEDIUM", "nextStep":"Check soil moisture in the field.",
+               "weatherContext":{ "available":true, "days":14, "rainfallMm":0,
+                                  "tempMaxC":34.2, "tempMinC":18, "soilMoisturePct":21,
+                                  "source":"Open-Meteo", "dataType":"MODELLED",
+                                  "periodStart":"2026-06-26", "periodEnd":"2026-07-10" },
+               "disclaimer":"...", "recoveryFraction":0.3, "recoveredOn":null,
+               "gradual":false, "detectedEventId":"uuid" } ],
+  "weather": { "available":true, "reason":null, "source":"Open-Meteo", "dataType":"MODELLED",
+               "cached":true, "fetchedAt":"2026-07-16T06:00:00Z", "note":"...",
+               "daily":[ { "date":"2026-07-15", "rainfallMm":0, "tempMinC":18, "tempMaxC":32,
+                           "tempMeanC":25, "soilMoisturePct":21 }, ... ],
+               "summary":{ "periodStart":"2026-07-09", "periodEnd":"2026-07-15",
+                           "rainfall7dMm":0, "rainfall14dMm":3.2, "tempMax7dC":34.2,
+                           "tempMin7dC":11.5, "avgTemp7dC":24.1, "soilMoistureMeanPct":21 } },
+  "alerts": [ { "alertId":"...", "plotId":"...", "farmerId":"...",
+                "alertKey":"NDVI_DECLINE:2026-07-10", "alertType":"NDVI_DECLINE",
+                "severity":"WARNING", "title":"NDVI drop detected", "body":"...",
+                "status":"OPEN", "raisedAt":"2026-07-16T08:12:00Z", "resolvedAt":null,
+                "acknowledgedAt":null, "dismissedAt":null,
+                "createdAt":"...", "updatedAt":"..." } ],
+  "quality": { "readingsReceived":14, "readingsUsable":12, "readingsRejected":2,
+               "outliers":0, "note":"..." },
+  "modelStatus": { "trained":false, "readyToTrain":false, "labelledEvents":0,
+                   "requiredLabels":30, "note":"..." },
+  "thresholds": { "dropAbsolute":0.12, "dropRelative":0.18, "staleDays":30,
+                  "stressNdvi":0.35, "noRecoveryDays":21, "dryRain14dMm":5,
+                  "heatTempMaxC":33, "maxGapDays":45, "minCycleReadings":6 },
+  "thresholdDocumentation": "docs/12-SATELLITE-MONITORING.md",
+  "disclaimer": "Vegetation indices indicate vegetation condition. They are not direct proof of yield, disease or the cause of a change.",
+  "generatedAt": "2026-07-16T08:12:00.000Z"
+}
 ```
+
+```jsonc
+// ALL paged collections use the same envelope: /satellite/events, /satellite/alerts,
+// /satellite/plots/latest. Defaults: page=1, pageSize=20, max pageSize=100.
+{ "items": [ ... ], "page": 1, "pageSize": 20, "total": 42, "hasMore": true }
+// /satellite/alerts additionally repeats the active thresholds:
+{ "items": [ ... ], "page": 1, "pageSize": 20, "total": 3, "hasMore": false,
+  "thresholds": { "dropAbsolute":0.12, ... } }
+```
+
+```jsonc
+// POST /satellite/events request (farmer log)
+{ "plotId":"uuid", "eventDate":"2026-07-15", "kind":"HARVEST",
+  "notes":"Maize harvest completed",
+  "clientId":"device-generated-uuid", "detectedEventId":"uuid-of-detected-drop" }
+```
+
+```jsonc
+// POST /satellite/alerts/{id}/status — an ACTION, not a target status
+{ "action": "ACKNOWLEDGE" }   // or "DISMISS" or "REOPEN"
+```
+
+```jsonc
+// POST /satellite/boundary/preview request — the boundary is nested under `boundary`
+{ "boundary": { "method":"RECTANGLE", "centreLat":-24.65, "centreLon":25.12,
+                "widthM":100, "lengthM":113, "bearingDeg":30 } }
+// ...or, Method B:
+{ "boundary": { "method":"POLYGON",
+                "vertices":[ {"lat":-24.65,"lon":25.12}, {"lat":-24.66,"lon":25.13},
+                             {"lat":-24.67,"lon":25.12} ] } }
+// PUT /satellite/plots/{id}/boundary takes the same body plus an optional sibling
+// `plotName`: { "boundary": {...}, "plotName": "North field" }
+```
+
+**Key guarantees**
+
+- **No fabricated values**: every number comes from a real provider (Sentinel-2, Open-Meteo) or is
+  explicitly labelled `isSimulated:true` with `source:"MOCK"`. The provider failure path is visible
+  (`providerError`).
+- **Deduplication**: alerts are keyed by `alert_key` (e.g. `NDVI_DECLINE:2026-07-10`). One ongoing
+  event = one alert row. A dismissed alert is **never** recreated by a later analysis run.
+- **Honest classification**: detected drops are *explained*, never diagnosed. The restricted
+  `classification` values are `TRANSIENT_DIP`, `POSSIBLE_HARVEST`, `POSSIBLE_HEAT_OR_DRY_STRESS`,
+  `GRADUAL_DECLINE`, `UNCLEAR`. A drop alone is never labelled harvest, drought, disease or crop
+  failure.
+- **Verified labels only**: `plot_event_label_counts` view counts **confirmed farmer events only**
+  (`source='FARMER' AND confirmed`). System suggestions (`source='SYSTEM'`) are never used as
+  training labels. `modelStatus.trained` stays `false` and `modelStatus.readyToTrain` reports
+  readiness until enough verified labels exist — no model is claimed without validation.
+- **Weather truthfulness**: if `WEATHER_ENABLED=false` or the provider fails, the response reports
+  unavailability (`available:false` with a `reason`) — no invented values.
+- **A stale image is never "live"**: `observationStatus.newestObservation` +
+  `newestObservationAgeDays` state when the newest clear pass actually was, and the app shows it.
+
 
 ### 2.7 Marketplace — `/marketplace`
 

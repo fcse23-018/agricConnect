@@ -427,6 +427,7 @@ export async function getOverview({ farmerId, plotId, days, refresh = false }) {
       source: row.source,
     })),
     summary: analysis.summary,
+    eviSummary: analysis.eviSummary,
     growthCycle: analysis.growthCycle,
     drops: analysis.drops.map((drop) => ({
       date: drop.date,
@@ -591,14 +592,28 @@ export async function createEvent({ farmerId, userId, plot,
     if (existing) return { event: existing, created: false, mergedFromDetected: false };
   }
 
-  const event = await one(
+  // `ON CONFLICT DO NOTHING` (rather than a named target) because two different
+  // unique constraints could fire here: the client-id replay guard and the
+  // detected-event key. Allowing either to conflict without an error is the
+  // point — an offline queue that replays the same event twice must not create
+  // two rows, and must not 500 either.
+  const inserted = await one(
     `INSERT INTO plot_events
        (plot_id, farmer_id, event_date, kind, source, confirmed, notes, recorded_by, client_id)
      VALUES ($1,$2,$3,$4,'FARMER',true,$5,$6,$7)
+     ON CONFLICT DO NOTHING
      RETURNING *`,
     [owned.id, farmerId, eventDate, kind, notes ?? null, userId ?? null, clientId ?? null],
   );
-  return { event, created: true, mergedFromDetected: false };
+  if (inserted) return { event: inserted, created: true, mergedFromDetected: false };
+
+  // The insert was a duplicate. Return the row that already exists rather than
+  // reporting a failure the farmer cannot act on.
+  const duplicate = clientId
+    ? await one('SELECT * FROM plot_events WHERE plot_id = $1 AND client_id = $2', [owned.id, clientId])
+    : null;
+  if (duplicate) return { event: duplicate, created: false, mergedFromDetected: false };
+  throw conflict('An event for that plot and date already exists.');
 }
 
 /** Confirm or correct a detected event, without losing what the system said. */
@@ -611,7 +626,11 @@ export async function updateEvent({ farmerId, plotId, eventId, patch }) {
 
   const nextKind = patch.kind ?? existing.kind;
   // A farmer correcting a SYSTEM suggestion is what makes it verified data.
+  // Supplying a `kind` is itself a correction, so it counts as a confirmation —
+  // otherwise a row could be relabelled by the farmer yet never be usable as a
+  // training label, which is silently wrong.
   const becomesFarmer = patch.confirmed === true || patch.kind !== undefined;
+  const confirmed = patch.confirmed ?? (patch.kind !== undefined ? true : null);
 
   const row = await one(
     `UPDATE plot_events
@@ -623,7 +642,7 @@ export async function updateEvent({ farmerId, plotId, eventId, patch }) {
             updated_at = now()
       WHERE id = $6
       RETURNING *`,
-    [nextKind, patch.confirmed ?? null, patch.notes ?? null, patch.eventDate ?? null, becomesFarmer, eventId],
+    [nextKind, confirmed, patch.notes ?? null, patch.eventDate ?? null, becomesFarmer, eventId],
   );
   return row;
 }

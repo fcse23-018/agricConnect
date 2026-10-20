@@ -67,6 +67,70 @@ services:
       - key: SUPABASE_STORAGE_BUCKET
         value: agriconnect-uploads
 
-      # Satellite monitoring
+      # Google Earth Engine / Sentinel-2 (mock mode when disabled)
       - key: GEE_ENABLED
         value: "false"
+
+      # Satellite monitoring (crop-api processor)
+      # When unset/false the backend uses a deterministic MOCK NDVI/EVI series
+      # (source "MOCK", isSimulated: true) so the pipeline is fully testable.
+      - key: CROP_API_ENABLED
+        value: "false"
+      - key: CROP_API_URL
+        sync: false
+      - key: CROP_API_KEY
+        sync: false
+      - key: CROP_API_TIMEOUT_MS
+        value: "30000"
+
+      # Observation window and analysis thresholds.
+      # Documented in docs/12-SATELLITE-MONITORING.md and returned by the API.
+      - key: SATELLITE_DEFAULT_DAYS
+        value: "120"
+      - key: SATELLITE_MAX_DAYS
+        value: "365"
+      - key: SATELLITE_REFRESH_HOURS
+        value: "6"
+      - key: SATELLITE_DROP_ABSOLUTE
+        value: "0.15"
+      - key: SATELLITE_DROP_RELATIVE
+        value: "0.15"
+      - key: SATELLITE_STALE_DAYS
+        value: "10"
+      - key: SATELLITE_STRESS_NDVI
+        value: "0.3"
+      - key: SATELLITE_NO_RECOVERY_DAYS
+        value: "21"
+      - key: SATELLITE_DRY_RAIN_14D_MM
+        value: "10"
+      - key: SATELLITE_HEAT_TEMP_MAX_C
+        value: "32"
+
+      # Weather (Open-Meteo, no API key).
+      # Modelled daily weather for a plot centroid. Free and keyless.
+      # Set WEATHER_ENABLED=false to disable; the API reports unavailability
+      # rather than inventing values.
+      - key: WEATHER_ENABLED
+        value: "true"
+      - key: WEATHER_BASE_URL
+        value: https://api.open-meteo.com
+      - key: WEATHER_TIMEOUT_MS
+        value: "8000"
+      - key: WEATHER_CACHE_TTL_SECONDS
+        value: "1800"
+
+      # App update manifest.
+      # Served (publicly, no auth) at GET /api/v1/app/version.
+      # The default manifest is backend/version-manifest.json and MUST be
+      # edited on every release: uploading an APK does not update it.
+      # See docs/13-ANDROID-RELEASES.md.
+      - key: APP_UPDATES_ENABLED
+        value: "true"
+      - key: APP_VERSION_MANIFEST
+        sync: false
+      - key: APK_DOWNLOAD_URL
+        sync: false
+      - key: APK_PACKAGE_NAME
+        value: bw.agriconnect
+      - key: APP_RELEASE_NOTES_URL
+        sync: false

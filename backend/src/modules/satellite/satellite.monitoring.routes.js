@@ -55,7 +55,7 @@ router.get(
     const overview = await getOverview({
       farmerId: req.user.id,
       plotId: req.query.plotId,
-      days: req.query.days,
+      days: req.query.days ?? req.query.daysBack,
       refresh: req.query.refresh === 'true' || req.query.refresh === '1',
     });
     res.json(overview);

@@ -2,6 +2,7 @@ import { describe, it, expect } from '@jest/globals';
 
 import { resolveBoundary, activeThresholds } from '../../src/modules/satellite/satellite.monitoring.service.js';
 import { ringFromGeoJson, measureBoundary } from '../../src/services/geometry.js';
+import { overviewQuerySchema, compareQuerySchema } from '../../src/modules/satellite/satellite.schemas.js';
 import { config } from '../../src/config/index.js';
 
 describe('resolveBoundary', () => {
@@ -96,5 +97,31 @@ describe('activeThresholds', () => {
     // Engine-level defaults that config does not override still come through.
     expect(thresholds.maxGapDays).toBeGreaterThan(0);
     expect(thresholds.minCycleReadings).toBeGreaterThan(0);
+  });
+});
+
+describe('observation window parameters', () => {
+  const PLOT_ID = '11111111-2222-4333-8444-555555555555';
+
+  it('accepts `days` on the overview query', () => {
+    const parsed = overviewQuerySchema.parse({ plotId: PLOT_ID, days: '30' });
+    expect(parsed.days).toBe(30);
+    expect(parsed.daysBack).toBeUndefined();
+  });
+
+  it('accepts `daysBack` as an alias, so a provider-style name still works', () => {
+    const parsed = overviewQuerySchema.parse({ plotId: PLOT_ID, daysBack: '45' });
+    expect(parsed.daysBack).toBe(45);
+  });
+
+  it('accepts `daysBack` on the weather query too', () => {
+    const parsed = compareQuerySchema.parse({ plotId: PLOT_ID, daysBack: '90' });
+    expect(parsed.daysBack).toBe(90);
+  });
+
+  it('rejects an out-of-range window however it is named', () => {
+    expect(overviewQuerySchema.safeParse({ plotId: PLOT_ID, days: '5' }).success).toBe(false);
+    expect(overviewQuerySchema.safeParse({ plotId: PLOT_ID, daysBack: '5' }).success).toBe(false);
+    expect(overviewQuerySchema.safeParse({ plotId: PLOT_ID, daysBack: '9000' }).success).toBe(false);
   });
 });

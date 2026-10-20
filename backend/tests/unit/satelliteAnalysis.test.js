@@ -127,6 +127,33 @@ describe('summarise', () => {
     expect(summary.reason).toMatch(/No valid/);
     expect(summary.latest).toBeNull();
   });
+
+  it('summarises EVI when asked for that index', () => {
+    const smooth = smoothSeries(flagOutliers(sanitiseObservations(series([
+      ['2026-05-01', 0.3],
+      ['2026-05-10', 0.4],
+      ['2026-05-20', 0.5],
+    ]))));
+    const evi = summarise(smooth, { now: NOW, index: 'evi' });
+    expect(evi.available).toBe(true);
+    expect(evi.index).toBe('EVI');
+    expect(evi.count).toBe(3);
+    // The fixture writes EVI at 0.8 x NDVI, so EVI must never equal the NDVI stat.
+    expect(evi.max).toBeCloseTo(round2(0.5 * 0.8), 2);
+    expect(evi.max).not.toBeCloseTo(0.5, 2);
+    expect(evi.trend).toBe('RISING');
+  });
+
+  it('ignores rows with no value for the requested index', () => {
+    const smooth = smoothSeries(flagOutliers(sanitiseObservations([
+      { date: '2026-05-01', ndvi: 0.3, evi: 0.24 },
+      { date: '2026-05-10', ndvi: 0.4, evi: null },
+    ])));
+    const evi = summarise(smooth, { now: NOW, index: 'evi' });
+    expect(evi.count).toBe(1);
+    expect(evi.latest.date).toBe('2026-05-01');
+    expect(evi.change).toBeNull();
+  });
 });
 
 describe('detectGrowthCycle', () => {
@@ -456,6 +483,39 @@ describe('analyseSeries', () => {
     expect(analysis.alerts.length).toBeGreaterThan(0);
     expect(analysis.quality.readingsUsable).toBe(8);
     expect(analysis.disclaimer).toMatch(/not direct proof/);
+  });
+
+  it('returns an EVI summary alongside the NDVI one', () => {
+    const analysis = analyseSeries({
+      observations: series([
+        ['2026-02-01', 0.2],
+        ['2026-02-11', 0.28],
+        ['2026-02-21', 0.5],
+      ]),
+      now: NOW,
+    });
+    expect(analysis.summary.index).toBe('NDVI');
+    expect(analysis.eviSummary.available).toBe(true);
+    expect(analysis.eviSummary.index).toBe('EVI');
+    expect(analysis.eviSummary.count).toBe(analysis.summary.count);
+    // EVI is deliberately smaller than NDVI in the fixture, so the two summaries
+    // cannot be the same object with the same numbers.
+    expect(analysis.eviSummary.latest.evi).toBeCloseTo(0.4, 2);
+    expect(analysis.eviSummary.latest.ndvi).toBeCloseTo(0.5, 2);
+  });
+
+  it('reports EVI as unavailable rather than empty when no row carries EVI', () => {
+    const analysis = analyseSeries({
+      observations: [
+        { date: '2026-02-01', ndvi: 0.4, evi: null },
+        { date: '2026-02-11', ndvi: 0.5, evi: null },
+      ],
+      now: NOW,
+    });
+    expect(analysis.summary.available).toBe(true);
+    expect(analysis.eviSummary.available).toBe(false);
+    expect(analysis.eviSummary.reason).toMatch(/No valid EVI/);
+    expect(analysis.eviSummary.latest).toBeNull();
   });
 
   it('says model training is pending until enough labels exist', () => {

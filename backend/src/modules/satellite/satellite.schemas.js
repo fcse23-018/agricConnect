@@ -57,16 +57,25 @@ export const plotNameSchema = z.string().trim().min(1).max(120);
 
 /* ------------------------- monitoring: observations ------------------------ */
 
+/**
+ * Observation window. `days` is the documented parameter; `daysBack` is accepted
+ * as an alias so a client that names it after the provider's `days_back` is not
+ * silently given the default window instead of the one it asked for.
+ */
+const windowDays = z.coerce.number().int().min(15).max(730).optional();
+
 export const overviewQuerySchema = z.object({
   plotId: z.string().uuid({ message: 'A valid plot identifier is required.' }),
-  days: z.coerce.number().int().min(15).max(730).optional(),
+  days: windowDays,
+  daysBack: windowDays,
   /** `true` forces a fresh provider call instead of the stored series. */
   refresh: z.union([z.literal('true'), z.literal('false'), z.literal('1'), z.literal('0')]).optional(),
 });
 
 export const compareQuerySchema = z.object({
   plotId: z.string().uuid({ message: 'A valid plot identifier is required.' }),
-  days: z.coerce.number().int().min(15).max(730).optional(),
+  days: windowDays,
+  daysBack: windowDays,
 });
 
 /* ---------------------------- monitoring: events --------------------------- */
