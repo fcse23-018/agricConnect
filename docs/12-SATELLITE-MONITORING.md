@@ -209,6 +209,59 @@ and recalculated, so old readings are never attributed to the new shape).
 
 ---
 
+## 8a. Shared farm and plot records (one source of truth)
+
+Satellite Monitoring and Farm Management are **two views of the same farm data**,
+not two systems. There is exactly one plot table and one farm table:
+
+| Concept | Where it lives |
+|---------|----------------|
+| The plot record | `farm_plots` (`backend/migrations/002_domain.sql`) — the only plot table. |
+| The plot's owner | `farm_plots.farmer_id → users(id)`. |
+| The plot's boundary | `farm_plots.geojson_boundary` (jsonb) + `centroid_lat` / `centroid_lng`. |
+| The plot's area | `farm_plots.area_hectares`, measured server-side from the boundary. |
+| The plot's stable id | `farm_plots.id` (server uuid) — the **one** plot id used everywhere. |
+
+Satellite data is child rows keyed by that same id — there is **no**
+`satellite_plots` table, no geojson-only registry, and no duplicate farm record:
+
+- `plot_observations.plot_id → farm_plots(id)`
+- `plot_events.plot_id → farm_plots(id)`
+- `plot_alerts.plot_id → farm_plots(id)`
+
+The Android app mirrors this: the Satellite screen's plot selector reads the same
+`farm_plots` Room table (via the same `FarmPlotRepository`) that Farm Management
+writes, so a plot created, renamed or reshaped on one screen appears in the other
+without a second copy. Navigation passes the same `plotId`
+(`farmDetail(plotId)` ↔ `satellite(plotId)`).
+
+**Reshaping a plot invalidates the geometry-dependent results.** An observation is
+an average over the pixels *inside the boundary as it was when the reading was
+taken*; change the boundary and those numbers describe a shape that no longer
+exists. So a boundary edit clears the stored `plot_observations` for that plot.
+This rule is shared by every path that can move a boundary, so the same edit has
+the same effect whichever screen made it:
+
+| Path | Handler |
+|------|---------|
+| Online, Farm Management | `PATCH /farms/plots/:id` → `invalidateObservationsForPlot` |
+| Online, Satellite | `PUT /satellite/plots/:id/boundary` → `invalidateObservationsForPlot` |
+| Offline replay, Farm Management | `FarmPlot.afterUpdate` in `sync.entities.js` → same rule, inside the sync transaction |
+
+Both online paths use `boundaryChanged(before, after)` first, so a re-save that
+resends the identical ring is **not** destructive — history is only cleared on a
+genuine geometry change. Events and alerts are deliberately **not** deleted: they
+are the farmer's record of what happened and carry their own dates.
+
+Reads resolve the *owner's* farmer id via `resolveOwnerFarmerId` (`records.service.js`):
+a `FARM_OWNER` reads their own plots, an employed `FARMER` reads the employer's
+plots, and any other role is refused. This keeps satellite reads aligned with
+`GET /farms/plots` (`farmOwnerOrFarmer`). Writes — mapping/reshaping a boundary,
+requesting a new NDVI computation, and creating/editing/deleting events and alert
+states — stay `farmOwnerOnly`.
+
+---
+
 ## 9. Changing thresholds
 
 All thresholds are environment variables (see `backend/.env.example` and

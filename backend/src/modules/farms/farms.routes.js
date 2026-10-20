@@ -10,6 +10,10 @@ import { toPlot } from '../../utils/serialize.js';
 import { estimateAreaHectares } from '../../services/gee.js';
 import { audit } from '../../services/audit.js';
 import { resolveOwnerFarmerId } from '../farm/records.service.js';
+import {
+  boundaryChanged,
+  invalidateObservationsForPlot,
+} from '../satellite/satellite.service.js';
 import { createPlotSchema, updatePlotSchema, idParamSchema } from './farms.schemas.js';
 
 const router = Router();
@@ -184,6 +188,16 @@ router.patch(
     params.push(req.user.id);
     const farmerPlaceholder = `$${params.length}`;
 
+    // Read the current row first so the handler can tell an actual geometry
+    // change from a no-op save (the app resends the same ring on every save, and
+    // an offline replay can resend a payload). Wiping the observation series on
+    // an unchanged boundary would destroy history for nothing.
+    const existing = await one(
+      `SELECT * FROM farm_plots WHERE id = $1 AND farmer_id = $2 AND deleted_at IS NULL`,
+      [req.params.id, req.user.id],
+    );
+    if (!existing) throw notFound('Plot not found.');
+
     const row = await one(
       `UPDATE farm_plots SET ${assignments.join(', ')}
         WHERE id = ${idPlaceholder} AND farmer_id = ${farmerPlaceholder} AND deleted_at IS NULL
@@ -192,8 +206,24 @@ router.patch(
     );
     if (!row) throw notFound('Plot not found.');
 
-    await audit(req, 'PLOT_UPDATED', { entityType: 'FarmPlot', entityId: row.id });
-    res.json(toPlot(row));
+    // The same rule as the satellite boundary editor: a reshaped plot invalidates
+    // the readings taken over the old outline. Without this, editing the boundary
+    // in farm management would leave the satellite screen charting numbers that
+    // belong to a shape the plot no longer has.
+    let observationsInvalidated = 0;
+    if ('geoJsonBoundary' in body && boundaryChanged(existing.geojson_boundary, row.geojson_boundary)) {
+      observationsInvalidated = await invalidateObservationsForPlot(row.id);
+    }
+
+    await audit(req, 'PLOT_UPDATED', {
+      entityType: 'FarmPlot',
+      entityId: row.id,
+      metadata: observationsInvalidated > 0 ? { observationsInvalidated } : undefined,
+    });
+    res.json({
+      ...toPlot(row),
+      observationsInvalidated,
+    });
   }),
 );
 

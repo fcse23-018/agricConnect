@@ -1,5 +1,6 @@
 import { many, one, withTransaction } from '../../db/index.js';
 import { badRequest, forbidden } from '../../utils/errors.js';
+import { ROLES } from '../../middleware/roles.js';
 
 /**
  * Resolve which farm a caller's field records belong to.
@@ -8,10 +9,19 @@ import { badRequest, forbidden } from '../../utils/errors.js';
  * on behalf of the owner who employs them (migration 005 links a farmer to exactly one
  * employing owner). An unlinked farmer is refused with a clear, actionable 403 rather
  * than silently writing orphaned rows.
+ *
+ * Only those two roles may resolve to a farm. A BUYER has no farm and is refused
+ * explicitly: without this branch a buyer would fall through to the employer
+ * lookup, and a stray `employer_farmer_id` on their row would hand them someone
+ * else's land. The route guards already keep buyers out, but this is the ownership
+ * primitive, so it enforces the rule itself rather than relying on its callers.
  */
 export async function resolveOwnerFarmerId(user) {
   if (!user) throw forbidden();
-  if (user.role === 'FARM_OWNER') return user.id;
+  if (user.role === ROLES.FARM_OWNER) return user.id;
+  if (user.role !== ROLES.FARMER) {
+    throw forbidden('Only a farm owner or an employed farmer has a farm to work on.');
+  }
 
   const row = await one('SELECT employer_farmer_id FROM users WHERE id = $1', [user.id]);
   if (!row?.employer_farmer_id) {

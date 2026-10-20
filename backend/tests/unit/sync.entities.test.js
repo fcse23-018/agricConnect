@@ -186,3 +186,88 @@ describe('FarmPlot sync descriptor — NDVI boundary', () => {
     ).toThrow();
   });
 });
+
+describe('FarmPlot sync descriptor — reshaping a plot invalidates its observations', () => {
+  /** A fake transaction client that records the statements it is handed. */
+  function fakeClient(count = 0) {
+    const calls = [];
+    return {
+      calls,
+      query: async (sql, params) => {
+        calls.push({ sql, params });
+        return { rows: [{ count }] };
+      },
+    };
+  }
+
+  const square = (east) => ({
+    type: 'Polygon',
+    coordinates: [[[25.90, -24.63], [east, -24.63], [east, -24.62], [25.90, -24.62], [25.90, -24.63]]],
+  });
+
+  it('clears the stored series when the boundary actually moves', async () => {
+    const client = fakeClient(7);
+
+    const result = await ENTITIES.FarmPlot.afterUpdate({
+      client,
+      previous: { id: 'plot-uuid', geojson_boundary: square(25.92) },
+      updated: { id: 'plot-uuid', geojson_boundary: square(25.93) },
+    });
+
+    expect(result).toEqual({ observationsInvalidated: 7 });
+    expect(client.calls).toHaveLength(1);
+    expect(client.calls[0].sql).toContain('DELETE FROM plot_observations');
+    expect(client.calls[0].params).toEqual(['plot-uuid']);
+  });
+
+  it('leaves the series alone when the boundary is unchanged, so a re-save is not destructive', async () => {
+    const client = fakeClient();
+
+    const result = await ENTITIES.FarmPlot.afterUpdate({
+      client,
+      previous: { id: 'plot-uuid', geojson_boundary: square(25.92) },
+      updated: { id: 'plot-uuid', geojson_boundary: square(25.92) },
+    });
+
+    expect(result).toBeNull();
+    expect(client.calls).toHaveLength(0);
+  });
+
+  it('clears the series when a boundary is added for the first time', async () => {
+    const client = fakeClient(3);
+
+    const result = await ENTITIES.FarmPlot.afterUpdate({
+      client,
+      previous: { id: 'plot-uuid', geojson_boundary: null },
+      updated: { id: 'plot-uuid', geojson_boundary: square(25.92) },
+    });
+
+    expect(result).toEqual({ observationsInvalidated: 3 });
+  });
+
+  it('clears the series when a boundary is removed', async () => {
+    const client = fakeClient(4);
+
+    const result = await ENTITIES.FarmPlot.afterUpdate({
+      client,
+      previous: { id: 'plot-uuid', geojson_boundary: square(25.92) },
+      updated: { id: 'plot-uuid', geojson_boundary: null },
+    });
+
+    expect(result).toEqual({ observationsInvalidated: 4 });
+  });
+
+  it('runs inside the caller’s transaction, never opening its own connection', async () => {
+    // The hook receives the sync transaction's client; if it ever reached for the
+    // pool, a rolled-back sync would still have deleted the observations.
+    const client = fakeClient(1);
+
+    await ENTITIES.FarmPlot.afterUpdate({
+      client,
+      previous: { id: 'plot-uuid', geojson_boundary: null },
+      updated: { id: 'plot-uuid', geojson_boundary: square(25.95) },
+    });
+
+    expect(client.calls).toHaveLength(1);
+  });
+});

@@ -3,7 +3,8 @@ import { Router } from 'express';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { validate, pagination } from '../../middleware/errorHandler.js';
 import { authenticate } from '../../middleware/auth.js';
-import { farmOwnerOnly } from '../../middleware/roles.js';
+import { farmOwnerOnly, farmOwnerOrFarmer } from '../../middleware/roles.js';
+import { resolveOwnerFarmerId } from '../farm/records.service.js';
 import { notFound } from '../../utils/errors.js';
 import { paginated } from '../../utils/serialize.js';
 import {
@@ -24,15 +25,20 @@ import monitoringRoutes from './satellite.monitoring.routes.js';
 
 const router = Router();
 
-// NDVI is a farm-owner capability: it needs a plot boundary, and mapping plots is the
-// owner's job.
-router.use(authenticate, farmOwnerOnly);
+// Reading satellite history is available to whoever may read the plot — the owner
+// and the farmer employed to work it — matching `GET /farms/plots`. Requesting a NEW
+// computation is the owner's job (it consumes provider quota and needs the boundary),
+// so `POST /ndvi` carries its own `farmOwnerOnly` guard below.
+//
+// Each read resolves the *owner's* farmer id, so an employed farmer sees the
+// employer's readings and a caller linked to no farm is refused.
+router.use(authenticate, farmOwnerOrFarmer);
 
 /**
- * Monitoring (overview, boundary, weather, events, alerts) shares the same
- * guards as the NDVI endpoints below, so an employee account is refused
- * uniformly rather than per-route. It is declared first only because its paths
- * are more specific.
+ * Monitoring (overview, boundary, weather, events, alerts) declares its own
+ * read/write guards internally, so it is mounted here under the same
+ * authentication as the NDVI endpoints. It is declared first only because its
+ * paths are more specific.
  */
 router.use('/', monitoringRoutes);
 
@@ -50,6 +56,7 @@ router.use('/', monitoringRoutes);
  */
 router.post(
   '/ndvi',
+  farmOwnerOnly,
   validate(createNdviSchema),
   asyncHandler(async (req, res) => {
     const row = await requestNdvi({
@@ -67,7 +74,7 @@ router.get(
   '/ndvi/latest',
   validate(latestQuerySchema, 'query'),
   asyncHandler(async (req, res) => {
-    const row = await latestNdvi(req.user.id, req.query.plotId);
+    const row = await latestNdvi(await resolveOwnerFarmerId(req.user), req.query.plotId);
     // Advice travels with the cached reading so an offline client still has the
     // guidance, not just the number.
     res.json({ ndvi: row ? presentNdvi(row, await adviceForNdvi(row)) : null });
@@ -80,7 +87,7 @@ router.get(
   pagination,
   asyncHandler(async (req, res) => {
     const { page, pageSize, offset } = req.pagination;
-    const { items, total } = await listNdvi(req.user.id, {
+    const { items, total } = await listNdvi(await resolveOwnerFarmerId(req.user), {
       plotId: req.query.plotId,
       limit: pageSize,
       offset,
@@ -93,7 +100,7 @@ router.get(
   '/ndvi/:id',
   validate(idParamSchema, 'params'),
   asyncHandler(async (req, res) => {
-    const row = await getNdvi(req.user.id, req.params.id);
+    const row = await getNdvi(await resolveOwnerFarmerId(req.user), req.params.id);
     if (!row) throw notFound('NDVI record not found.');
     res.json(presentNdvi(row, await adviceForNdvi(row)));
   }),

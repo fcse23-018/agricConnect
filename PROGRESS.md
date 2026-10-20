@@ -33,6 +33,7 @@
 | **Image upload / display** | 🟢 Listings, plots and avatars: pick → `POST /uploads` → store → render (unit/contract-tested; not yet device-verified) |
 | **Plot boundary (NDVI input)** | 🟢 Add/edit plot captures the polygon (GPS corners or manual lat/lng); stored in `farm_plots.geojson_boundary`, pushed via `/sync/push`, and required by `POST /satellite/ndvi` |
 | **Android build** | 🟢 `:app:assembleDebug` produces a 24.2 MB APK — `1.1.1` (build 3), re-run 2026-10-20 |
+| **Backend tests** | 🟢 302/302 pass, 19 suites, 0 failures (re-run 2026-10-20) |
 | **Android unit tests** | 🟢 94/94 pass, 12 suites, 0 failures (`:app:testDebugUnitTest`, re-run 2026-10-20) |
 | **Release distribution** | 🟢 CI uploads a debug APK named `agriconnect-debug-v<version>-<sha>.apk` (§8) |
 | **Android runtime** | 🟡 Never launched on a device/emulator — no instrumented test run |
@@ -511,3 +512,74 @@ shapes).
 and `daysBack` alias schema tests). Android `:app:assembleDebug :app:testDebugUnitTest`
 passes: **94 unit tests, 0 failures**, APK at
 `android/app/build/outputs/apk/debug/app-debug.apk` (24.2 MB, `1.1.1`/build 3).
+
+---
+
+## 13. Shared farm & plot source of truth — 2026-10-20
+
+**Finding (verified in code, not assumed):** Farm Management and Satellite Monitoring
+already share one canonical record — a single `farm_plots` table, one server uuid
+`plotId`, and the same Android `FarmPlotRepository` / `farm_plots` Room table. Satellite
+child rows (`plot_observations`, `plot_events`, `plot_alerts`) all reference
+`farm_plots(id)`. There is **no** `satellite_plots` table, no geojson-only registry and no
+duplicate farm record. Navigation already passes the same `plotId` both ways
+(`farmDetail(plotId)` ↔ `satellite(plotId)`). So the correct action was to close two real
+defects rather than build a second system.
+
+**Defect 1 — the same boundary edit behaved differently on each screen.** The satellite
+boundary save (`PUT /satellite/plots/:id/boundary`) cleared the stale `plot_observations`,
+but `PATCH /farms/plots/:id` did not — so editing a boundary in Farm Management left NDVI
+readings computed for the **old** shape driving the satellite charts and alerts. Fixed by
+extracting one shared rule and applying it on **all three** boundary-write paths:
+
+- `boundaryChanged(before, after)` + `invalidateObservationsForPlot(plotId)` in
+  `satellite.service.js` (single implementation, not two copies).
+- Online Farm Management — `PATCH /farms/plots/:id` now reports `observationsInvalidated`.
+- Online Satellite — the boundary route uses the shared helper.
+- **Offline replay** — a new `afterUpdate` hook on the `FarmPlot` sync descriptor runs the
+  same rule *inside the sync transaction* (`sync.entities.js` / `sync.service.js`), so an
+  offline boundary edit reconciles to the same server state as an online one.
+- A re-save that resends the identical ring is **not** destructive: `boundaryChanged`
+  normalises the closing vertex and 6-dp precision, so cosmetic differences do not wipe
+  history. Events and alerts are deliberately preserved (they carry their own dates).
+
+**Defect 2 — a role could see a plot but not monitor it.** Farm plot reads are
+`farmOwnerOrFarmer`; every satellite endpoint was `farmOwnerOnly`, so a hired `FARMER`
+could see the plot in Farm Management and get a 403 one tap later on Satellite. Fixed by
+aligning the guards: satellite **reads** (`overview`, `weather`, `events` GET, `alerts`
+GET, `plots/latest`, NDVI history/latest/one) now use `farmOwnerOrFarmer` and resolve the
+**owner's** farmer id via `resolveOwnerFarmerId`; **writes** (boundary preview/save, NDVI
+compute, event create/edit/delete, alert status) stay `farmOwnerOnly`. The outer
+`router.use` blanket guard in `satellite.routes.js` was the actual gate and was corrected
+too.
+
+**Hardening while there:** `resolveOwnerFarmerId` now refuses a role that is neither
+`FARM_OWNER` nor `FARMER` explicitly. A `BUYER` previously fell through to the employer
+lookup, so a stray `employer_farmer_id` on their row would have handed them someone else's
+farm. Not reachable through the route guards, but this is the ownership primitive, so it
+now enforces the rule itself. A test caught it.
+
+**Tests added (0 DB required):**
+- `tests/unit/sharedPlots.test.js` (10) — `boundaryChanged`: identical ring, missing
+  closing vertex, float noise, moved vertex, redrawn shape, null↔shape, `Feature`-wrapped
+  and bare-ring shapes, winding order, and agreement with `ringFromGeoJson`.
+- `tests/unit/plotOwnership.test.js` (6) — `resolveOwnerFarmerId`: owner gets own id with no
+  query, employed farmer gets the employer's id, unlinked/missing buyer/unauthenticated all
+  refused. Uses `jest.unstable_mockModule` to mock the db (new, documented pattern).
+- `tests/unit/sync.entities.test.js` (+5) — the FarmPlot `afterUpdate` hook clears the
+  series on a real change, leaves it on a no-op, handles add/remove of a boundary, and runs
+  on the caller's transaction client (never its own connection).
+
+**Docs:** `docs/12-SATELLITE-MONITORING.md` §8a (new) documents the one-table/one-id
+contract, the child-row keys, and the three boundary-write paths that share the
+invalidation rule; `docs/02-API-CONTRACT.md` §2.4/§2.6.1 updated for `observationsInvalidated`
+and the aligned satellite read roles; `backend/openapi.yaml` `PATCH /farms/plots/{id}`
+documents the field (62 paths / 67 schemas, parses).
+
+**Verification:** backend **302 passed / 302, 19 suites** (was 281/17). Android
+`:app:assembleDebug :app:testDebugUnitTest` **BUILD SUCCESSFUL** — 94 tests / 12 suites / 0
+failures; APK at `android/app/build/outputs/apk/debug/app-debug.apk` (24,218,665 bytes).
+
+**Blockers (unchanged):** no device/emulator, so acceptance scenarios 1–8 are proven at the
+unit/route level but not yet on a running app; no DB in CI, so `invalidateObservationsForPlot`
+is tested via the pure `boundaryChanged` predicate and the sync hook, not a live DELETE.

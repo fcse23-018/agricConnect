@@ -3,10 +3,11 @@ import { Router } from 'express';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { validate, pagination } from '../../middleware/errorHandler.js';
 import { authenticate } from '../../middleware/auth.js';
-import { farmOwnerOnly } from '../../middleware/roles.js';
+import { farmOwnerOnly, farmOwnerOrFarmer } from '../../middleware/roles.js';
+import { resolveOwnerFarmerId } from '../farm/records.service.js';
 import { notFound } from '../../utils/errors.js';
 import { paginated, toPlotEvent, toPlotAlert } from '../../utils/serialize.js';
-import { getOwnedPlot } from './satellite.service.js';
+import { getOwnedPlot, invalidateObservationsForPlot } from './satellite.service.js';
 import {
   overviewQuerySchema,
   compareQuerySchema,
@@ -36,9 +37,20 @@ import { z } from 'zod';
 
 const router = Router();
 
-// Monitoring is a farm-owner capability: it needs a plot boundary, and mapping
-// plots is the owner's job. An employee account gets a 403, not a partial view.
-router.use(authenticate, farmOwnerOnly);
+// Satellite monitoring is a view of the same plots farm management shows. Reading
+// them — the overview, the weather, the event log, the alerts — is therefore open to
+// whoever may read the plot: the owner AND the farmer employed to work it, matching
+// `GET /farms/plots`. Without this a hired farmer could see a plot in farm management
+// and get a 403 one tap later on satellite, which reads as two different systems.
+//
+// Writing stays the owner's: mapping and reshaping a boundary, requesting a new
+// computation, and creating/editing/deleting events and alert states each carry their
+// own `farmOwnerOnly` guard below.
+//
+// Every handler resolves the *owner's* farmer id via `resolveOwnerFarmerId`, so an
+// employed farmer reads the employer's plots and the caller still cannot reach a
+// farm they are not linked to.
+router.use(authenticate, farmOwnerOrFarmer);
 
 /**
  * GET /satellite/overview
@@ -53,7 +65,7 @@ router.get(
   validate(overviewQuerySchema, 'query'),
   asyncHandler(async (req, res) => {
     const overview = await getOverview({
-      farmerId: req.user.id,
+      farmerId: await resolveOwnerFarmerId(req.user),
       plotId: req.query.plotId,
       days: req.query.days ?? req.query.daysBack,
       refresh: req.query.refresh === 'true' || req.query.refresh === '1',
@@ -71,6 +83,7 @@ router.get(
  */
 router.post(
   '/boundary/preview',
+  farmOwnerOnly,
   validate(z.object({ boundary: plotBoundarySchema })),
   asyncHandler(async (req, res) => {
     const resolved = resolveBoundary(req.body.boundary);
@@ -97,6 +110,7 @@ router.post(
  */
 router.put(
   '/plots/:id/boundary',
+  farmOwnerOnly,
   validate(idParamSchema, 'params'),
   validate(z.object({ boundary: plotBoundarySchema, plotName: plotNameSchema.optional() })),
   asyncHandler(async (req, res) => {
@@ -127,10 +141,8 @@ router.put(
     // A reshaped plot no longer matches the observations taken over the old
     // shape, so the stored series is dropped rather than silently reused. Being
     // explicit here is what stops a boundary edit from corrupting history.
-    const dropped = await one(
-      'WITH removed AS (DELETE FROM plot_observations WHERE plot_id = $1 RETURNING id) SELECT COUNT(*)::int AS count FROM removed',
-      [plot.id],
-    );
+    // Shared with `PATCH /farms/plots/:id`, so both screens invalidate alike.
+    const observationsInvalidated = await invalidateObservationsForPlot(plot.id);
 
     res.json({
       plot: {
@@ -142,7 +154,7 @@ router.put(
         geoJsonBoundary: updated.geojson_boundary,
       },
       geometry: resolved.measurement,
-      observationsInvalidated: dropped?.count ?? 0,
+      observationsInvalidated,
       note: 'The boundary was saved and the area recalculated. Previous observations were cleared because they covered the old outline; request a new reading.',
     });
   }),
@@ -161,8 +173,9 @@ router.get(
   '/weather',
   validate(compareQuerySchema, 'query'),
   asyncHandler(async (req, res) => {
-    const plot = await getOwnedPlot(req.user.id, req.query.plotId);
-    const overview = await getOverview({ farmerId: req.user.id, plotId: plot.id, days: 15 });
+    const farmerId = await resolveOwnerFarmerId(req.user);
+    const plot = await getOwnedPlot(farmerId, req.query.plotId);
+    const overview = await getOverview({ farmerId, plotId: plot.id, days: 15 });
     res.json({
       plotId: plot.id,
       weather: overview.weather,
@@ -180,7 +193,7 @@ router.get(
   pagination,
   asyncHandler(async (req, res) => {
     const { page, pageSize, offset } = req.pagination;
-    const { items, total } = await listEvents(req.user.id, {
+    const { items, total } = await listEvents(await resolveOwnerFarmerId(req.user), {
       plotId: req.query.plotId,
       kind: req.query.kind,
       source: req.query.source,
@@ -193,6 +206,7 @@ router.get(
 
 router.post(
   '/events',
+  farmOwnerOnly,
   validate(createEventSchema),
   asyncHandler(async (req, res) => {
     const plot = await getOwnedPlot(req.user.id, req.body.plotId);
@@ -218,6 +232,7 @@ router.post(
 
 router.patch(
   '/events/:id',
+  farmOwnerOnly,
   validate(idParamSchema, 'params'),
   validate(updateEventSchema),
   asyncHandler(async (req, res) => {
@@ -245,6 +260,7 @@ router.patch(
 
 router.delete(
   '/events/:id',
+  farmOwnerOnly,
   validate(idParamSchema, 'params'),
   asyncHandler(async (req, res) => {
     const owned = await one(
@@ -265,7 +281,7 @@ router.get(
   pagination,
   asyncHandler(async (req, res) => {
     const { page, pageSize, offset } = req.pagination;
-    const { items, total } = await listAlerts(req.user.id, {
+    const { items, total } = await listAlerts(await resolveOwnerFarmerId(req.user), {
       plotId: req.query.plotId,
       status: req.query.status,
       limit: pageSize,
@@ -282,6 +298,7 @@ router.get(
 
 router.post(
   '/alerts/:id/status',
+  farmOwnerOnly,
   validate(idParamSchema, 'params'),
   validate(alertActionSchema),
   asyncHandler(async (req, res) => {
@@ -304,12 +321,13 @@ router.post(
 router.get(
   '/plots/latest',
   asyncHandler(async (req, res) => {
+    const farmerId = await resolveOwnerFarmerId(req.user);
     const plots = await one(
       'SELECT ARRAY_AGG(id) AS ids FROM farm_plots WHERE farmer_id = $1 AND deleted_at IS NULL',
-      [req.user.id],
+      [farmerId],
     );
     const ids = plotIdsOrThrow(plots);
-    const map = await latestObservationByPlot(req.user.id, ids);
+    const map = await latestObservationByPlot(farmerId, ids);
     res.json({
       items: ids.map((id) => {
         const row = map.get(id) ?? null;

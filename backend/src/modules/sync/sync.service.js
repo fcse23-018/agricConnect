@@ -178,12 +178,29 @@ async function applyUpsert({ client, descriptor, ownerFarmerId, userId, clientId
     });
     const res = await client.query(sql, params);
     const row = res.rows[0];
+
+    // Some entities have dependents that stop being valid when the row changes —
+    // reshaping a plot invalidates the satellite observations taken over the old
+    // outline. The descriptor owns that rule so the sync path behaves exactly like
+    // the direct API path; otherwise editing a boundary offline would quietly keep
+    // readings that describe a shape the plot no longer has.
+    let afterUpdate;
+    if (typeof descriptor.afterUpdate === 'function') {
+      afterUpdate = await descriptor.afterUpdate({
+        client,
+        previous: existing,
+        updated: row,
+        payload: parsed,
+      });
+    }
+
     await writeLedger(client, { ...ledgerArgs, status: SyncStatus.SYNCED, serverEntityId: row.id });
     return {
       queueId: item.queueId,
       status: SyncStatus.SYNCED,
       serverEntityId: row.id,
       serverUpdatedAt: iso(row.updated_at),
+      ...(afterUpdate ? { details: afterUpdate } : {}),
     };
   }
 

@@ -123,11 +123,19 @@ disclosed to the user before confirmation.
 | GET | `/farms/plots` | farm owner, farmer | the farm's plots, newest first |
 | POST | `/farms/plots` | farm owner | `{plotName, areaHectares, geoJsonBoundary, clientId?, updatedAt}` |
 | GET | `/farms/plots/{id}` | farm owner, farmer | own farm only |
-| PATCH | `/farms/plots/{id}` | farm owner | own only |
+| PATCH | `/farms/plots/{id}` | farm owner | own only; returns the plot plus `observationsInvalidated` |
 | DELETE | `/farms/plots/{id}` | farm owner | own only |
 
 A farmer who works the land reads the plots of the owner who employs them, so field
 work can be recorded against the right plot; only the farm owner maps and edits them.
+
+**Shared with Satellite Monitoring.** These are the same `farm_plots` rows the Satellite
+screen analyses — one plot table, one `plotId`. A `PATCH` that actually moves the
+boundary clears that plot's stored `plot_observations` (which were averaged over the old
+outline) and reports the count in `observationsInvalidated`; a PATCH that resends the
+identical ring does not. `PUT /satellite/plots/{id}/boundary` and the offline sync replay
+apply the same rule, so the same edit has the same effect whichever screen made it. See
+`docs/12-SATELLITE-MONITORING.md` §8a.
 
 ### 2.5 Farm records
 
@@ -155,9 +163,13 @@ farmer event log, deduplicated alerts, and weather — all in one response.
 | Method | Path | Roles | Notes |
 |--------|------|-------|-------|
 | POST | `/satellite/ndvi` | farm owner | `{plotId, geoJsonBoundary?}` → `201 {ndviId, plotId, satelliteDate, meanNdviValue, stressLevel, status, compressedVectorJson, isCached:false, advice}` |
-| GET | `/satellite/ndvi?plotId=` | farm owner | history, newest first — **no `advice` on history items** |
-| GET | `/satellite/ndvi/latest?plotId=` | farm owner | newest record, or `ndvi: null` |
-| GET | `/satellite/ndvi/{id}` | farm owner | one record |
+| GET | `/satellite/ndvi?plotId=` | farm owner, farmer | history, newest first — **no `advice` on history items** |
+| GET | `/satellite/ndvi/latest?plotId=` | farm owner, farmer | newest record, or `ndvi: null` |
+| GET | `/satellite/ndvi/{id}` | farm owner, farmer | one record |
+
+Reads are available to whoever may read the plot (matching `GET /farms/plots`); requesting a
+**new** computation (`POST /satellite/ndvi`) stays the owner's job because it consumes provider
+quota and needs the boundary.
 
 Backend pipeline: validate polygon → Earth Engine `Sentinel-2` → Band 8 (NIR) / Band 4 (RED) →
 `NDVI=(NIR−RED)/(NIR+RED)` → classify with the documented thresholds → return compressed vector

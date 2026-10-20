@@ -589,6 +589,12 @@ paths:
     patch:
       tags: [Farms]
       summary: Update an owned plot
+      description: >-
+        Returns the updated plot plus `observationsInvalidated`. If the request
+        changes the boundary, the plot's stored satellite observations (averaged
+        over the old outline) are cleared and the count is reported; an unchanged
+        boundary leaves the series intact. The same rule is applied by
+        `PUT /satellite/plots/{id}/boundary` and the offline sync replay.
       requestBody:
         required: true
         content:
@@ -605,7 +611,14 @@ paths:
           description: Updated plot
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/FarmPlot' }
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/FarmPlot'
+                  - type: object
+                    properties:
+                      observationsInvalidated:
+                        type: integer
+                        description: Observations cleared because they covered the previous boundary.
         '404': { $ref: '#/components/responses/NotFound' }
     delete:
       tags: [Farms]

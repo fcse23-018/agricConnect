@@ -76,6 +76,80 @@ export async function getOwnedPlot(farmerId, plotId) {
 }
 
 /**
+ * Drop the stored observation series for a plot that has just been reshaped.
+ *
+ * An observation is an average over the pixels *inside the boundary as it was
+ * when the reading was taken*. Change the boundary and every stored reading
+ * describes a shape that no longer exists, so keeping them would silently
+ * attribute old numbers to the new outline — the charts, the drop detection and
+ * the alerts would all be computed against geometry that never produced them.
+ *
+ * This is deliberately shared by BOTH entry points that can move a boundary:
+ * farm management (`PATCH /farms/plots/:id`) and satellite monitoring
+ * (`PUT /satellite/plots/:id/boundary`). Two copies of this rule would drift,
+ * and the farmer would get different results from the same edit depending on
+ * which screen they used.
+ *
+ * Events and alerts are intentionally NOT deleted: they are the farmer's record
+ * of what happened and the history of what was flagged, and they carry their own
+ * dates. Only the geometry-dependent series is cleared.
+ *
+ * Returns the number of observations removed so the caller can report it.
+ */
+export async function invalidateObservationsForPlot(plotId) {
+  const removed = await one(
+    'WITH removed AS (DELETE FROM plot_observations WHERE plot_id = $1 RETURNING id) SELECT COUNT(*)::int AS count FROM removed',
+    [plotId],
+  );
+  return removed?.count ?? 0;
+}
+
+/**
+ * True when a boundary edit actually changed the geometry.
+ *
+ * A PATCH that resends the identical ring (the app does this routinely when it
+ * saves a plot, and the offline replay can resend a payload) must not wipe the
+ * observation series — that would erase history on a no-op save. Comparison is
+ * on the canonical JSON of the two boundaries, with the closing vertex and
+ * coordinate precision normalised, so cosmetic differences do not count.
+ */
+export function boundaryChanged(before, after) {
+  return canonicalBoundary(before) !== canonicalBoundary(after);
+}
+
+/** Normalise a GeoJSON boundary to a stable string for comparison/serialisation. */
+function canonicalBoundary(geoJson) {
+  const ring = outerRing(geoJson);
+  if (!ring) return null;
+  const points = ring
+    .map((point) => [Number(point?.[0]), Number(point?.[1])])
+    .filter(([lng, lat]) => Number.isFinite(lng) && Number.isFinite(lat))
+    // Six decimal places is ~0.1 m at the equator: far finer than any boundary a
+    // farmer draws, and coarse enough that float noise is not seen as an edit.
+    .map(([lng, lat]) => [Number(lng.toFixed(6)), Number(lat.toFixed(6))]);
+  // GeoJSON closes the ring by repeating the first point; drop it so a ring with
+  // and without the duplicate closing vertex compare equal.
+  if (points.length > 1) {
+    const [fLng, fLat] = points[0];
+    const [lLng, lLat] = points[points.length - 1];
+    if (fLng === lLng && fLat === lLat) points.pop();
+  }
+  if (points.length === 0) return null;
+  return JSON.stringify(points);
+}
+
+/** Pull the outer ring out of the supported GeoJSON shapes. */
+function outerRing(geoJson) {
+  if (!geoJson || typeof geoJson !== 'object') return null;
+  if (geoJson.type === 'Feature') return outerRing(geoJson.geometry);
+  if (geoJson.type === 'MultiPolygon') return geoJson.coordinates?.[0]?.[0] ?? null;
+  if (geoJson.type === 'Polygon') return geoJson.coordinates?.[0] ?? null;
+  // The satellite boundary columns store the raw ring in some rows.
+  if (Array.isArray(geoJson)) return geoJson;
+  return null;
+}
+
+/**
  * Run the NDVI pipeline for a plot.
  *
  * A REQUESTED row is persisted first so an interrupted computation is visible

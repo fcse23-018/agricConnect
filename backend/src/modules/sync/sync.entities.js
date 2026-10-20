@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { ROLES } from '../../middleware/roles.js';
+import { boundaryChanged } from '../satellite/satellite.service.js';
 import {
   toExpense,
   toHarvest,
@@ -23,7 +24,10 @@ import {
  *  - `buildUpdate`  — parameterised UPDATE … RETURNING * (resurrects soft-deletes);
  *  - `softDelete`   — whether DELETE soft-deletes rather than removes;
  *  - `clientIdBased`— whether the row is keyed by the device `client_id`, or by a
- *                     server uuid (`entityId`) when no `client_id` column exists.
+ *                     server uuid (`entityId`) when no `client_id` column exists;
+ *  - `afterUpdate`  — optional hook run inside the same transaction after a row is
+ *                     updated, for dependents that stop being valid when the row
+ *                     changes (reshaping a plot invalidates its observations).
  *
  * Column names here mirror migrations/002_domain.sql and 003_marketplace.sql
  * exactly. Builders receive already-validated values only, and every value is a
@@ -184,6 +188,21 @@ const FarmPlot = {
       existingId,
     ],
   }),
+  /**
+   * A reshaped plot invalidates the satellite observations taken over the old
+   * outline. This mirrors `PATCH /farms/plots/:id` and
+   * `PUT /satellite/plots/:id/boundary`, so an offline boundary edit reconciles
+   * to the same state as an online one. Only a genuine geometry change clears the
+   * series — an unchanged re-save must not wipe history.
+   */
+  afterUpdate: async ({ client, previous, updated }) => {
+    if (!boundaryChanged(previous.geojson_boundary, updated.geojson_boundary)) return null;
+    const removed = await client.query(
+      'WITH removed AS (DELETE FROM plot_observations WHERE plot_id = $1 RETURNING id) SELECT COUNT(*)::int AS count FROM removed',
+      [updated.id],
+    );
+    return { observationsInvalidated: removed.rows[0]?.count ?? 0 };
+  },
 };
 
 const HarvestRecord = {

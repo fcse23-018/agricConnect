@@ -1,0 +1,35 @@
+fix(shared-plots): one boundary-invalidation rule and aligned satellite roles
+
+Farm Management and Satellite Monitoring already share one canonical record
+(farm_plots, one server uuid plotId, the same Android repository/Room table),
+so the fix is to close the two real defects rather than add a second system.
+
+Defect 1 - the same boundary edit behaved differently on each screen. The
+satellite boundary save cleared stale plot_observations, but
+PATCH /farms/plots/:id did not, so editing a boundary in Farm Management left
+NDVI readings computed for the old shape driving the satellite charts. Fixed
+with one shared rule applied on all three boundary-write paths:
+
+  - boundaryChanged(before, after) + invalidateObservationsForPlot(plotId)
+    in satellite.service.js (single implementation);
+  - PATCH /farms/plots/:id now reports observationsInvalidated;
+  - PUT /satellite/plots/:id/boundary uses the shared helper;
+  - the offline sync replay applies the same rule inside its transaction via a
+    new afterUpdate hook on the FarmPlot descriptor.
+
+A re-save of the identical ring is not destructive (closing vertex and 6-dp
+precision normalised); events and alerts are preserved.
+
+Defect 2 - a role could see a plot but not monitor it. Satellite reads are now
+farmOwnerOrFarmer (matching GET /farms/plots) and resolve the owner's farmer id
+via resolveOwnerFarmerId; writes (boundary preview/save, NDVI compute, event
+create/edit/delete, alert status) stay farmOwnerOnly. The blanket router.use
+guard in satellite.routes.js, which was the actual gate, was corrected too.
+
+Hardening: resolveOwnerFarmerId now refuses any role that is neither FARM_OWNER
+nor FARMER; a BUYER previously fell through to the employer lookup.
+
+Tests: backend 302 passed / 302, 19 suites (was 281/17). Added
+sharedPlots.test.js (10), plotOwnership.test.js (6), sync.entities.test.js (+5).
+
+Docs: docs/12 S8a (new), docs/02 S2.4/S2.6.1, openapi.yaml PATCH /farms/plots/{id}.
