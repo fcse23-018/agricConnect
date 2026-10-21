@@ -353,4 +353,116 @@ data class PlotSummary(
     val source: String?,
 )
 
+/* ----------------------- colour map ("satellite sight") ------------------- */
+
+/** One legend stop: an index range and what it looks like in the field. */
+data class ColourMapLegendStop(
+    val from: Double?,
+    val to: Double?,
+    val colour: String?,
+    val label: String?,
+)
+
+/**
+ * The per-pixel colour map behind the "satellite sight" view.
+ *
+ * [grid] is row-major; each cell is an index value or `null` where the cell falls
+ * outside the plot boundary. `null` means "not this plot" and must never be drawn
+ * as a low value.
+ *
+ * The two honesty flags are deliberately separate:
+ *  - [isSimulated] — the *mean* behind the picture is demonstration data (MOCK).
+ *  - [variationSimulated] — always true: the *pattern* across the grid is a
+ *    texture generated from the plot and date, not a per-pixel observation.
+ */
+data class ColourMap(
+    val available: Boolean,
+    val reason: String?,
+    val index: String,
+    val plotId: String?,
+    val plotName: String?,
+    val observedOn: String?,
+    /** The measured field-average index. The average of the grid equals this. */
+    val meanValue: Double?,
+    val isSimulated: Boolean,
+    val variationSimulated: Boolean,
+    val grid: List<List<Double?>>,
+    val size: Int,
+    val min: Double?,
+    val max: Double?,
+    val insideCells: Int,
+    val totalCells: Int,
+    val validPixelPct: Double?,
+    val scaleMin: Double,
+    val scaleMax: Double,
+    val legend: List<ColourMapLegendStop>,
+    val note: String?,
+    val disclaimer: String?,
+    /** Plain-language reading of the average, already computed server-side. */
+    val interpretation: String?,
+    val ageDays: Int?,
+    val isStale: Boolean,
+    val staleDays: Int?,
+    val latestQuality: String?,
+    val latestCloudCoverPct: Double?,
+    val latestSource: String?,
+)
+
+/* ----------------------------- farm-wide alerts --------------------------- */
+
+/**
+ * One plot's place in the farm-wide attention list. Carries enough to render a row
+ * — farm name, latest reading, worst alert, and *why* it needs attention — without
+ * a second request.
+ */
+data class FarmAlertPlot(
+    val plotId: String,
+    val plotName: String?,
+    val farmId: String?,
+    val farmName: String?,
+    val areaHectares: Double?,
+    val openAlertCount: Int,
+    val totalAlertCount: Int,
+    val alerts: List<PlotAlert>,
+    val latestObservationDate: String?,
+    val latestObservationAgeDays: Int?,
+    val latestNdvi: Double?,
+    val quality: String?,
+    val isSimulated: Boolean,
+    val hasObservation: Boolean,
+    val isStale: Boolean,
+    /** No usable observation at all — not the same as healthy. */
+    val noData: Boolean,
+    val needsAttention: Boolean,
+    /** A one-line reason, or null when the plot is fine. */
+    val reason: String?,
+)
+
+/** A farm and the plots that belong to it, for grouping in the attention list. */
+data class FarmAlertGroup(
+    val farmId: String?,
+    val farmName: String,
+    val plots: List<FarmAlertPlot>,
+    val openAlertCount: Int,
+    val plotsNeedingAttention: Int,
+)
+
+/** Counts across the whole farm, for the headline. */
+data class AlertsByFarmTotals(
+    val plots: Int,
+    val plotsNeedingAttention: Int,
+    val plotsWithNoData: Int,
+    val plotsStale: Int,
+    val openAlerts: Int,
+    val farmsAffected: Int,
+)
+
+/** The complete farm-wide attention summary (`GET /satellite/alerts/by-farm`). */
+data class AlertsByFarm(
+    val plots: List<FarmAlertPlot>,
+    val farms: List<FarmAlertGroup>,
+    val totals: AlertsByFarmTotals,
+    val note: String?,
+)
+
 enum class ConfidenceLevel { HIGH, MEDIUM, LOW }

@@ -11,6 +11,7 @@ import { getOwnedPlot, invalidateObservationsForPlot } from './satellite.service
 import {
   overviewQuerySchema,
   compareQuerySchema,
+  colourMapQuerySchema,
   plotBoundarySchema,
   plotNameSchema,
   createEventSchema,
@@ -22,6 +23,8 @@ import {
 } from './satellite.schemas.js';
 import {
   getOverview,
+  getColourMap,
+  alertsByFarm,
   createEvent,
   updateEvent,
   listEvents,
@@ -185,6 +188,31 @@ router.get(
   }),
 );
 
+/* ---------------------------- colour map (sight) -------------------------- */
+
+/**
+ * GET /satellite/colour-map
+ *
+ * The per-pixel colour map behind the "satellite sight" view: a grid of the newest
+ * usable observation, plus the flags and plain-language reading needed to interpret
+ * it honestly. Drawn from the stored series (not a fresh provider call) so the
+ * picture always agrees with the numbers shown beside it.
+ */
+router.get(
+  '/colour-map',
+  validate(colourMapQuerySchema, 'query'),
+  asyncHandler(async (req, res) => {
+    const map = await getColourMap({
+      farmerId: await resolveOwnerFarmerId(req.user),
+      plotId: req.query.plotId,
+      index: req.query.index,
+      size: req.query.size,
+      days: req.query.days,
+    });
+    res.json(map);
+  }),
+);
+
 /* ------------------------------ event log -------------------------------- */
 
 router.get(
@@ -274,6 +302,24 @@ router.delete(
 );
 
 /* -------------------------------- alerts --------------------------------- */
+
+/**
+ * GET /satellite/alerts/by-farm
+ *
+ * Farm-wide attention summary: every plot the farmer owns, grouped by farm, so the
+ * Alerts tab can answer "which of my farms need me?" rather than only describing
+ * one selected plot. Plots with no data at all are included and flagged, so a
+ * forgotten field cannot look healthy by being absent.
+ *
+ * Declared before `/alerts` so the literal path is not swallowed by that route.
+ */
+router.get(
+  '/alerts/by-farm',
+  asyncHandler(async (req, res) => {
+    const includeHealthy = req.query.includeHealthy !== 'false';
+    res.json(await alertsByFarm(await resolveOwnerFarmerId(req.user), { includeHealthy }));
+  }),
+);
 
 router.get(
   '/alerts',

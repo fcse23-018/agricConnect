@@ -123,8 +123,15 @@ export function rectangleVertices({ centreLat, centreLon, widthM, lengthM, beari
   })).map(({ lat: outLat, lon: outLon }) => ({ lat: round(outLat, 7), lon: round(outLon, 7) }));
 }
 
-/** Project lat/lon vertices into local metres around their own centroid. */
-function projectToMetres(points) {
+/**
+ * Project lat/lon vertices into local metres around their own centroid.
+ *
+ * Exported so the colour-map grid can place pixels on the *same* plane the area
+ * was measured on. Duplicating this maths elsewhere would let the drawn shape and
+ * the measured area drift apart, which is exactly the class of bug the brief
+ * warns about.
+ */
+export function projectToMetres(points) {
   const centre = points.reduce(
     (acc, p) => ({ lat: acc.lat + p.lat / points.length, lon: acc.lon + p.lon / points.length }),
     { lat: 0, lon: 0 },

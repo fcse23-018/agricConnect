@@ -262,7 +262,81 @@ states — stay `farmOwnerOnly`.
 
 ---
 
-## 9. Changing thresholds
+## 9. The colour map ("satellite sight")
+
+`GET /satellite/colour-map` returns a per-pixel grid of the newest usable stored
+observation, drawn as a colour map in the Satellite screen's Overview tab.
+
+### The honesty rule it is built around
+
+The monitoring pipeline measures **one number per date per plot** — the mean index
+of the pixels inside the boundary. It does not return a per-pixel raster. So the
+grid is constructed to preserve that mean exactly:
+
+- the **average of the in-boundary cells equals the measured plot mean** (that
+  number is real); and
+- the **pattern across the cells** is a deterministic texture generated from
+  `sha256(plotId + date)`, **not** a per-pixel observation.
+
+Every response therefore carries `variationSimulated: true` and a `note` saying so,
+and the client is required to show:
+
+> Read the average, not the pattern. The average of this picture is a measured
+> field value. The pattern across it is a simulated texture, not a per-pixel
+> measurement, so it cannot pinpoint a spot in your field.
+
+Presenting the texture as a real image would be a fabricated reading, which the
+project forbids. The texture is deterministic, so the same plot and date always
+draw the same picture — a reload is not a different field.
+
+### Cells that are `null`, not `0`
+
+A cell whose centre falls outside the boundary is returned as `null`. The client
+must leave it blank rather than painting it, so the plot's shape is visible.
+Mapping `null` to `0` would invent bare soil along the plot edge.
+
+### Derived from stored data, never a fresh fetch
+
+The map is built from the **stored** series, not a provider call, so the picture
+always agrees with the numbers on the same screen. If it triggered a fetch, the
+image and the summary could disagree and the user would have no way to tell which
+to trust.
+
+### Flags
+
+| Field | Meaning |
+|-------|---------|
+| `isSimulated` | The mean behind the picture is demonstration (MOCK) data |
+| `variationSimulated` | Always `true` — the pattern is texture |
+| `isStale` / `ageDays` | The newest reading is older than the staleness window |
+| `coverage.validPixelPct` | Usable-pixel coverage of the underlying reading |
+| `meanValue` | The measured field average; the grid's average equals this |
+
+---
+
+## 10. Farm-wide attention (`GET /satellite/alerts/by-farm`)
+
+The per-plot alert list answers "what alerts does **this** plot have?". A farmer
+with several plots also needs "which of my farms need me?", so this endpoint
+returns **every** live plot, grouped by farm.
+
+Three attention states are reported, kept visibly distinct because they mean
+different things:
+
+| State | Field | Meaning |
+|-------|-------|---------|
+| Open alerts | `openAlertCount > 0` | The analysis engine raised something |
+| Stale | `isStale` | No clear reading within `staleDays` |
+| No data | `noData` | No usable observation at all (never read, or boundary just redrawn) |
+
+**A plot with no data is not healthy.** It is returned with `noData: true`,
+`needsAttention: true` and a plain-language `reason`, so a forgotten field cannot
+look fine by being absent from the list. A plot in none of these states has
+`needsAttention: false` and a null `reason`.
+
+---
+
+## 11. Changing thresholds
 
 All thresholds are environment variables (see `backend/.env.example` and
 `render.yaml`). To change them:
@@ -277,7 +351,7 @@ overview response.
 
 ---
 
-## 10. Versioning
+## 12. Versioning
 
 This document corresponds to the thresholds in `satelliteAnalysis.js` as of
 the `DEFAULT_THRESHOLDS` export. When thresholds change, update this file in

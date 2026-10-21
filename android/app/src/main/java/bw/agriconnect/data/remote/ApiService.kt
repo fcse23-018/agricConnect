@@ -65,6 +65,8 @@ import bw.agriconnect.data.remote.dto.BoundaryPreviewResponse
 import bw.agriconnect.data.remote.dto.SetBoundaryRequest
 import bw.agriconnect.data.remote.dto.SetBoundaryResponse
 import bw.agriconnect.data.remote.dto.WeatherResponseDto
+import bw.agriconnect.data.remote.dto.ColourMapDto
+import bw.agriconnect.data.remote.dto.AlertsByFarmDto
 import bw.agriconnect.data.remote.dto.PagedEventsDto
 import bw.agriconnect.data.remote.dto.PlotEventDto
 import bw.agriconnect.data.remote.dto.EventCreateRequest
@@ -337,6 +339,27 @@ interface ApiService {
         @Query("plotId") plotId: String,
         @Query("daysBack") daysBack: Int? = null,
     ): WeatherResponseDto
+
+    /**
+     * The colour map ("satellite sight"): a per-pixel NDVI/EVI grid for the newest
+     * stored observation, drawn server-side. The response carries the honesty flags
+     * (simulated, stale, coverage) alongside the grid.
+     */
+    @GET("satellite/colour-map")
+    suspend fun getColourMap(
+        @Query("plotId") plotId: String,
+        @Query("index") index: String? = null,
+        @Query("size") size: Int? = null,
+    ): ColourMapDto
+
+    /**
+     * Farm-wide attention summary: every plot the farmer owns, grouped by farm,
+     * including plots with no data at all. Answers "which of my farms need me?".
+     */
+    @GET("satellite/alerts/by-farm")
+    suspend fun getAlertsByFarm(
+        @Query("includeHealthy") includeHealthy: String? = null,
+    ): AlertsByFarmDto
 
     @GET("satellite/events")
     suspend fun getPlotEvents(

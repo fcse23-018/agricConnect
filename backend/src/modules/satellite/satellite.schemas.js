@@ -78,6 +78,18 @@ export const compareQuerySchema = z.object({
   daysBack: windowDays,
 });
 
+/**
+ * The colour map ("satellite sight"). `size` is clamped by the service, so this
+ * only has to keep obviously bad input out; the grid resolution is a display
+ * preference, not something that can corrupt a stored reading.
+ */
+export const colourMapQuerySchema = z.object({
+  plotId: z.string().uuid({ message: 'A valid plot identifier is required.' }),
+  index: z.enum(['ndvi', 'evi']).optional(),
+  size: z.coerce.number().int().min(8).max(48).optional(),
+  days: windowDays,
+});
+
 /* ---------------------------- monitoring: events --------------------------- */
 
 export const EVENT_KINDS = Object.freeze([
@@ -140,6 +152,7 @@ export default {
   plotNameSchema,
   overviewQuerySchema,
   compareQuerySchema,
+  colourMapQuerySchema,
   createEventSchema,
   updateEventSchema,
   eventListQuerySchema,

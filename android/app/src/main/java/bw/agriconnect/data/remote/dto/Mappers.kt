@@ -811,6 +811,86 @@ fun PlotObservationSummaryDto.toDomain(): PlotSummary = PlotSummary(
     source = source,
 )
 
+/* ----------------------- colour map ("satellite sight") ------------------- */
+
+fun ColourMapDto.toDomain(): ColourMap = ColourMap(
+    available = available,
+    reason = reason,
+    index = index ?: "ndvi",
+    plotId = plotId,
+    plotName = plotName,
+    observedOn = observedOn,
+    meanValue = meanValue,
+    isSimulated = isSimulated,
+    variationSimulated = variationSimulated,
+    grid = grid,
+    size = size,
+    min = stats?.min,
+    max = stats?.max,
+    insideCells = coverage?.insideCells ?: stats?.insideCells ?: 0,
+    totalCells = coverage?.totalCells ?: 0,
+    validPixelPct = coverage?.validPixelPct,
+    scaleMin = scale?.min ?: -0.1,
+    scaleMax = scale?.max ?: 0.9,
+    legend = legend.map {
+        ColourMapLegendStop(from = it.from, to = it.to, colour = it.colour, label = it.label)
+    },
+    note = note,
+    disclaimer = disclaimer,
+    interpretation = interpretation,
+    ageDays = ageDays,
+    isStale = isStale,
+    staleDays = staleDays,
+    latestQuality = latest?.quality,
+    latestCloudCoverPct = latest?.cloudCoverPct,
+    latestSource = latest?.source,
+)
+
+/* ----------------------------- farm-wide alerts --------------------------- */
+
+fun FarmAlertPlotDto.toDomain(): FarmAlertPlot = FarmAlertPlot(
+    plotId = plotId,
+    plotName = plotName,
+    farmId = farmId,
+    farmName = farmName,
+    areaHectares = areaHectares,
+    openAlertCount = openAlertCount,
+    totalAlertCount = totalAlertCount,
+    alerts = alerts.map { it.toDomain() },
+    latestObservationDate = latestObservationDate,
+    latestObservationAgeDays = latestObservationAgeDays,
+    latestNdvi = latestNdvi,
+    quality = quality,
+    isSimulated = isSimulated,
+    hasObservation = hasObservation,
+    isStale = isStale,
+    noData = noData,
+    needsAttention = needsAttention,
+    reason = reason,
+)
+
+fun FarmAlertGroupDto.toDomain(): FarmAlertGroup = FarmAlertGroup(
+    farmId = farmId,
+    farmName = farmName ?: "Unnamed farm",
+    plots = plots.map { it.toDomain() },
+    openAlertCount = openAlertCount,
+    plotsNeedingAttention = plotsNeedingAttention,
+)
+
+fun AlertsByFarmDto.toDomain(): AlertsByFarm = AlertsByFarm(
+    plots = plots.map { it.toDomain() },
+    farms = farms.map { it.toDomain() },
+    totals = AlertsByFarmTotals(
+        plots = totals?.plots ?: 0,
+        plotsNeedingAttention = totals?.plotsNeedingAttention ?: 0,
+        plotsWithNoData = totals?.plotsWithNoData ?: 0,
+        plotsStale = totals?.plotsStale ?: 0,
+        openAlerts = totals?.openAlerts ?: 0,
+        farmsAffected = totals?.farmsAffected ?: 0,
+    ),
+    note = note,
+)
+
 /**
  * A strict object-to-map conversion for the domain models that hold
  * `Map<String, Any>` (event evidence / weather context). Null JSON values are

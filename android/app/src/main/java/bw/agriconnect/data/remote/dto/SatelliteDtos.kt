@@ -497,6 +497,143 @@ data class PlotObservationSummaryDto(
     val source: String? = null,
 )
 
+/* ------------------------- colour map ("satellite sight") ----------------- */
+
+/**
+ * `GET /satellite/colour-map`.
+ *
+ * The grid is `grid[row][col]`, each cell an index value or `null` where the cell
+ * falls outside the boundary — `null` is meaningful and must render as "not the
+ * plot", never as zero.
+ *
+ * `isSimulated` and `variationSimulated` are the honesty flags. `isSimulated` means
+ * the *mean* behind the picture is demonstration data; `variationSimulated` is
+ * always true, because the pattern across the grid is a texture built from the
+ * plot and date, not a per-pixel observation. The UI must show both.
+ */
+@Serializable
+data class ColourMapDto(
+    val available: Boolean = false,
+    val reason: String? = null,
+    val index: String? = null,
+    val plotId: String? = null,
+    val plotName: String? = null,
+    val observedOn: String? = null,
+    val meanValue: Double? = null,
+    val isSimulated: Boolean = false,
+    val variationSimulated: Boolean = true,
+    val grid: List<List<Double?>> = emptyList(),
+    val size: Int = 0,
+    val stats: ColourMapStatsDto? = null,
+    val coverage: ColourMapCoverageDto? = null,
+    val scale: ColourMapScaleDto? = null,
+    val legend: List<ColourMapLegendDto> = emptyList(),
+    val note: String? = null,
+    val disclaimer: String? = null,
+    val interpretation: String? = null,
+    val geoJsonBoundary: JsonElement? = null,
+    val hasBoundary: Boolean = false,
+    val observationCount: Int = 0,
+    val ageDays: Int? = null,
+    val isStale: Boolean = false,
+    val staleDays: Int? = null,
+    val latest: ColourMapLatestDto? = null,
+)
+
+@Serializable
+data class ColourMapStatsDto(
+    val mean: Double? = null,
+    val gridMean: Double? = null,
+    val min: Double? = null,
+    val max: Double? = null,
+    val insideCells: Int = 0,
+    val spread: Double? = null,
+)
+
+@Serializable
+data class ColourMapCoverageDto(
+    val insideCells: Int = 0,
+    val totalCells: Int = 0,
+    val validPixelPct: Double? = null,
+    val note: String? = null,
+)
+
+@Serializable
+data class ColourMapScaleDto(val min: Double = -0.1, val max: Double = 0.9)
+
+@Serializable
+data class ColourMapLegendDto(
+    val from: Double? = null,
+    val to: Double? = null,
+    val colour: String? = null,
+    val label: String? = null,
+)
+
+@Serializable
+data class ColourMapLatestDto(
+    val date: String? = null,
+    val value: Double? = null,
+    val validPixelPct: Double? = null,
+    val cloudCoverPct: Double? = null,
+    val quality: String? = null,
+    val source: String? = null,
+    val isSimulated: Boolean? = null,
+)
+
+/* ---------------------------- farm-wide alerts ---------------------------- */
+
+/** `GET /satellite/alerts/by-farm`: every owned plot, grouped by farm. */
+@Serializable
+data class AlertsByFarmDto(
+    val plots: List<FarmAlertPlotDto> = emptyList(),
+    val farms: List<FarmAlertGroupDto> = emptyList(),
+    val totals: AlertsByFarmTotalsDto? = null,
+    val thresholds: Map<String, Double> = emptyMap(),
+    val note: String? = null,
+)
+
+@Serializable
+data class FarmAlertGroupDto(
+    val farmId: String? = null,
+    val farmName: String? = null,
+    val plots: List<FarmAlertPlotDto> = emptyList(),
+    val openAlertCount: Int = 0,
+    val plotsNeedingAttention: Int = 0,
+)
+
+@Serializable
+data class FarmAlertPlotDto(
+    val plotId: String,
+    val plotName: String? = null,
+    val farmId: String? = null,
+    val farmName: String? = null,
+    val areaHectares: Double? = null,
+    val openAlertCount: Int = 0,
+    val totalAlertCount: Int = 0,
+    val alerts: List<PlotAlertDto> = emptyList(),
+    val latestObservationDate: String? = null,
+    val latestObservationAgeDays: Int? = null,
+    val latestNdvi: Double? = null,
+    val quality: String? = null,
+    val isSimulated: Boolean = false,
+    val source: String? = null,
+    val hasObservation: Boolean = false,
+    val isStale: Boolean = false,
+    val noData: Boolean = false,
+    val needsAttention: Boolean = false,
+    val reason: String? = null,
+)
+
+@Serializable
+data class AlertsByFarmTotalsDto(
+    val plots: Int = 0,
+    val plotsNeedingAttention: Int = 0,
+    val plotsWithNoData: Int = 0,
+    val plotsStale: Int = 0,
+    val openAlerts: Int = 0,
+    val farmsAffected: Int = 0,
+)
+
 /**
  * The advisory block the backend attaches to a GENERATED reading
  * (`backend/src/services/ndviAdvice.js`). Every field is optional here because a

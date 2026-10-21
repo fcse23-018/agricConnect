@@ -66,6 +66,27 @@ class SatelliteMonitoringRepository @Inject constructor(
             api.setPlotBoundary(plotId, request).toDomain()
         }
 
+    /* -------------------- colour map ("satellite sight") ------------------- */
+
+    /**
+     * The per-pixel NDVI (or EVI) colour map for the plot's newest stored
+     * observation. Drawn server-side, so the picture always agrees with the
+     * numbers on the same screen. Never triggers a provider fetch for the same
+     * reason.
+     *
+     * The result carries the honesty flags ([ColourMap.isSimulated],
+     * [ColourMap.variationSimulated], [ColourMap.isStale]) — the UI must surface
+     * them, because this is the most persuasive element on the screen.
+     */
+    suspend fun getColourMap(
+        plotId: String,
+        index: String = "ndvi",
+        size: Int? = null,
+    ): AppResult<ColourMap> =
+        runCatchingApi(errorParser::parse) {
+            api.getColourMap(plotId, index, size).toDomain()
+        }
+
     // ============================ Weather ============================
 
     /**
@@ -167,6 +188,17 @@ class SatelliteMonitoringRepository @Inject constructor(
                 AlertStatus.OPEN -> "REOPEN"
             }
             api.updateAlertStatus(alertId, AlertStatusUpdateRequest(action)).toDomain()
+        }
+
+    /**
+     * Farm-wide attention summary: **every** plot the farmer owns, grouped by farm.
+     * Answers "which of my farms need me right now?" instead of only describing one
+     * selected plot. Plots with no observation at all are included and flagged, so
+     * a forgotten field cannot look healthy by being absent from the list.
+     */
+    suspend fun getAlertsByFarm(): AppResult<AlertsByFarm> =
+        runCatchingApi(errorParser::parse) {
+            api.getAlertsByFarm().toDomain()
         }
 
     // ============================ Dashboard list ============================

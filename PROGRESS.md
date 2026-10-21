@@ -33,8 +33,8 @@
 | **Image upload / display** | 🟢 Listings, plots and avatars: pick → `POST /uploads` → store → render (unit/contract-tested; not yet device-verified) |
 | **Plot boundary (NDVI input)** | 🟢 Add/edit plot captures the polygon (GPS corners or manual lat/lng); stored in `farm_plots.geojson_boundary`, pushed via `/sync/push`, and required by `POST /satellite/ndvi` |
 | **Android build** | 🟢 `:app:assembleDebug` produces a 24.2 MB APK — `1.1.1` (build 3), re-run 2026-10-20 |
-| **Backend tests** | 🟢 332/332 pass, 21 suites, 0 failures (re-run 2026-10-20) |
-| **Android unit tests** | 🟢 100/100 pass, 13 suites, 0 failures (`:app:testDebugUnitTest`, re-run 2026-10-20) |
+| **Backend tests** | 🟢 365/365 pass, 22 suites, 0 failures (re-run 2026-10-21) |
+| **Android unit tests** | 🟢 114/114 pass, 15 suites, 0 failures (`:app:testDebugUnitTest`, re-run 2026-10-21) |
 | **Release distribution** | 🟢 CI uploads a debug APK named `agriconnect-debug-v<version>-<sha>.apk` (§8) |
 | **Android runtime** | 🟡 Never launched on a device/emulator — no instrumented test run |
 | **External providers** | 🔴 SMS/email, Earth Engine and push are not configured |
@@ -651,3 +651,75 @@ on a device**. Google Weather and the Maps SDK have not been exercised against t
 services (no billed calls were made); the tests use injected fakes. Migration 008 has not been
 run against a database (no DB in CI); it is applied by `npm run migrate` on deploy or pasted
 into the Supabase SQL editor.
+
+---
+
+## 15. Satellite "sight" (NDVI colour map) + farm-wide alerts — 2026-10-21
+
+**The problem.** The Satellite screen had **no image at all** — only numbers. A farmer could
+see that NDVI was 0.42 without seeing *where* the crop was strong or thin. Separately, alerts
+were scoped to one plot, so a farmer with several plots got no answer to "which of my farms
+need me?". Both gaps are now closed.
+
+### 15.1 The honesty problem, and how it is solved
+
+The pipeline measures **one number per date per plot** — the mean of the pixels inside the
+boundary. It returns no per-pixel raster. There are therefore only two truthful things a
+colour map can do: plot a real array, or build a texture that preserves the measured mean and
+label it as texture. It does the second.
+
+- `services/ndviGrid.js` (new) builds the grid so the **average of the in-boundary cells
+  equals the measured plot mean** — that average is real. The **pattern** across the cells is
+  generated from `sha256(plotId + date)` and is **not** an observation.
+- Every response carries `variationSimulated: true` plus a `note` saying so, and the client is
+  required to display: *"Read the average, not the pattern."* Presenting the texture as a real
+  image would be a fabricated reading.
+- The texture is deterministic, so the same plot and date always draw the same picture.
+- An amplitude clamp keeps the grid's mean exact: if the requested spread would push cells past
+  the scale limits, the amplitude is shrunk rather than letting clamping flatten cells and
+  shift the average. A test asserts the mean holds across the full index range.
+- Cells outside the boundary are **`null`, not `0`**, so the client leaves them blank and the
+  field's shape is visible. Mapping `null` to `0` would invent bare soil along the plot edge.
+- The grid is built from the **stored** series, never a fresh provider call, so the picture
+  always agrees with the numbers beside it.
+
+### 15.2 What was added
+
+**Backend**
+- `GET /satellite/colour-map` — the per-pixel grid, legend, coverage, staleness, and a
+  server-computed plain-language reading (`describeIndex`). Returns `available: false` with a
+  `reason` when there is no boundary or no usable observation.
+- `GET /satellite/alerts/by-farm` — **every** live plot the caller owns, grouped by farm, with
+  `totals`. Three attention states are distinct: open alerts, `isStale`, and `noData`. A plot
+  with no reading is returned as `needsAttention: true` with a plain reason — **silence is not
+  health**, so a forgotten field cannot look fine by being absent.
+- `describeIndex` guards `null`/`''` **before** `Number()`, because `Number(null)` is `0` and
+  would have rendered "NDVI is 0.00" for a missing reading — a real bug caught by its test.
+
+**Android**
+- `ui/components/ColourMapView.kt` (new) renders the grid on a `Canvas` (a 24×24 grid is 576
+  cells — far too many layout nodes), maps values through the server's own legend stops, and
+  draws the legend as a proportional strip plus expandable plain-language rows.
+- `SatelliteSightCard` in the Overview tab: index switch (NDVI/EVI), honesty chips
+  (Demo data / Not current / date) **above** the image, the measured field average, the
+  plain-language interpretation, and an always-visible "read the average, not the pattern"
+  banner. When the data is MOCK an additional banner says so outright.
+- `FarmAttentionSummary` in the Alerts tab: headline counts, then farms and plots needing
+  attention, each tappable to switch the screen to that plot, with the reason shown.
+
+**Docs / contract:** `docs/12-SATELLITE-MONITORING.md` §9–§10 document the colour-map honesty
+rule and the farm-wide attention states; `backend/openapi.yaml` gains
+`/satellite/colour-map`, `/satellite/alerts/by-farm` and the `ColourMap`, `AlertsByFarm`,
+`FarmAlertGroup`, `FarmAlertPlot` schemas (64 paths / 72 schemas, parses).
+
+**Verification:** backend **365 passed / 365, 22 suites** (was 332/21; +22 `ndviGrid`,
++11 satellite-monitoring schema/`describeIndex`). Android
+`:app:assembleDebug :app:testDebugUnitTest` **BUILD SUCCESSFUL** — **114 tests / 15 suites /
+0 failures** (was 100/13; +6 colour-map rendering, +7 wire-mapping); APK at
+`android/app/build/outputs/apk/debug/app-debug.apk` (24,137,587 bytes).
+
+**Blockers / not verified:** same as §14 — no device or emulator, so the colour map and the
+farm-wide alert list are verified by compilation and unit tests only and **have not been seen
+rendering on a device**. The `alertsByFarm` SQL has not been run against a database (no DB in
+CI). With no Earth Engine credentials the mean behind the picture is labelled MOCK, and the UI
+says so.

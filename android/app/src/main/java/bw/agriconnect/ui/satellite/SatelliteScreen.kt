@@ -72,6 +72,8 @@ import bw.agriconnect.ui.chrome.MainScaffold
 import bw.agriconnect.ui.components.AgriBarChart
 import bw.agriconnect.ui.components.AgriCard
 import bw.agriconnect.ui.components.AgriFilterChip
+import bw.agriconnect.ui.components.ColourMapLegendRow
+import bw.agriconnect.ui.components.ColourMapView
 import bw.agriconnect.ui.components.AgriLineChart
 import bw.agriconnect.ui.components.AgriPrimaryButton
 import bw.agriconnect.ui.components.AgriSecondaryButton
@@ -302,6 +304,7 @@ fun SatelliteScreen(
                             }
                             when (selectedTab) {
                                 0 -> OverviewTab(
+                                    state = state,
                                     overview = overview,
                                     plotId = currentPlotId,
                                     viewModel = viewModel,
@@ -310,7 +313,7 @@ fun SatelliteScreen(
                                 2 -> WeatherTab(overview)
                                 3 -> GrowthCycleTab(overview)
                                 4 -> EventsTab(state, currentPlotId, viewModel)
-                                5 -> AlertsTab(overview, viewModel)
+                                5 -> AlertsTab(state, overview, viewModel)
                             }
                         }
                     }
@@ -326,6 +329,7 @@ fun SatelliteScreen(
 
 @Composable
 private fun OverviewTab(
+    state: SatelliteUiState,
     overview: SatelliteOverview,
     plotId: String?,
     viewModel: SatelliteViewModel,
@@ -334,11 +338,24 @@ private fun OverviewTab(
     val obsStatus = overview.observationStatus
     val summary = overview.summary
     var showBoundaryEditor by remember { mutableStateOf(false) }
+    var showLegendMeanings by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(AgriSpacing.lg),
     ) {
+        // Satellite sight: the colour map is the most informative element, so it
+        // sits at the top, immediately after the plot identity card.
+        item {
+            SatelliteSightCard(
+                state = state,
+                overview = overview,
+                showLegendMeanings = showLegendMeanings,
+                onToggleLegendMeanings = { showLegendMeanings = !showLegendMeanings },
+                onSelectIndex = { viewModel.switchColourMapIndex(it) },
+            )
+        }
+
         // Plot info + geometry card
         item {
             AgriCard {
@@ -1415,33 +1432,231 @@ private fun String.readable(): String =
     lowercase().replaceFirstChar { it.uppercase() }.replace("_", " ")
 
 @Composable
-private fun AlertsTab(overview: SatelliteOverview, viewModel: SatelliteViewModel) {
+private fun AlertsTab(
+    state: SatelliteUiState,
+    overview: SatelliteOverview,
+    viewModel: SatelliteViewModel,
+) {
     val alerts = overview.alerts
+    val farmSummary = state.alertsByFarm
 
-    if (alerts.isEmpty()) {
-        EmptyState(
-            title = "No alerts",
-            message = "Alerts appear when vegetation drops, weather stress, or stale observations are detected.",
-        )
-        return
-    }
+    // Load the farm-wide summary the first time this tab is shown. It is a
+    // cross-farm view, so it is deliberately not fetched with every plot load.
+    LaunchedEffect(Unit) { viewModel.loadAlertsByFarm() }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(AgriSpacing.lg),
     ) {
-        AgriCard {
-            Column {
-                SectionHeader(title = "All Alerts (${alerts.size})")
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(AgriSpacing.sm),
-                ) {
-                    items(alerts) { alert ->
+        // Farm-wide attention summary. This is the first thing on the tab because
+        // the question a farmer with many plots has is "which farm needs me?", not
+        // "what does this one plot say?".
+        FarmAttentionSummary(
+            summary = farmSummary,
+            isLoading = state.isLoadingAlertsByFarm,
+            currentPlotId = overview.plot.plotId,
+            onSelectPlot = { viewModel.onEvent(SatelliteEvent.SelectPlot(it)) },
+        )
+
+        if (alerts.isEmpty()) {
+            EmptyState(
+                title = "No alerts for this plot",
+                message = "Alerts appear when vegetation drops, weather stress, or stale observations are detected. Plots with no reading at all are listed above, because silence there is not the same as healthy.",
+            )
+        } else {
+            AgriCard {
+                Column {
+                    SectionHeader(
+                        title = "Alerts for ${overview.plot.plotName}",
+                        subtitle = "The plot you are viewing",
+                    )
+                    alerts.forEach { alert ->
                         AlertCardFull(alert = alert, viewModel = viewModel)
                         if (alert != alerts.last()) Spacer(Modifier.height(AgriSpacing.sm))
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * The farm-wide attention summary: a headline count, then the farms and plots that
+ * need attention, each tappable to switch the screen to that plot.
+ *
+ * Three attention states are shown distinctly, because they mean different things:
+ * open alerts (the analysis engine found something), stale data (no clear reading
+ * recently) and no data at all (never read, or the boundary was just redrawn).
+ * A plot in none of these states is shown as fine rather than omitted.
+ */
+@Composable
+private fun FarmAttentionSummary(
+    summary: AlertsByFarm?,
+    isLoading: Boolean,
+    currentPlotId: String?,
+    onSelectPlot: (String) -> Unit,
+) {
+    AgriCard {
+        Column {
+            SectionHeader(
+                title = "Your farms",
+                subtitle = if (summary == null) null else "${summary.totals.plots} plot(s) across ${summary.farms.size} farm(s)",
+            )
+
+            if (isLoading && summary == null) {
+                InlineLoading()
+                return@Column
+            }
+            if (summary == null) {
+                InfoBanner(message = "The farm-wide summary could not be loaded. The alerts for the plot you are viewing are shown below.")
+                return@Column
+            }
+
+            // Headline: the one number that answers "do I need to do anything?".
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(AgriSpacing.md),
+            ) {
+                StatTile(
+                    label = "Needs attention",
+                    value = summary.totals.plotsNeedingAttention.toString(),
+                    accent = if (summary.totals.plotsNeedingAttention > 0) AgriColors.WarningAmber else AgriColors.SuccessGreen,
+                )
+                StatTile(
+                    label = "Open alerts",
+                    value = summary.totals.openAlerts.toString(),
+                    accent = AgriColors.ErrorRed,
+                )
+                StatTile(
+                    label = "No reading",
+                    value = summary.totals.plotsWithNoData.toString(),
+                    accent = AgriColors.TextSecondary,
+                )
+            }
+
+            Spacer(Modifier.height(AgriSpacing.sm))
+
+            if (summary.totals.plotsNeedingAttention == 0) {
+                InfoBanner(message = "Every plot has a recent, clear reading and no open alerts.")
+            }
+
+            summary.farms.forEach { farm ->
+                Spacer(Modifier.height(AgriSpacing.md))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        farm.farmName,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    if (farm.plotsNeedingAttention > 0) {
+                        StatusChip(
+                            text = "${farm.plotsNeedingAttention} to check",
+                            color = AgriColors.WarningAmber,
+                        )
+                    } else {
+                        StatusChip(text = "All good", color = AgriColors.SuccessGreen)
+                    }
+                }
+                Spacer(Modifier.height(AgriSpacing.xs))
+
+                farm.plots.forEach { plot ->
+                    FarmPlotAttentionRow(
+                        plot = plot,
+                        isCurrent = plot.plotId == currentPlotId,
+                        onClick = { onSelectPlot(plot.plotId) },
+                    )
+                    Spacer(Modifier.height(AgriSpacing.xs))
+                }
+            }
+
+            if (!summary.note.isNullOrBlank()) {
+                Spacer(Modifier.height(AgriSpacing.sm))
+                Text(
+                    summary.note.orEmpty(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/** One plot row in the farm-wide summary, with its reason for needing attention. */
+@Composable
+private fun FarmPlotAttentionRow(
+    plot: FarmAlertPlot,
+    isCurrent: Boolean,
+    onClick: () -> Unit,
+) {
+    val (chipText, chipColour) = when {
+        plot.noData -> "No reading" to AgriColors.TextSecondary
+        plot.isStale -> "Not current" to AgriColors.WarningAmber
+        plot.openAlertCount > 0 -> "${plot.openAlertCount} alert(s)" to AgriColors.ErrorRed
+        else -> "Healthy" to AgriColors.SuccessGreen
+    }
+
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(AgriRadius.md),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isCurrent) {
+                MaterialTheme.colorScheme.surfaceContainerHighest
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+        ),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(AgriSpacing.sm)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    plot.plotName ?: "Unnamed plot",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
+                    modifier = Modifier.weight(1f),
+                )
+                StatusChip(text = chipText, color = chipColour)
+            }
+            val detail = buildString {
+                plot.latestNdvi?.let { append("NDVI ${it.format2()}") }
+                plot.latestObservationDate?.let {
+                    if (isNotEmpty()) append(" - ")
+                    append(DateFormatters.formatDate(it))
+                }
+                plot.areaHectares?.let {
+                    if (isNotEmpty()) append(" - ")
+                    append("${it.format2()} ha")
+                }
+            }
+            if (detail.isNotBlank()) {
+                Text(
+                    detail,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (!plot.reason.isNullOrBlank()) {
+                Text(
+                    plot.reason.orEmpty(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (plot.needsAttention) AgriColors.DarkBrown else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (isCurrent) {
+                Text(
+                    "Currently viewing",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
             }
         }
     }
@@ -1810,9 +2025,193 @@ private fun QualityRow(label: String, value: String) {
 }
 
 /* =========================================================================
+ * SATELLITE SIGHT
+ * ========================================================================= */
+
+/**
+ * The "satellite sight" card: a per-pixel colour map of the plot, with everything
+ * needed to read it honestly.
+ *
+ * Structure, and why:
+ *  - the image itself, at the top, because seeing *where* the crop is strong or
+ *    weak is the point;
+ *  - the measured average, stated in plain language, because the average is the
+ *    number that is actually real;
+ *  - the honesty flags (simulated data, simulated pattern, age) as visible chips,
+ *    never hidden, because this is the most persuasive thing on the screen;
+ *  - the colour key with plain-language meanings, expandable so it does not push
+ *    the rest of the screen down for someone who does not need it.
+ */
+@Composable
+private fun SatelliteSightCard(
+    state: SatelliteUiState,
+    overview: SatelliteOverview,
+    showLegendMeanings: Boolean,
+    onToggleLegendMeanings: () -> Unit,
+    onSelectIndex: (String) -> Unit,
+) {
+    val map = state.colourMap
+
+    AgriCard {
+        Column {
+            SectionHeader(
+                title = "Satellite sight",
+                subtitle = "Where your crop is strong and where it is thin",
+            )
+
+            when {
+                state.isLoadingColourMap && map == null -> InlineLoading()
+
+                map == null || !map.available -> {
+                    // The map could not be drawn. Say why, plainly — an absent image
+                    // must never look like a healthy field.
+                    InfoBanner(
+                        message = state.colourMapError
+                            ?: map?.reason
+                            ?: "There is no satellite image for this plot yet. Set the boundary and " +
+                            "request a reading, and it will appear here.",
+                    )
+                }
+
+                else -> {
+                    // Index switch: NDVI vs EVI over the same plot.
+                    Row(horizontalArrangement = Arrangement.spacedBy(AgriSpacing.sm)) {
+                        AgriFilterChip(
+                            label = "NDVI",
+                            selected = map.index.equals("ndvi", ignoreCase = true),
+                            onClick = { onSelectIndex("ndvi") },
+                        )
+                        AgriFilterChip(
+                            label = "EVI",
+                            selected = map.index.equals("evi", ignoreCase = true),
+                            onClick = { onSelectIndex("evi") },
+                        )
+                    }
+                    Spacer(Modifier.height(AgriSpacing.sm))
+
+                    // Honesty chips, shown before the picture so they cannot be missed.
+                    Row(horizontalArrangement = Arrangement.spacedBy(AgriSpacing.sm)) {
+                        if (map.isSimulated) {
+                            StatusChip(text = "Demo data", color = AgriColors.WarningAmber)
+                        } else {
+                            StatusChip(text = map.latestSource ?: "Sentinel-2", color = AgriColors.SuccessGreen)
+                        }
+                        if (map.isStale) {
+                            StatusChip(text = "Not current", color = AgriColors.WarningAmber)
+                        }
+                        StatusChip(
+                            text = map.observedOn?.let { DateFormatters.formatDate(it) } ?: "date unknown",
+                            color = AgriColors.InfoBlue,
+                        )
+                    }
+                    Spacer(Modifier.height(AgriSpacing.sm))
+
+                    ColourMapView(map = map)
+
+                    Spacer(Modifier.height(AgriSpacing.md))
+
+                    // The measured average, in plain language. This is the number that
+                    // is real; the pattern above is texture.
+                    if (map.meanValue != null) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(AgriSpacing.md),
+                        ) {
+                            StatTile(
+                                label = "Field average",
+                                value = map.meanValue.format2(),
+                                accent = AgriColors.ForestGreen,
+                            )
+                            if (map.latestNdviRangeIsMeaningful()) {
+                                StatTile(
+                                    label = "Range in plot",
+                                    value = "${map.min.format2()} – ${map.max.format2()}",
+                                    accent = AgriColors.SoilBrown,
+                                )
+                            }
+                            if (map.validPixelPct != null) {
+                                StatTile(
+                                    label = "Usable pixels",
+                                    value = "${map.validPixelPct.format0()}%",
+                                    accent = AgriColors.InfoBlue,
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(AgriSpacing.sm))
+                    }
+
+                    if (!map.interpretation.isNullOrBlank()) {
+                        Text(
+                            map.interpretation.orEmpty(),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Spacer(Modifier.height(AgriSpacing.sm))
+                    }
+
+                    // Why the picture is persuasive but limited. Always shown.
+                    InfoBanner(
+                        message = "Read the average, not the pattern. The average of this " +
+                            "picture is a measured field value. The pattern across it is a simulated " +
+                            "texture, not a per-pixel measurement, so it cannot pinpoint a spot in " +
+                            "your field.",
+                    )
+
+                    if (map.isSimulated) {
+                        Spacer(Modifier.height(AgriSpacing.sm))
+                        ErrorBanner(
+                            message = "The reading behind this picture is demonstration data, " +
+                                "not a real Sentinel-2 observation. Configure the satellite " +
+                                "processor to replace it with real imagery.",
+                        )
+                    }
+
+                    Spacer(Modifier.height(AgriSpacing.sm))
+                    AgriTextButton(
+                        text = if (showLegendMeanings) "Hide colour meanings" else "What do the colours mean?",
+                        onClick = onToggleLegendMeanings,
+                    )
+                    if (showLegendMeanings) {
+                        Spacer(Modifier.height(AgriSpacing.xs))
+                        map.legend.forEach { stop ->
+                            ColourMapLegendRow(stop)
+                            Spacer(Modifier.height(AgriSpacing.xs))
+                        }
+                    }
+
+                    if (!map.disclaimer.isNullOrBlank()) {
+                        Spacer(Modifier.height(AgriSpacing.sm))
+                        Text(
+                            map.disclaimer.orEmpty(),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** The range is only meaningful when the grid actually varied. */
+private fun ColourMap.latestNdviRangeIsMeaningful(): Boolean =
+    min != null && max != null && (max!! - min!!) > 0.0001
+
+/* =========================================================================
  * EXTENSIONS
  * ========================================================================= */
 
 private fun Double.format0(): String = String.format(java.util.Locale.US, "%.0f", this)
 
 private fun Double.format1(): String = String.format(java.util.Locale.US, "%.1f", this)
+
+private fun Double.format2(): String = String.format(java.util.Locale.US, "%.2f", this)
+
+/**
+ * Nullable-safe display helpers. A missing value renders as an em dash rather than
+ * as "0.00", because a zero index and an unknown index are not the same thing and
+ * the whole feature depends on not confusing them.
+ */
+private fun Double?.format0(): String = this?.let { String.format(java.util.Locale.US, "%.0f", it) } ?: "—"
+
+private fun Double?.format2(): String = this?.let { String.format(java.util.Locale.US, "%.2f", it) } ?: "—"

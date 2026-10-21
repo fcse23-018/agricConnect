@@ -1159,6 +1159,54 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /satellite/colour-map:
+    get:
+      tags: [Satellite]
+      summary: Per-pixel NDVI/EVI colour map for a plot's newest reading (farm owner only)
+      description: |
+        The "satellite sight" view: a grid of index values for the most recent
+        usable stored observation, plus everything needed to read it honestly.
+
+        **The grid is built so its in-boundary average equals the measured plot
+        mean** — that average is a real number. The *pattern* across the grid is a
+        simulated texture generated from the plot id and date, not a per-pixel
+        observation, and the response always says so via
+        `variationSimulated: true`. `isSimulated: true` additionally means the
+        mean itself is demonstration (MOCK) data.
+
+        Cells that fall outside the boundary are `null`, not `0`, so a client can
+        draw the field's shape instead of inventing bare soil along its edge.
+
+        Drawn from the **stored** series, never a fresh provider call, so the
+        picture always agrees with the numbers on the same screen.
+      parameters:
+        - name: plotId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: index
+          in: query
+          description: Which index to render. Defaults to `ndvi`.
+          schema: { type: string, enum: [ndvi, evi], default: ndvi }
+        - name: size
+          in: query
+          description: Grid resolution per side (cells). Clamped to 8–48.
+          schema: { type: integer, minimum: 8, maximum: 48, default: 24 }
+        - name: days
+          in: query
+          description: Observation window used to find the newest reading.
+          schema: { type: integer, minimum: 15, maximum: 730, default: 15 }
+      responses:
+        '200':
+          description: |
+            The colour map, or `available: false` with a `reason` when there is no
+            boundary or no usable observation.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ColourMap' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /satellite/weather:
     get:
       tags: [Satellite]
@@ -1281,6 +1329,34 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
+
+  /satellite/alerts/by-farm:
+    get:
+      tags: [Satellite]
+      summary: Farm-wide attention summary across every plot the caller owns (farm owner only)
+      description: |
+        Answers "which of my farms need attention?" rather than describing one
+        selected plot. Every live plot is returned, including plots with **no
+        observation at all**, which are flagged `noData: true` — silence on a plot
+        is not the same as that plot being healthy, and this endpoint refuses to
+        let a forgotten field look fine by being absent from the list.
+
+        Three distinct attention states are reported per plot: open alerts
+        (`openAlertCount > 0`), stale data (`isStale`), and no data (`noData`).
+        Plots in none of these states are returned as `needsAttention: false` with
+        a null `reason`.
+      parameters:
+        - name: includeHealthy
+          in: query
+          description: Set to `false` to omit plots that need no attention.
+          schema: { type: boolean, default: true }
+      responses:
+        '200':
+          description: Plots and farms with counts and thresholds
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AlertsByFarm' }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /satellite/alerts:
     get:
@@ -2692,6 +2768,158 @@ components:
         quality: { type: string, nullable: true }
         isSimulated: { type: boolean, nullable: true }
         source: { type: string, nullable: true }
+
+    ColourMap:
+      type: object
+      description: |
+        Per-pixel colour map for a plot's newest reading (`GET /satellite/colour-map`).
+        `grid` is row-major; a `null` cell is **outside the plot boundary** and must
+        be left blank, never drawn as a low value. When `available` is false, `reason`
+        explains why and `grid` is empty.
+      properties:
+        available: { type: boolean }
+        reason: { type: string, nullable: true }
+        index: { type: string, enum: [ndvi, evi] }
+        plotId: { type: string, format: uuid, nullable: true }
+        plotName: { type: string, nullable: true }
+        observedOn: { type: string, format: date, nullable: true }
+        meanValue:
+          type: number
+          nullable: true
+          description: The measured field-average index. The grid's in-boundary average equals this.
+        isSimulated:
+          type: boolean
+          description: True when the mean itself is demonstration (MOCK) data.
+        variationSimulated:
+          type: boolean
+          description: Always true. The pattern across the grid is a simulated texture, not a per-pixel observation.
+        grid:
+          type: array
+          items:
+            type: array
+            items: { type: number, nullable: true }
+        size: { type: integer, description: Grid resolution per side. }
+        stats:
+          type: object
+          nullable: true
+          properties:
+            mean: { type: number, nullable: true }
+            gridMean: { type: number, nullable: true }
+            min: { type: number, nullable: true }
+            max: { type: number, nullable: true }
+            insideCells: { type: integer }
+            spread: { type: number, nullable: true }
+        coverage:
+          type: object
+          nullable: true
+          properties:
+            insideCells: { type: integer }
+            totalCells: { type: integer }
+            validPixelPct: { type: number, nullable: true }
+            note: { type: string, nullable: true }
+        scale:
+          type: object
+          nullable: true
+          properties:
+            min: { type: number }
+            max: { type: number }
+        legend:
+          type: array
+          items:
+            type: object
+            properties:
+              from: { type: number, nullable: true }
+              to: { type: number, nullable: true }
+              colour: { type: string, nullable: true, example: '#2E7D4F' }
+              label: { type: string, nullable: true }
+        note: { type: string, nullable: true }
+        disclaimer: { type: string, nullable: true }
+        interpretation:
+          type: string
+          nullable: true
+          description: Plain-language reading of the field average.
+        geoJsonBoundary: { type: object, nullable: true }
+        hasBoundary: { type: boolean }
+        observationCount: { type: integer }
+        ageDays: { type: integer, nullable: true }
+        isStale: { type: boolean }
+        staleDays: { type: integer, nullable: true }
+        latest:
+          type: object
+          nullable: true
+          properties:
+            date: { type: string, format: date, nullable: true }
+            value: { type: number, nullable: true }
+            validPixelPct: { type: number, nullable: true }
+            cloudCoverPct: { type: number, nullable: true }
+            quality: { type: string, nullable: true }
+            source: { type: string, nullable: true }
+            isSimulated: { type: boolean, nullable: true }
+
+    AlertsByFarm:
+      type: object
+      description: |
+        Farm-wide attention summary (`GET /satellite/alerts/by-farm`). Every live
+        plot is present, including plots with no data at all, which are flagged
+        `noData: true` rather than omitted.
+      properties:
+        plots:
+          type: array
+          items: { $ref: '#/components/schemas/FarmAlertPlot' }
+        farms:
+          type: array
+          items: { $ref: '#/components/schemas/FarmAlertGroup' }
+        totals:
+          type: object
+          properties:
+            plots: { type: integer }
+            plotsNeedingAttention: { type: integer }
+            plotsWithNoData: { type: integer }
+            plotsStale: { type: integer }
+            openAlerts: { type: integer }
+            farmsAffected: { type: integer }
+        thresholds: { $ref: '#/components/schemas/AlertThresholds' }
+        note: { type: string, nullable: true }
+
+    FarmAlertGroup:
+      type: object
+      properties:
+        farmId: { type: string, format: uuid, nullable: true }
+        farmName: { type: string, nullable: true }
+        plots:
+          type: array
+          items: { $ref: '#/components/schemas/FarmAlertPlot' }
+        openAlertCount: { type: integer }
+        plotsNeedingAttention: { type: integer }
+
+    FarmAlertPlot:
+      type: object
+      description: |
+        One plot's place in the farm-wide list. `noData`, `isStale` and open alerts
+        are three distinct attention states; a plot in none of them has
+        `needsAttention: false` and a null `reason`.
+      properties:
+        plotId: { type: string, format: uuid }
+        plotName: { type: string, nullable: true }
+        farmId: { type: string, format: uuid, nullable: true }
+        farmName: { type: string, nullable: true }
+        areaHectares: { type: number, nullable: true }
+        openAlertCount: { type: integer }
+        totalAlertCount: { type: integer }
+        alerts:
+          type: array
+          items: { $ref: '#/components/schemas/PlotAlert' }
+        latestObservationDate: { type: string, format: date, nullable: true }
+        latestObservationAgeDays: { type: integer, nullable: true }
+        latestNdvi: { type: number, nullable: true }
+        quality: { type: string, nullable: true }
+        isSimulated: { type: boolean }
+        source: { type: string, nullable: true }
+        hasObservation: { type: boolean }
+        isStale: { type: boolean }
+        noData: { type: boolean }
+        needsAttention: { type: boolean }
+        reason: { type: string, nullable: true }
 
     AlertThresholds:
       type: object

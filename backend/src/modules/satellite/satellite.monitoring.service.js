@@ -29,6 +29,7 @@ import {
   DEFAULT_THRESHOLDS,
 } from '../../services/satelliteAnalysis.js';
 import { getOwnedPlot } from './satellite.service.js';
+import { buildColourMap } from '../../services/ndviGrid.js';
 import { measureBoundary, rectangleVertices, geoJsonFromRing, validatePolygon } from '../../services/geometry.js';
 
 /**
@@ -474,6 +475,118 @@ export async function getOverview({ farmerId, plotId, days, refresh = false }) {
 }
 
 /**
+ * The colour map ("satellite sight") for a plot: a per-pixel grid of the newest
+ * usable observation, plus everything needed to read it honestly.
+ *
+ * This deliberately does NOT call the provider. The picture must show the same
+ * number the rest of the screen shows, so it is drawn from the *stored* series.
+ * If it triggered a fresh fetch the image and the summary could disagree, and the
+ * user would have no way to know which to believe.
+ *
+ * The response always carries the observation's own honesty flags — whether the
+ * data is simulated (MOCK), how old it is, and whether the coverage was good —
+ * because the colour map is the most persuasive thing on the screen and it must
+ * not persuade anyone of something the data does not say.
+ *
+ * @param {{farmerId: string, plotId: string, index?: string, size?: number, days?: number}} params
+ */
+export async function getColourMap({ farmerId, plotId, index = 'ndvi', size, days = config.satellite.defaultDays }) {
+  const plot = await getOwnedPlot(farmerId, plotId);
+  const window = clampDays(days);
+  const stored = await loadStoredObservations(plotId, window);
+
+  const boundary = plot.geojson_boundary ?? null;
+  const field = index === 'evi' ? 'evi' : 'ndvi';
+  const series = stored
+    .map((row) => ({
+      date: row.observed_on,
+      value: row[field] === null || row[field] === undefined ? null : Number(row[field]),
+      validPct: row.valid_pixel_pct === null ? null : Number(row.valid_pixel_pct),
+      cloudPct: row.cloud_cover_pct === null ? null : Number(row.cloud_cover_pct),
+      quality: row.quality,
+      source: row.source,
+      isSimulated: Boolean(row.is_simulated),
+    }))
+    .filter((row) => row.value !== null);
+
+  const built = buildColourMap({
+    plot: { plotId: plot.id, geoJsonBoundary: boundary },
+    series,
+    index: field,
+    size,
+  });
+
+  if (!built.available) {
+    return {
+      ...built,
+      plotId: plot.id,
+      plotName: plot.plot_name,
+      index: field,
+      hasBoundary: Boolean(boundary),
+      observationCount: series.length,
+    };
+  }
+
+  // The staleness context, computed the same way the overview computes it, so the
+  // picture cannot look fresher than the data behind it.
+  const newest = series[series.length - 1];
+  const ageDays = Math.floor((Date.now() - new Date(newest.date).getTime()) / 86_400_000);
+  const staleDays = config.satellite.staleDays;
+
+  return {
+    ...built,
+    plotId: plot.id,
+    plotName: plot.plot_name,
+    geoJsonBoundary: boundary,
+    hasBoundary: true,
+    observationCount: series.length,
+    ageDays,
+    isStale: ageDays > staleDays,
+    staleDays,
+    // What the newest reading actually was, so the legend can be read against it.
+    latest: {
+      date: newest.date,
+      value: newest.value,
+      validPixelPct: newest.validPct,
+      cloudCoverPct: newest.cloudPct,
+      quality: newest.quality,
+      source: newest.source,
+      isSimulated: newest.isSimulated,
+    },
+    // A single sentence that says what the *average* means, in plain language.
+    interpretation: describeIndex(field, built.meanValue, ageDays, staleDays, Boolean(built.isSimulated)),
+    disclaimer:
+      'The average of this picture is a measured, field-average index value. The pattern across the '
+      + 'picture is a simulated texture, not a per-pixel measurement, and cannot be used to pinpoint a '
+      + 'spot in the field. This is an indicator of vegetation condition, not proof of yield or disease.',
+  };
+}
+
+/** Plain-language reading of an index value, for the "what this means" block. */
+export function describeIndex(index, value, ageDays, staleDays, isSimulated) {
+  const label = index === 'evi' ? 'EVI' : 'NDVI';
+  // Guard the null/undefined/'' cases before `Number()`, which would turn all of
+  // them into 0 and read as bare soil — the exact confusion this must avoid.
+  const n = value === null || value === undefined || value === '' ? NaN : Number(value);
+  if (!Number.isFinite(n)) {
+    return `${label} is unavailable. There is no usable reading for this plot, so no condition can be described.`;
+  }
+
+  let band;
+  if (n < 0.2) band = 'Very little green cover. The ground is mostly bare soil, stubble or newly planted.';
+  else if (n < 0.35) band = 'Sparse or struggling vegetation. The crop is thin, or the plants are under stress.';
+  else if (n < 0.5) band = 'Moderate cover. The crop is growing but has not closed over the ground yet.';
+  else if (n < 0.65) band = 'Healthy, actively growing cover. Typical of a well-developing crop.';
+  else band = 'Dense, vigorous canopy. Strong green cover across the plot.';
+
+  const freshness = ageDays > staleDays
+    ? ` This is ${ageDays} days old, so treat it as history rather than a current picture.`
+    : ` This is ${ageDays === 0 ? 'from today' : `${ageDays} day${ageDays === 1 ? '' : 's'} old`}.`;
+
+  return `${label} is ${n.toFixed(2)}. ${band}${freshness}`;
+}
+
+/**
  * Describe honestly where the observations came from.
  *
  * Three distinct states matter to the farmer: fresh from the processor, served
@@ -752,6 +865,175 @@ export async function setAlertStatus({ farmerId, plotId, alertId, action }) {
 }
 
 /* ------------------------------ housekeeping ------------------------------ */
+
+/**
+ * Farm-wide alert and attention summary: one row per plot, so the farmer can see
+ * *which* of their farms need attention instead of having to open each one.
+ *
+ * Why this exists: `listAlerts` answers "what alerts does this one plot have?".
+ * A farmer with eight plots was told nothing about the other seven. This function
+ * answers the question they actually have — "where in my farm do I need to go?"
+ *
+ * Two kinds of attention are reported, and they are kept visibly distinct because
+ * they mean different things:
+ *
+ *   1. **Alerts** — the analysis engine raised something (drop, stress, dry spell,
+ *      heat, staleness) and it is deduplicated in `plot_alerts`.
+ *   2. **No data** — the plot has no usable observation at all (never read, or its
+ *      boundary was just redrawn). Silence here is NOT good news, and this function
+ *      refuses to let a forgotten plot look healthy by omission.
+ *
+ * Nothing is invented: every field comes from stored rows. A plot with no alerts
+ * and recent data is reported as such rather than dropped from the list.
+ *
+ * @param {string} farmerId
+ * @returns {{plots: object[], totals: object}} grouped-for-display rows plus counts.
+ */
+export async function alertsByFarm(farmerId, { includeHealthy = true } = {}) {
+  // Every live plot with its farm label, plus the newest usable observation and
+  // the open-alert tally, in one round trip. LEFT JOINs so a plot with no
+  // observations and no alerts still appears — that is the whole point.
+  const rows = await many(
+    `SELECT p.id                AS plot_id,
+            p.plot_name,
+            p.farm_id,
+            f.farm_name,
+            p.area_hectares,
+            (SELECT COUNT(*)::int
+               FROM plot_alerts a
+              WHERE a.plot_id = p.id AND a.farmer_id = $1 AND a.status = 'OPEN') AS open_alerts,
+            (SELECT COUNT(*)::int
+               FROM plot_alerts a
+              WHERE a.plot_id = p.id AND a.farmer_id = $1) AS total_alerts,
+            obs.observed_on,
+            obs.ndvi,
+            obs.quality,
+            obs.is_simulated,
+            obs.source
+       FROM farm_plots p
+       LEFT JOIN farms f ON f.id = p.farm_id
+       LEFT JOIN LATERAL (
+            SELECT observed_on, ndvi, quality, is_simulated, source
+              FROM plot_observations
+             WHERE plot_id = p.id AND farmer_id = $1
+             ORDER BY observed_on DESC
+             LIMIT 1
+       ) obs ON true
+      WHERE p.farmer_id = $1 AND p.deleted_at IS NULL
+      ORDER BY f.farm_name NULLS LAST, p.plot_name`,
+    [farmerId],
+  );
+
+  const openAlerts = await many(
+    `SELECT a.id, a.plot_id, a.kind, a.severity, a.title, a.body, a.raised_at, a.status,
+            p.plot_name, p.farm_id, f.farm_name
+       FROM plot_alerts a
+       JOIN farm_plots p ON p.id = a.plot_id
+       LEFT JOIN farms f ON f.id = p.farm_id
+      WHERE a.farmer_id = $1 AND a.status = 'OPEN'
+      ORDER BY a.raised_at DESC`,
+    [farmerId],
+  );
+
+  const alertsByPlot = new Map();
+  for (const alert of openAlerts) {
+    const list = alertsByPlot.get(alert.plot_id) ?? [];
+    list.push({
+      alertId: alert.id,
+      kind: alert.kind,
+      severity: alert.severity,
+      title: alert.title,
+      body: alert.body,
+      raisedAt: alert.raised_at,
+      status: alert.status,
+    });
+    alertsByPlot.set(alert.plot_id, list);
+  }
+
+  const staleDays = config.satellite.staleDays;
+  const now = Date.now();
+
+  const plots = rows.map((row) => {
+    const alerts = alertsByPlot.get(row.plot_id) ?? [];
+    // "No data" is a first-class attention state, not an empty list.
+    const hasObservation = Boolean(row.observed_on);
+    const ageDays = hasObservation
+      ? Math.floor((now - new Date(row.observed_on).getTime()) / 86_400_000)
+      : null;
+    const isStale = hasObservation ? ageDays > staleDays : false;
+    const noData = !hasObservation;
+    const needsAttention = alerts.length > 0 || noData || isStale;
+
+    let reason = null;
+    if (noData) reason = 'No satellite reading for this plot yet.';
+    else if (isStale) reason = `No clear reading in the last ${staleDays} days (newest is ${ageDays} days old).`;
+    else if (alerts.length > 0) reason = alerts[0].title;
+
+    return {
+      plotId: row.plot_id,
+      plotName: row.plot_name,
+      farmId: row.farm_id,
+      farmName: row.farm_name,
+      areaHectares: row.area_hectares === null ? null : Number(row.area_hectares),
+      openAlertCount: row.open_alerts,
+      totalAlertCount: row.total_alerts,
+      alerts,
+      latestObservationDate: row.observed_on,
+      latestObservationAgeDays: ageDays,
+      latestNdvi: row.ndvi === null || row.ndvi === undefined ? null : Number(row.ndvi),
+      quality: row.quality,
+      isSimulated: Boolean(row.is_simulated),
+      source: row.source,
+      hasObservation,
+      isStale,
+      noData,
+      needsAttention,
+      reason,
+    };
+  });
+
+  const reported = includeHealthy ? plots : plots.filter((p) => p.needsAttention);
+
+  // Group by farm for display, but keep a flat ordering so the client can render
+  // either shape without re-sorting.
+  const farms = [];
+  const byFarm = new Map();
+  for (const plot of reported) {
+    const key = plot.farmId ?? '__none__';
+    if (!byFarm.has(key)) {
+      const entry = {
+        farmId: plot.farmId,
+        farmName: plot.farmName ?? 'Unnamed farm',
+        plots: [],
+        openAlertCount: 0,
+        plotsNeedingAttention: 0,
+      };
+      byFarm.set(key, entry);
+      farms.push(entry);
+    }
+    const entry = byFarm.get(key);
+    entry.plots.push(plot);
+    entry.openAlertCount += plot.openAlertCount;
+    if (plot.needsAttention) entry.plotsNeedingAttention += 1;
+  }
+
+  return {
+    plots: reported,
+    farms,
+    totals: {
+      plots: reported.length,
+      plotsNeedingAttention: reported.filter((p) => p.needsAttention).length,
+      plotsWithNoData: reported.filter((p) => p.noData).length,
+      plotsStale: reported.filter((p) => p.isStale).length,
+      openAlerts: reported.reduce((sum, p) => sum + p.openAlertCount, 0),
+      farmsAffected: farms.filter((f) => f.plotsNeedingAttention > 0).length,
+    },
+    thresholds: activeThresholds(),
+    note:
+      'Every plot is listed, including plots with no data at all, so a forgotten '
+      + 'field cannot look healthy by being left out. Totals count open alerts only.',
+  };
+}
 
 /**
  * The most recent observation per plot, for the plots screen. Kept separate

@@ -45,6 +45,13 @@ data class SatelliteUiState(
     val boundaryPreview: BoundaryPreview? = null,
     val isPreviewingBoundary: Boolean = false,
     val boundaryPreviewError: String? = null,
+    /** Per-pixel colour map ("satellite sight") for the selected plot. */
+    val colourMap: ColourMap? = null,
+    val isLoadingColourMap: Boolean = false,
+    val colourMapError: String? = null,
+    /** Farm-wide attention summary across every plot the user owns. */
+    val alertsByFarm: AlertsByFarm? = null,
+    val isLoadingAlertsByFarm: Boolean = false,
 )
 
 /** Event representing a user action on the satellite screen. */
@@ -59,6 +66,10 @@ sealed interface SatelliteEvent {
     data class UpdateEvent(val eventId: String, val request: EventUpdateRequest) : SatelliteEvent
     data class DeleteEvent(val eventId: String) : SatelliteEvent
     data class UpdateAlertStatus(val alertId: String, val status: AlertStatus) : SatelliteEvent
+    /** Reloads the per-pixel colour map for a plot, optionally switching index. */
+    data class LoadColourMap(val plotId: String, val index: String = "ndvi") : SatelliteEvent
+    /** Reloads the farm-wide attention summary. */
+    data object LoadAlertsByFarm : SatelliteEvent
     data object DismissMessage : SatelliteEvent
 }
 
@@ -100,6 +111,8 @@ class SatelliteViewModel @Inject constructor(
             is SatelliteEvent.UpdateEvent -> updateEvent(event.eventId, event.request)
             is SatelliteEvent.DeleteEvent -> deleteEvent(event.eventId)
             is SatelliteEvent.UpdateAlertStatus -> updateAlertStatus(event.alertId, event.status)
+            is SatelliteEvent.LoadColourMap -> loadColourMap(event.plotId, event.index)
+            is SatelliteEvent.LoadAlertsByFarm -> loadAlertsByFarm()
             is SatelliteEvent.DismissMessage -> dismissMessages()
         }
     }
@@ -141,6 +154,7 @@ class SatelliteViewModel @Inject constructor(
                         )
                     }
                     loadEvents(plotId)
+                    loadColourMap(plotId)
                 }
                 is AppResult.Failure -> _state.update {
                     it.copy(
@@ -172,6 +186,52 @@ class SatelliteViewModel @Inject constructor(
                         error = it.error ?: result.error.message,
                         offline = it.offline || result.error.isNetwork,
                     )
+                }
+            }
+        }
+    }
+
+    /**
+     * Loads the per-pixel colour map ("satellite sight") for [plotId].
+     *
+     * Failure is not fatal: the picture is an extra view over data the overview
+     * already reports, so a failure clears the map and records its own error
+     * without disturbing the rest of the screen.
+     */
+    private fun loadColourMap(plotId: String, index: String = "ndvi") {
+        viewModelScope.launch {
+            _state.update { it.copy(isLoadingColourMap = true, colourMapError = null) }
+            when (val result = monitoringRepo.getColourMap(plotId, index)) {
+                is AppResult.Success -> _state.update {
+                    it.copy(isLoadingColourMap = false, colourMap = result.data, colourMapError = null)
+                }
+                is AppResult.Failure -> _state.update {
+                    it.copy(
+                        isLoadingColourMap = false,
+                        colourMap = null,
+                        colourMapError = result.error.message,
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Loads the farm-wide attention summary: every plot the user owns, grouped by
+     * farm. This is what lets the Alerts tab say *which* farms need attention
+     * rather than describing only the plot currently selected.
+     */
+    fun loadAlertsByFarm() {
+        viewModelScope.launch {
+            _state.update { it.copy(isLoadingAlertsByFarm = true) }
+            when (val result = monitoringRepo.getAlertsByFarm()) {
+                is AppResult.Success -> _state.update {
+                    it.copy(isLoadingAlertsByFarm = false, alertsByFarm = result.data)
+                }
+                is AppResult.Failure -> _state.update {
+                    // Keep whatever was last shown rather than blanking the tab; the
+                    // overview already surfaces connectivity problems.
+                    it.copy(isLoadingAlertsByFarm = false)
                 }
             }
         }
@@ -361,6 +421,12 @@ class SatelliteViewModel @Inject constructor(
     /** Clears error/info messages. */
     private fun dismissMessages() {
         _state.update { it.copy(error = null, infoMessage = null) }
+    }
+
+    /** Switches the colour map between NDVI and EVI for the selected plot. */
+    fun switchColourMapIndex(index: String) {
+        val plotId = _selectedPlotId.value ?: _state.value.overview?.plot?.plotId ?: return
+        loadColourMap(plotId, index)
     }
 
     /**
