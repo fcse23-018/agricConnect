@@ -320,6 +320,16 @@ The per-plot alert list answers "what alerts does **this** plot have?". A farmer
 with several plots also needs "which of my farms need me?", so this endpoint
 returns **every** live plot, grouped by farm.
 
+**What "farm" means here.** This schema has no separate farm entity: a plot
+belongs directly to its owner (`farm_plots.farmer_id`), so the owner's account
+*is* the farm and all of the owner's plots form one group, labelled with the
+owner's name. The `farms[]` array is therefore today a single group — the shape
+is kept so the client can render several groups without a change if a farm
+entity is ever introduced. (The first release of this endpoint joined a `farms`
+table and a `farm_plots.farm_id` column that were never created, which returned
+HTTP 500; `tests/unit/alertsByFarmSchema.test.js` now pins the queries to the
+real columns.)
+
 Three attention states are reported, kept visibly distinct because they mean
 different things:
 

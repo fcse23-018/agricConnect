@@ -890,14 +890,18 @@ export async function setAlertStatus({ farmerId, plotId, alertId, action }) {
  * @returns {{plots: object[], totals: object}} grouped-for-display rows plus counts.
  */
 export async function alertsByFarm(farmerId, { includeHealthy = true } = {}) {
-  // Every live plot with its farm label, plus the newest usable observation and
-  // the open-alert tally, in one round trip. LEFT JOINs so a plot with no
-  // observations and no alerts still appears — that is the whole point.
+  // The schema has no separate farm entity: a plot belongs directly to the
+  // owner (farm_plots.farmer_id) and the owner's account *is* the farm. So the
+  // "farm" this groups by is the owner's own holding, labelled with their name.
+  const owner = await one('SELECT id, full_name FROM users WHERE id = $1', [farmerId]);
+  const farmName = owner?.full_name ?? 'My farm';
+
+  // Every live plot with the newest usable observation and the open-alert
+  // tally, in one round trip. LEFT JOINs so a plot with no observations and no
+  // alerts still appears — that is the whole point.
   const rows = await many(
     `SELECT p.id                AS plot_id,
             p.plot_name,
-            p.farm_id,
-            f.farm_name,
             p.area_hectares,
             (SELECT COUNT(*)::int
                FROM plot_alerts a
@@ -911,7 +915,6 @@ export async function alertsByFarm(farmerId, { includeHealthy = true } = {}) {
             obs.is_simulated,
             obs.source
        FROM farm_plots p
-       LEFT JOIN farms f ON f.id = p.farm_id
        LEFT JOIN LATERAL (
             SELECT observed_on, ndvi, quality, is_simulated, source
               FROM plot_observations
@@ -920,16 +923,15 @@ export async function alertsByFarm(farmerId, { includeHealthy = true } = {}) {
              LIMIT 1
        ) obs ON true
       WHERE p.farmer_id = $1 AND p.deleted_at IS NULL
-      ORDER BY f.farm_name NULLS LAST, p.plot_name`,
+      ORDER BY p.plot_name`,
     [farmerId],
   );
 
   const openAlerts = await many(
-    `SELECT a.id, a.plot_id, a.kind, a.severity, a.title, a.body, a.raised_at, a.status,
-            p.plot_name, p.farm_id, f.farm_name
+    `SELECT a.id, a.plot_id, a.alert_type, a.severity, a.title, a.body, a.raised_at, a.status,
+            p.plot_name
        FROM plot_alerts a
        JOIN farm_plots p ON p.id = a.plot_id
-       LEFT JOIN farms f ON f.id = p.farm_id
       WHERE a.farmer_id = $1 AND a.status = 'OPEN'
       ORDER BY a.raised_at DESC`,
     [farmerId],
@@ -940,7 +942,7 @@ export async function alertsByFarm(farmerId, { includeHealthy = true } = {}) {
     const list = alertsByPlot.get(alert.plot_id) ?? [];
     list.push({
       alertId: alert.id,
-      kind: alert.kind,
+      kind: alert.alert_type,
       severity: alert.severity,
       title: alert.title,
       body: alert.body,
@@ -972,8 +974,8 @@ export async function alertsByFarm(farmerId, { includeHealthy = true } = {}) {
     return {
       plotId: row.plot_id,
       plotName: row.plot_name,
-      farmId: row.farm_id,
-      farmName: row.farm_name,
+      farmId: farmerId,
+      farmName,
       areaHectares: row.area_hectares === null ? null : Number(row.area_hectares),
       openAlertCount: row.open_alerts,
       totalAlertCount: row.total_alerts,
@@ -994,28 +996,18 @@ export async function alertsByFarm(farmerId, { includeHealthy = true } = {}) {
 
   const reported = includeHealthy ? plots : plots.filter((p) => p.needsAttention);
 
-  // Group by farm for display, but keep a flat ordering so the client can render
-  // either shape without re-sorting.
-  const farms = [];
-  const byFarm = new Map();
-  for (const plot of reported) {
-    const key = plot.farmId ?? '__none__';
-    if (!byFarm.has(key)) {
-      const entry = {
-        farmId: plot.farmId,
-        farmName: plot.farmName ?? 'Unnamed farm',
-        plots: [],
-        openAlertCount: 0,
-        plotsNeedingAttention: 0,
-      };
-      byFarm.set(key, entry);
-      farms.push(entry);
-    }
-    const entry = byFarm.get(key);
-    entry.plots.push(plot);
-    entry.openAlertCount += plot.openAlertCount;
-    if (plot.needsAttention) entry.plotsNeedingAttention += 1;
-  }
+  // There is one farm per owner in this schema, so the display group is the
+  // owner's holding. It is emitted even when every plot is filtered out, so the
+  // client always has a stable label to render.
+  const farms = [
+    {
+      farmId: farmerId,
+      farmName,
+      plots: reported,
+      openAlertCount: reported.reduce((sum, p) => sum + p.openAlertCount, 0),
+      plotsNeedingAttention: reported.filter((p) => p.needsAttention).length,
+    },
+  ];
 
   return {
     plots: reported,

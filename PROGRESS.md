@@ -33,7 +33,7 @@
 | **Image upload / display** | 🟢 Listings, plots and avatars: pick → `POST /uploads` → store → render (unit/contract-tested; not yet device-verified) |
 | **Plot boundary (NDVI input)** | 🟢 Add/edit plot captures the polygon (GPS corners or manual lat/lng); stored in `farm_plots.geojson_boundary`, pushed via `/sync/push`, and required by `POST /satellite/ndvi` |
 | **Android build** | 🟢 `:app:assembleDebug` produces a 24.2 MB APK — `1.1.1` (build 3), re-run 2026-10-20 |
-| **Backend tests** | 🟢 365/365 pass, 22 suites, 0 failures (re-run 2026-10-21) |
+| **Backend tests** | 🟢 372/372 pass, 23 suites, 0 failures (re-run 2026-10-21) |
 | **Android unit tests** | 🟢 114/114 pass, 15 suites, 0 failures (`:app:testDebugUnitTest`, re-run 2026-10-21) |
 | **Release distribution** | 🟢 CI uploads a debug APK named `agriconnect-debug-v<version>-<sha>.apk` (§8) |
 | **Android runtime** | 🟡 Never launched on a device/emulator — no instrumented test run |
@@ -712,14 +712,22 @@ rule and the farm-wide attention states; `backend/openapi.yaml` gains
 `/satellite/colour-map`, `/satellite/alerts/by-farm` and the `ColourMap`, `AlertsByFarm`,
 `FarmAlertGroup`, `FarmAlertPlot` schemas (64 paths / 72 schemas, parses).
 
-**Verification:** backend **365 passed / 365, 22 suites** (was 332/21; +22 `ndviGrid`,
-+11 satellite-monitoring schema/`describeIndex`). Android
+**Verification:** backend **372 passed / 372, 23 suites** (was 332/21; +22 `ndviGrid`,
++11 satellite-monitoring schema/`describeIndex`, +7 `alertsByFarmSchema`). Android
 `:app:assembleDebug :app:testDebugUnitTest` **BUILD SUCCESSFUL** — **114 tests / 15 suites /
 0 failures** (was 100/13; +6 colour-map rendering, +7 wire-mapping); APK at
 `android/app/build/outputs/apk/debug/app-debug.apk` (24,137,587 bytes).
 
+**Fixed after release (§15.1):** `/satellite/alerts/by-farm` returned **HTTP 500** in
+production. The query joined a `farms` table and a `farm_plots.farm_id` column that this
+schema never creates, and selected `plot_alerts.kind` where the column is `alert_type`. The
+endpoint now groups the owner's plots under the owner's account (the farm label is the
+owner's name) and the query reads only real columns;
+`backend/tests/unit/alertsByFarmSchema.test.js` pins every `alertsByFarm` query against the
+migration schema so the drift cannot come back.
+
 **Blockers / not verified:** same as §14 — no device or emulator, so the colour map and the
 farm-wide alert list are verified by compilation and unit tests only and **have not been seen
 rendering on a device**. The `alertsByFarm` SQL has not been run against a database (no DB in
-CI). With no Earth Engine credentials the mean behind the picture is labelled MOCK, and the UI
-says so.
+CI); the fix is verified by the schema-contract test and by hitting the live endpoint. With
+no Earth Engine credentials the mean behind the picture is labelled MOCK, and the UI says so.

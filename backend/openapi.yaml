@@ -2883,6 +2883,11 @@ components:
 
     FarmAlertGroup:
       type: object
+      description: |
+        The owner's plots as one display group. This schema has no separate farm
+        entity, so a plot belongs directly to its owner and the owner's account is
+        the farm; `farms[]` is therefore a single group labelled with the owner's
+        name. The shape supports several groups if a farm entity is added later.
       properties:
         farmId: { type: string, format: uuid, nullable: true }
         farmName: { type: string, nullable: true }
