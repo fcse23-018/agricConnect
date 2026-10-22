@@ -6,7 +6,7 @@ import { authenticate } from '../../middleware/auth.js';
 import { farmOwnerOnly, farmOwnerOrFarmer } from '../../middleware/roles.js';
 import { resolveOwnerFarmerId } from '../farm/records.service.js';
 import { notFound } from '../../utils/errors.js';
-import { paginated, toPlotEvent, toPlotAlert } from '../../utils/serialize.js';
+import { paginated, toPlotEvent, toPlotAlert, dateOnly } from '../../utils/serialize.js';
 import { getOwnedPlot, invalidateObservationsForPlot } from './satellite.service.js';
 import {
   overviewQuerySchema,
@@ -384,7 +384,7 @@ router.get(
         const row = map.get(id) ?? null;
         return {
           plotId: id,
-          observedOn: row ? String(row.observed_on).slice(0, 10) : null,
+          observedOn: row ? dateOnly(row.observed_on) : null,
           ndvi: row?.ndvi === null || row?.ndvi === undefined ? null : Number(row.ndvi),
           evi: row?.evi === null || row?.evi === undefined ? null : Number(row.evi),
           quality: row?.quality ?? null,

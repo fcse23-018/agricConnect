@@ -1,7 +1,36 @@
 import pg from 'pg';
 import { config } from '../config/index.js';
 
-const { Pool } = pg;
+const { Pool, types } = pg;
+
+/**
+ * Return PostgreSQL `date` columns as plain `YYYY-MM-DD` strings.
+ *
+ * Why this is not cosmetic. By default node-postgres parses a `date` (OID 1082)
+ * into a JavaScript `Date` at *local* midnight. That breaks in two ways:
+ *
+ *  1. `String(date).slice(0, 10)` yields `"Thu Oct 22"` — a day-of-week string,
+ *     not a date. Anything that formats or compares it then breaks: the satellite
+ *     overview reported `newestObservation: "Thu Oct 22"` and
+ *     `"NaN day(s) old"`, and the analysis engine found no usable reading in a
+ *     series of 23 rows, so the screen showed "no observation" while the database
+ *     held two dozen.
+ *
+ *  2. A `date` is a calendar date with no time and no zone, but parsing it at
+ *     local midnight invents both. On a UTC server (production) a date of
+ *     `2026-10-22` becomes `2026-10-21T22:00:00Z` in a +02:00 developer zone and
+ *     `2026-10-21` once formatted — the observation silently moves to the
+ *     previous day. Imagery dates must never drift: a farmer comparing two
+ *     readings a day apart would be misled about which changed.
+ *
+ * A `date` has no time component to lose, so the text form IS the value. This is
+ * also what the rest of the codebase already assumes: `observed_on`, `event_date`
+ * and friends are compared and sliced as `YYYY-MM-DD` strings throughout.
+ *
+ * `timestamp`/`timestamptz` (1114/1184) are deliberately left as `Date` objects —
+ * those do carry an instant, and `iso()` formats them to ISO-8601.
+ */
+types.setTypeParser(1082, (value) => (value === null ? null : String(value)));
 
 export const pool = new Pool({
   ...(config.db.connectionString

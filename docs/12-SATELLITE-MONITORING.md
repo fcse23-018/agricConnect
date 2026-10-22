@@ -382,7 +382,54 @@ overview response.
 
 ---
 
-## 12. Versioning
+## 12. Dates must be calendar dates, never `Date` objects
+
+A satellite reading has a *calendar date* — the day the satellite passed — with no
+time and no timezone. The database stores it as a Postgres `date`.
+
+**node-postgres parses a `date` column into a JavaScript `Date` at local midnight
+by default.** That caused a real production failure on 2026-10-22, and the lesson
+is worth keeping:
+
+```
+GET /satellite/overview  ->  200, but
+  observations       : 0        (a series of 23 stored rows)
+  summary.available  : false    "No valid NDVI reading is available"
+  newestObservation  : "Thu Oct 22"
+  note               : "...is Thu Oct 22, NaN day(s) old."
+```
+
+`String(row.observed_on).slice(0, 10)` produces `"Thu Oct 22"` for a `Date` — a
+day-of-week string. It then failed the analysis engine's strict
+`/^\d{4}-\d{2}-\d{2}/` check, so **every row was dropped** and a plot with a full
+series looked empty. Two endpoints disagreed about the same plot.
+
+The same mistake appeared in three places, which is why the fix is layered:
+
+1. **`src/db/index.js` registers a `pg` type parser for OID 1082**, so a `date`
+   now arrives as a plain `YYYY-MM-DD` string everywhere. This is the root fix.
+2. **`normaliseDate()`** in `satelliteAnalysis.js` coerces a `Date`, an ISO
+   string or a date-only string, and returns `''` for anything else — so a bad
+   value drops one row instead of the whole series.
+3. **`dateOnly()`** (`utils/serialize.js`) is used at every serialisation site.
+
+### Why the timezone half matters more than the crash
+
+A `Date` at local midnight is a *different instant* from UTC midnight. Formatted on
+a UTC server, `2026-10-22` becomes `2026-10-21`. The observation silently moves to
+the previous day — and an imagery date that drifts by a day is worse than an error,
+because nothing looks wrong. A farmer comparing two readings would be misled about
+which one changed. A `date` has no time component to lose, so the **text form is
+the value**; `tests/unit/dbDateParsing.test.js` asserts this holds under
+`Africa/Gaborone`, `UTC` and `Pacific/Kiritimati`.
+
+The same class of bug hid `summary.dataAgeDays`: `String(now).slice(0, 10)` on the
+`Date` the service passes produced `"Wed Oct 21"`, so the field was **always**
+`null` in production and the client could never say how old a reading was.
+
+---
+
+## 13. Versioning
 
 This document corresponds to the thresholds in `satelliteAnalysis.js` as of
 the `DEFAULT_THRESHOLDS` export. When thresholds change, update this file in

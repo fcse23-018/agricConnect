@@ -19,6 +19,7 @@
 
 import { many, one, withTransaction } from '../../db/index.js';
 import { badRequest, conflict, notFound } from '../../utils/errors.js';
+import { dateOnly } from '../../utils/serialize.js';
 import { config } from '../../config/index.js';
 import { notify } from '../../services/notifications.js';
 import { fetchObservations, boundaryCorners, MOCK_SOURCE } from '../../services/observations.js';
@@ -371,7 +372,10 @@ export async function getOverview({ farmerId, plotId, days, refresh = false }) {
 
   const analysis = analyseSeries({
     observations: stored.map((row) => ({
-      date: row.observed_on,
+      // `dateOnly` normalises a `Date` (or any form) to `YYYY-MM-DD`; the
+      // analysis engine rejects anything else outright, which is how a
+      // series of 23 rows once produced `count: 0`.
+      date: dateOnly(row.observed_on),
       ndvi: row.ndvi === null ? null : Number(row.ndvi),
       evi: row.evi === null ? null : Number(row.evi),
       validPct: row.valid_pixel_pct === null ? null : Number(row.valid_pixel_pct),
@@ -499,7 +503,7 @@ export async function getColourMap({ farmerId, plotId, index = 'ndvi', size, day
   const field = index === 'evi' ? 'evi' : 'ndvi';
   const series = stored
     .map((row) => ({
-      date: row.observed_on,
+      date: dateOnly(row.observed_on),
       value: row[field] === null || row[field] === undefined ? null : Number(row[field]),
       validPct: row.valid_pixel_pct === null ? null : Number(row.valid_pixel_pct),
       cloudPct: row.cloud_cover_pct === null ? null : Number(row.cloud_cover_pct),
@@ -532,8 +536,13 @@ export async function getColourMap({ farmerId, plotId, index = 'ndvi', size, day
   // can never look fresher than the reading behind it.
   const newest = series[series.length - 1];
   const selectedDate = built.observedOn;
-  const selectedRow = series.find((row) => String(row.date).slice(0, 10) === selectedDate) ?? newest;
-  const ageDays = Math.floor((Date.now() - new Date(`${selectedDate}T00:00:00Z`).getTime()) / 86_400_000);
+  const selectedRow = series.find((row) => dateOnly(row.date) === selectedDate) ?? newest;
+  // A missing or malformed date reports unknown age rather than `NaN`, which
+  // would otherwise reach `isStale` and the "N days old" sentence.
+  const selectedEpoch = selectedDate ? new Date(`${dateOnly(selectedDate)}T00:00:00Z`).getTime() : NaN;
+  const ageDays = Number.isNaN(selectedEpoch)
+    ? null
+    : Math.floor((Date.now() - selectedEpoch) / 86_400_000);
   const staleDays = config.satellite.staleDays;
 
   return {
@@ -544,7 +553,9 @@ export async function getColourMap({ farmerId, plotId, index = 'ndvi', size, day
     hasBoundary: true,
     observationCount: series.length,
     ageDays,
-    isStale: ageDays > staleDays,
+    // `null` age (an unreadable date) is NOT fresh: it is unknown. Reporting it
+    // as not-stale would let an undated reading pass as current.
+    isStale: ageDays === null ? true : ageDays > staleDays,
     staleDays,
     // What the *selected* reading actually was, so the legend can be read against it.
     latest: {
@@ -582,9 +593,16 @@ export function describeIndex(index, value, ageDays, staleDays, isSimulated) {
   else if (n < 0.65) band = 'Healthy, actively growing cover. Typical of a well-developing crop.';
   else band = 'Dense, vigorous canopy. Strong green cover across the plot.';
 
-  const freshness = ageDays > staleDays
-    ? ` This is ${ageDays} days old, so treat it as history rather than a current picture.`
-    : ` This is ${ageDays === 0 ? 'from today' : `${ageDays} day${ageDays === 1 ? '' : 's'} old`}.`;
+  // An unreadable age must not be described as fresh. "This is from today" on an
+  // undated reading is exactly the false freshness the colour map must never imply.
+  let freshness;
+  if (ageDays === null || ageDays === undefined || Number.isNaN(ageDays)) {
+    freshness = ' The date of this reading could not be read, so treat it as unverified rather than current.';
+  } else if (ageDays > staleDays) {
+    freshness = ` This is ${ageDays} days old, so treat it as history rather than a current picture.`;
+  } else {
+    freshness = ` This is ${ageDays === 0 ? 'from today' : `${ageDays} day${ageDays === 1 ? '' : 's'} old`}.`;
+  }
 
   return `${label} is ${n.toFixed(2)}. ${band}${freshness}`;
 }
@@ -605,13 +623,19 @@ function buildObservationStatus({
   isSimulated,
   cornersAvailable,
 }) {
-  const ageDays = newestStored
+  // A date with no usable value must report `null` rather than `NaN`. The
+  // earlier code built `new Date('Thu Oct 22T00:00:00Z')` from a mis-formatted
+  // column and emitted the literal string "NaN day(s) old" into the note the
+  // farmer reads. Guarding here means a bad date degrades to "unknown age",
+  // which is honest, instead of a nonsense sentence.
+  const newestDate = newestStored ? dateOnly(newestStored.observed_on) : null;
+  const ageDays = newestDate && !Number.isNaN(new Date(`${newestDate}T00:00:00Z`).getTime())
     ? Math.max(0, Math.round(
         (Date.UTC(
           new Date().getUTCFullYear(),
           new Date().getUTCMonth(),
           new Date().getUTCDate(),
-        ) - new Date(`${newestStored.observed_on}`.slice(0, 10) + 'T00:00:00Z').getTime()) / 86_400_000,
+        ) - new Date(`${newestDate}T00:00:00Z`).getTime()) / 86_400_000,
       ))
     : null;
 
@@ -634,7 +658,7 @@ function buildObservationStatus({
     isSimulated: isSimulated || Boolean(providerResult?.isSimulated),
     coversDays: window,
     boundaryUsable: cornersAvailable,
-    newestObservation: newestStored ? String(newestStored.observed_on).slice(0, 10) : null,
+    newestObservation: newestDate,
     newestObservationAgeDays: ageDays,
     /** The newest observation is not "now"; the client must not imply it is. */
     note: null,
@@ -961,11 +985,16 @@ export async function alertsByFarm(farmerId, { includeHealthy = true } = {}) {
   const plots = rows.map((row) => {
     const alerts = alertsByPlot.get(row.plot_id) ?? [];
     // "No data" is a first-class attention state, not an empty list.
-    const hasObservation = Boolean(row.observed_on);
-    const ageDays = hasObservation
-      ? Math.floor((now - new Date(row.observed_on).getTime()) / 86_400_000)
+    const observedOn = dateOnly(row.observed_on);
+    const hasObservation = Boolean(observedOn);
+    // Parse the calendar date at UTC midnight. `new Date('Thu Oct 22')` is
+    // Invalid Date, and an `NaN` age would make `ageDays > staleDays` false —
+    // hiding a stale plot behind a "healthier" answer than the truth.
+    const observedEpoch = hasObservation ? new Date(`${observedOn}T00:00:00Z`).getTime() : NaN;
+    const ageDays = Number.isFinite(observedEpoch)
+      ? Math.floor((now - observedEpoch) / 86_400_000)
       : null;
-    const isStale = hasObservation ? ageDays > staleDays : false;
+    const isStale = hasObservation ? (ageDays === null || ageDays > staleDays) : false;
     const noData = !hasObservation;
     const needsAttention = alerts.length > 0 || noData || isStale;
 
@@ -983,7 +1012,7 @@ export async function alertsByFarm(farmerId, { includeHealthy = true } = {}) {
       openAlertCount: row.open_alerts,
       totalAlertCount: row.total_alerts,
       alerts,
-      latestObservationDate: row.observed_on,
+      latestObservationDate: observedOn,
       latestObservationAgeDays: ageDays,
       latestNdvi: row.ndvi === null || row.ndvi === undefined ? null : Number(row.ndvi),
       quality: row.quality,

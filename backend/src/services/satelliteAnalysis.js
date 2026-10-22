@@ -57,6 +57,31 @@ const DAY_MS = 86_400_000;
 
 /* --------------------------------- helpers -------------------------------- */
 
+/**
+ * Coerce any accepted date shape to a `YYYY-MM-DD` string.
+ *
+ * Accepts a `Date` (what node-postgres returns for a `date` column by default),
+ * an ISO string, or an already-date-only string. Anything else becomes `''`,
+ * which `toEpoch` then rejects — the caller drops the row rather than guessing.
+ *
+ * This exists because `String(aDate).slice(0, 10)` produces `"Thu Oct 22"`, a
+ * day-of-week string. That failed `toEpoch`'s regex and silently discarded an
+ * entire series: the satellite overview reported "no usable observation" over
+ * 23 stored rows. Normalising here means no caller can reintroduce that.
+ */
+export function normaliseDate(value) {
+  if (value === null || value === undefined) return '';
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? '' : value.toISOString().slice(0, 10);
+  }
+  const text = String(value).trim();
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(text);
+  if (match) return match[1];
+  // A full date string such as `Thu Oct 22 2026 ...` is NOT parsed by
+  // `new Date()` in every engine, so refuse it rather than risk a wrong day.
+  return '';
+}
+
 /** Date-only string (`YYYY-MM-DD`) → UTC midnight epoch millis, or null. */
 export function toEpoch(dateOnly) {
   if (typeof dateOnly !== 'string') return null;
@@ -117,7 +142,7 @@ export function sanitiseObservations(raw = []) {
   const byDate = new Map();
 
   for (const row of Array.isArray(raw) ? raw : []) {
-    const date = String(row?.date ?? row?.observedOn ?? row?.observed_on ?? '').slice(0, 10);
+    const date = normaliseDate(row?.date ?? row?.observedOn ?? row?.observed_on);
     if (toEpoch(date) === null) continue;
 
     const ndvi = clampIndex(finite(row?.ndvi ?? row?.ndviValue ?? row?.ndvi_value));
@@ -282,7 +307,11 @@ export function summarise(series, { now = null, index = 'ndvi' } = {}) {
   const average = values.reduce((sum, value) => sum + value, 0) / values.length;
   const change = previous ? latest[label] - previous[label] : null;
   const changePct = change !== null && previous[label] ? (change / previous[label]) * 100 : null;
-  const today = now ? String(now).slice(0, 10) : new Date().toISOString().slice(0, 10);
+  // `now` may arrive as a Date (which is what the service passes) or a date
+  // string. `String(date).slice(0, 10)` yields "Wed Oct 21" for a Date, which
+  // `daysBetween` rejects — so `dataAgeDays` was ALWAYS null in production, and
+  // the client could not say how old the newest reading was.
+  const today = normaliseDate(now ?? new Date());
   const dataAgeDays = daysBetween(latest.date, today);
 
   let trend = 'INSUFFICIENT';
