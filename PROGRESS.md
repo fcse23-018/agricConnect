@@ -763,9 +763,34 @@ the first piece of the spec's remaining gaps (see §17 for the others).
 - DTO/domain: `ColourMapDto`/`ColourMap` gain `isHistorical`, `newestObservedOn`,
   `requestedDate`, `availableDates`.
 
-**Verification:** backend **378/378, 23 suites** (+6 `ndviGrid` date tests). Android compile and
-unit tests run below.
+**Verification:** backend **378/378, 23 suites** (+6 `ndviGrid` date tests). Android
+`:app:assembleDebug :app:testDebugUnitTest` **BUILD SUCCESSFUL** — **117 tests / 15 suites /
+0 failures** (was 114; +3 wire-mapping for the new date fields); APK at
+`android/app/build/outputs/apk/debug/app-debug.apk` (24,139,430 bytes).
+
+**Also fixed in this pass — a rejected Maps key now explains itself.** `PlotBoundaryMap`
+previously handled only a *missing* key. A key Google *rejects* (Maps SDK for Android not
+enabled on the project, or the key restricted to a different signing certificate) rendered a
+blank grey grid indistinguishable from "still loading" — the "not connected" symptom. It now
+watches for the first successful map frame (`onMapLoaded`) and, if none arrives within 12s,
+shows an explained message naming the real causes. 12s is deliberate: a slow rural connection
+must not be mislabelled as a broken key. This is still only visible when the key is fixed or
+broken — it does not itself enable the Maps SDK, which remains a Cloud Console step.
 
 **Still open from the spec (not built):** farm selector (§2A), the three-level restructure (§8),
 an explicit alert "mark as inspected" action (§6), and offline caching of satellite results
 (§5). Listed here so they are tracked, not silently dropped.
+
+**Emulator blocker — root cause found, not fixable in software.** The Android emulator,
+`platform-tools` and `system-images;android-34;google_apis;x86_64` were installed and an AVD
+(`agri_test`) was created, but the emulator will not start on this machine:
+`x86_64 emulation currently requires hardware acceleration!` and
+`emulator -accel-check` reports `Android Emulator hypervisor driver is not installed`.
+The underlying cause is firmware: `Win32_Processor.VirtualizationFirmwareEnabled = False`
+(VT-x not exposed by BIOS/UEFI), and the shell is **not elevated**, so neither the AEHD driver
+nor the Windows Hypervisor Platform feature can be installed. This needs a BIOS change plus an
+administrator install — physical access, user-side. Screenshots and on-device checks therefore
+remain unproduced unless a physical phone is attached with USB debugging enabled. A Samsung
+phone has previously been connected to this machine (Windows lists eleven `SAMSUNG Mobile USB
+Composite Device` entries, all `Unknown`), so that is the shortest path if a device is
+available.
