@@ -74,26 +74,46 @@ delivery needs implementing before it can be enabled.
 > A Gmail address such as `someone@gmail.com` is a *user* account and cannot be used by a server —
 > it would require an interactive browser sign-in. See §2.1 for how to create the right credential.
 
-**Current behaviour:** `GEE_ENABLED=false`. The pipeline runs against a **deterministic mock**
-generator that is always tagged `source: "MOCK"` / `isSimulated: true` in the API response and
-never presented as real satellite data.
+**Current behaviour:** Earth Engine is **configured and verified working** on this
+deployment (`GEE_ENABLED=true`, a service-account key at `backend/secrets/`). A live run over a plot
+near Gaborone returned 10 real observations for 2026-08-26 → 2026-10-20, NDVI 0.1839 → 0.2829,
+`source: "SENTINEL-2"`, `isSimulated: false`.
 
-**Implemented (ready for credentials):** the real Earth Engine path in `src/services/gee.js`:
+When no credentials are present the pipeline falls back to a **deterministic mock** generator that
+is always tagged `source: "MOCK"` / `isSimulated: true` and never presented as real satellite data.
+
+**The real Earth Engine path** (`src/services/gee.js`):
 
 - **Sentinel-2 SR Harmonized** (`COPERNICUS/S2_SR_HARMONIZED`), Band 8 (NIR) / Band 4 (RED) /
   Band 2 (BLUE) at 10 m.
 - **Cloud and cloud-shadow masking** via **Cloud Score+** (`GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED`,
   the `cs_cdf` band) — the current, actively maintained cloud product for this collection, rather
-  than the deprecated `QA60` band it replaced. A pixel is kept when its score is above
+  than the deprecated `QA60` band it replaced. A pixel is kept when its score is at or above
   `CLOUD_SCORE_CLEAR_THRESHOLD` (0.60).
+  - Linked with `.linkCollection(csPlus, ['cs_cdf'])`. **`linkCollection` matches by band**, so
+    joining on `system:index` (a property) fails with
+    *"Match image does not have a band named 'system:index'"*.
 - **NDVI** `(NIR-RED)/(NIR+RED)` and **EVI** `2.5*(NIR-RED)/(NIR+6RED-7.5BLUE+1)`, averaged over
   the valid in-boundary pixels only.
 - **The imagery's own acquisition date** (`system:time_start`), never today's date.
 - **Valid-pixel coverage** — the clear pixel count over the boundary's total pixel count, so a low
   percentage is visible rather than hidden.
-- A pass above `NDVI_CLOUD_COVER_FAIL_THRESHOLD` (default 80%) **fails with a dated reason**. A
-  fully-masked pass is reported as such, **never as a zero average** — an empty reduction is not
-  "no vegetation".
+- A pass above `NDVI_CLOUD_COVER_FAIL_THRESHOLD` (default 80%) **fails with a dated reason**.
+
+> ### ⚠ A fully-masked pass is never reported as NDVI = 0
+>
+> `reduceRegion` returns **0** for a mean over an empty set. On a 100%-cloud pass every pixel is
+> masked out, and recording that 0 as an observation would read as "bare soil / dead crop" when the
+> truth is that nothing was observed — a fabricated value, and one that would corrupt the growth
+> analysis and raise false stress alerts. (This was a real defect: five of fifteen live readings
+> were affected before it was fixed.)
+>
+> Usability is therefore decided by the valid **pixel count**, not the mean:
+> - a series pass with zero valid pixels is **dropped** from the series;
+> - a single observation with zero valid pixels returns `FAILED` —
+>   *"Every pixel inside this boundary was cloud or cloud shadow in the latest pass."*
+>
+> `tests/unit/gee.test.js` pins this in both paths.
 
 The Node API can now produce a real series **without** the FastAPI `crop-api/` service: with
 `GEE_ENABLED=true`, `fetchObservations` uses Earth Engine directly (`fetchGeeSeries`) after
