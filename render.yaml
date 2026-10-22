@@ -68,8 +68,23 @@ services:
         value: agriconnect-uploads
 
       # Google Earth Engine / Sentinel-2 (mock mode when disabled)
+      # Earth Engine does NOT accept an API key. To enable real observations:
+      #   1. upload the service-account JSON as a Render Secret File
+      #   2. set GEE_KEY_FILE to that file's path (e.g. /etc/secrets/gee-key.json)
+      #   3. set GEE_ENABLED=true
+      # See docs/07-EXTERNAL-CREDENTIALS.md §2.1. A key supplied here is the
+      # private key for your Earth Engine project — keep it a secret, never a
+      # plain value in this file.
       - key: GEE_ENABLED
         value: "false"
+      - key: GEE_KEY_FILE
+        sync: false
+      - key: GEE_KEY_JSON
+        sync: false
+      - key: GEE_PROJECT_ID
+        sync: false
+      - key: GEE_LOOKBACK_DAYS
+        value: "60"
 
       # Satellite monitoring (crop-api processor)
       # When unset/false the backend uses a deterministic MOCK NDVI/EVI series

@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
 
 function bool(v, def = false) {
   if (v === undefined || v === '') return def;
@@ -14,6 +15,85 @@ function num(v, def) {
   const n = Number(v);
   return Number.isFinite(n) ? n : def;
 }
+
+/**
+ * Resolve the Earth Engine service-account credentials.
+ *
+ * Earth Engine rejects API keys outright ("API keys are not supported by this
+ * API") — it needs a service-account private key. Operators supply that in the
+ * shape that suits their platform:
+ *
+ *   GEE_KEY_FILE — a path to the downloaded JSON key. On Render this is a secret
+ *                  file mount, which keeps the PEM out of the environment dump.
+ *   GEE_KEY_JSON — the whole JSON as a single-line env var, for hosts without
+ *                  file mounts.
+ *   GEE_PRIVATE_KEY / GEE_SERVICE_ACCOUNT_EMAIL — the raw fields, kept for
+ *                  backwards compatibility with earlier deployments.
+ *
+ * All failures are returned as a reason rather than thrown: a malformed key must
+ * degrade to the labelled MOCK path with an explanation, never crash the API at
+ * import time. `used` records which source answered, for the startup log.
+ */
+function resolveGeeCredentials() {
+  const result = {
+    serviceAccountEmail: process.env.GEE_SERVICE_ACCOUNT_EMAIL || '',
+    privateKey: (process.env.GEE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
+    projectId: process.env.GEE_PROJECT_ID || '',
+    used: null,
+    problem: null,
+  };
+
+  const fromRaw = () => {
+    result.used = 'env';
+    return true;
+  };
+
+  const applyJson = (raw, source) => {
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      result.problem = `${source} is not valid JSON`;
+      return false;
+    }
+    if (parsed.type && parsed.type !== 'service_account') {
+      result.problem = `${source} is not a service-account key (type "${parsed.type}")`;
+      return false;
+    }
+    result.serviceAccountEmail = parsed.client_email || result.serviceAccountEmail;
+    result.privateKey = parsed.private_key || result.privateKey;
+    result.projectId = parsed.project_id || result.projectId;
+    result.used = source;
+    return true;
+  };
+
+  if (process.env.GEE_KEY_FILE) {
+    let raw;
+    try {
+      raw = readFileSync(process.env.GEE_KEY_FILE, 'utf8');
+    } catch (err) {
+      result.problem = `GEE_KEY_FILE could not be read (${err.code || err.message})`;
+      return result;
+    }
+    if (applyJson(raw, 'file')) return result;
+    return result;
+  }
+
+  if (process.env.GEE_KEY_JSON) {
+    if (applyJson(process.env.GEE_KEY_JSON, 'GEE_KEY_JSON')) return result;
+    return result;
+  }
+
+  if (result.privateKey) {
+    fromRaw();
+    return result;
+  }
+
+  // Nothing supplied. Not an error — GEE is simply off.
+  return result;
+}
+
+const geeCreds = resolveGeeCredentials();
 
 const env = process.env.NODE_ENV || 'development';
 
@@ -83,10 +163,15 @@ export const config = {
 
   gee: {
     enabled: bool(process.env.GEE_ENABLED, false),
-    serviceAccountEmail: process.env.GEE_SERVICE_ACCOUNT_EMAIL || '',
-    privateKey: (process.env.GEE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
-    projectId: process.env.GEE_PROJECT_ID || '',
+    serviceAccountEmail: geeCreds.serviceAccountEmail,
+    privateKey: geeCreds.privateKey,
+    projectId: geeCreds.projectId,
+    /** Which source supplied the credentials: file | GEE_KEY_JSON | env | null. */
+    credentialSource: geeCreds.used,
+    /** Why credential loading failed, if it did. Surfaces as a plain reason. */
+    credentialProblem: geeCreds.problem,
     cloudCoverFailThreshold: int(process.env.NDVI_CLOUD_COVER_FAIL_THRESHOLD, 80),
+    lookbackDays: int(process.env.GEE_LOOKBACK_DAYS, 60),
   },
 
   /**
@@ -218,6 +303,22 @@ export function assertProdSecrets() {
     }
   } else if (config.uploads.driver !== 'local') {
     problems.push(`UPLOAD_DRIVER must be "local" or "supabase" (got "${config.uploads.driver}")`);
+  }
+
+  // Earth Engine: an operator who asks for real satellite data must not silently
+  // get the MOCK generator. If GEE_ENABLED=true but the credentials did not load,
+  // that is a hard production failure — the alternative is a map that looks real
+  // and is not.
+  if (config.gee.enabled) {
+    if (config.gee.credentialProblem) {
+      problems.push(`GEE_ENABLED=true but the service-account key could not be loaded: ${config.gee.credentialProblem}`);
+    } else if (!config.gee.privateKey) {
+      problems.push('GEE_ENABLED=true but no service-account key was supplied (set GEE_KEY_FILE or GEE_KEY_JSON)');
+    } else if (!config.gee.serviceAccountEmail) {
+      problems.push('GEE_ENABLED=true but the service-account email is missing (set GEE_SERVICE_ACCOUNT_EMAIL or use a full key file)');
+    } else if (!config.gee.projectId) {
+      problems.push('GEE_ENABLED=true but the project id is missing (set GEE_PROJECT_ID or use a full key file)');
+    }
   }
   if (problems.length) {
     // eslint-disable-next-line no-console

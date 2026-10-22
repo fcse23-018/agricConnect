@@ -1,14 +1,18 @@
 /**
  * Plot observations: the NDVI/EVI series that the analysis engine consumes.
  *
- * Two sources, in priority order:
+ * Three sources, in priority order:
  *
  *  1. **crop-api** (`CROP_API_ENABLED=true` + `CROP_API_URL`) — the FastAPI
  *     Sentinel-2 service in this repository. It does the cloud/cloud-shadow
  *     masking, the NDVI + EVI reduction and the quality control, and returns
  *     `source: "gee"` for live data.
- *  2. **deterministic mock** — when no service is configured, a series derived
- *     from the plot id is returned so the rest of the pipeline can be exercised
+ *  2. **Earth Engine directly** (`GEE_ENABLED=true` + a service-account key) —
+ *     the same Sentinel-2 pipeline, computed in-process (`services/gee.js`).
+ *     This path exists so a deployment needs no second service. It returns
+ *     `source: "SENTINEL-2"`.
+ *  3. **deterministic mock** — when neither is configured, a series derived from
+ *     the plot id is returned so the rest of the pipeline can be exercised
  *     offline. It is tagged `MOCK` and `isSimulated: true` and is never
  *     presented as a real observation.
  *
@@ -18,6 +22,7 @@
 
 import { config } from '../config/index.js';
 import { createHash } from 'node:crypto';
+import { fetchGeeSeries, geeAvailability } from './gee.js';
 
 export const MOCK_SOURCE = 'MOCK';
 export const GEE_SOURCE = 'SENTINEL-2';
@@ -193,6 +198,9 @@ async function fetchFromCropApi({ geoJsonBoundary, days, fetchImpl }) {
  * Never throws: a provider failure is reported as `available: false` with a
  * reason, so the caller can decide whether to fall back to a cached database
  * row rather than showing a fabricated series.
+ *
+ * `preferProvider` lets a caller force a source for testing without touching the
+ * environment; production callers omit it.
  */
 export async function fetchObservations({
   plotId,
@@ -200,8 +208,9 @@ export async function fetchObservations({
   days = config.satellite.defaultDays,
   fetchImpl = globalThis.fetch,
   now = new Date(),
+  preferProvider = 'auto',
 } = {}) {
-  if (config.cropApi.enabled && config.cropApi.url) {
+  if (config.cropApi.enabled && config.cropApi.url && preferProvider !== 'mock') {
     const corners = boundaryCorners(geoJsonBoundary);
     if (!corners) {
       return {
@@ -214,13 +223,31 @@ export async function fetchObservations({
     }
     const remote = await fetchFromCropApi({ geoJsonBoundary, days, fetchImpl });
     if (remote.available) return remote;
-    // Fall through to the mock so the screen still has something honest to show,
-    // but say why the real processor was not used.
+    // crop-api was unreachable. Try Earth Engine before falling back to the mock,
+    // so one broken service does not silently downgrade real data to simulation.
+    const gee = await tryGee({ geoJsonBoundary, days, preferProvider });
+    if (gee) return gee;
     const mock = mockSeries(plotId, { days, now });
     return { ...mock, providerFailure: remote.reason };
   }
 
+  const gee = await tryGee({ geoJsonBoundary, days, preferProvider });
+  if (gee) return gee;
+
   return mockSeries(plotId, { days, now });
+}
+
+/**
+ * Attempt the in-process Earth Engine series. Returns `null` when it is not
+ * configured or produced nothing, so the caller can fall back; returns a series
+ * (possibly `available: false` with crop-api's `providerFailure` convention) when
+ * it *was* the intended provider.
+ */
+async function tryGee({ geoJsonBoundary, days, preferProvider }) {
+  if (preferProvider === 'mock') return null;
+  if (preferProvider !== 'gee' && !geeAvailability().ok) return null;
+  const series = await fetchGeeSeries({ geoJsonBoundary, days });
+  return series.available ? series : null;
 }
 
 export default {

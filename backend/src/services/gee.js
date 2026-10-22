@@ -5,14 +5,34 @@ import { mockNdviForPlot, isCloudCoverUsable } from './ndvi.js';
  * Google Earth Engine / Sentinel-2 adapter.
  *
  * The documented pipeline is:
- *   GeoJSON boundary -> GEE -> Sentinel-2 Band 8 (NIR) + Band 4 (RED)
- *   -> NDVI = (NIR - RED) / (NIR + RED) -> compressed vector alert.
+ *   GeoJSON boundary -> GEE -> Sentinel-2 SR -> cloud + cloud-shadow mask
+ *   -> NDVI = (NIR - RED) / (NIR + RED) and EVI -> reduceRegion over the boundary.
  *
- * When GEE credentials are absent (GEE_ENABLED=false, the default) we return a
- * deterministic MOCK result so the rest of the system can be exercised end to
- * end. The result is always tagged with `source` so nothing pretends to be real
- * satellite data. See docs/07-EXTERNAL-CREDENTIALS.md.
+ * Two modes, and the result always says which one produced it:
+ *
+ *   REAL   (GEE_ENABLED=true with a service-account key) — `source: 'SENTINEL-2'`,
+ *          `isSimulated: false`, with the imagery's own acquisition date and the
+ *          share of the boundary that survived masking.
+ *   MOCK   (no credentials) — `source: 'MOCK'`, `isSimulated: true`. Deterministic
+ *          per plot so the pipeline, caching and UI are testable offline. It is
+ *          never presented as a real observation.
+ *
+ * Nothing here fabricates a value and hides its origin: `source` and
+ * `isSimulated` travel with every reading into the API response.
  */
+
+/** Sentinel-2 Surface Reflectance, harmonised (the post-2022 baseline). */
+const S2_COLLECTION = 'COPERNICUS/S2_SR_HARMONIZED';
+
+/** Band 8 = NIR (10 m), Band 4 = RED (10 m), Band 2 = BLUE (10 m). */
+const NDVI_BANDS = ['B8', 'B4'];
+const EVI_INDEX_BANDS = { nir: 'B8', red: 'B4', blue: 'B2' };
+
+/** Cloud Score+ is the current, non-deprecated Sentinel-2 cloud masker. */
+const CLOUD_SCORE_COLLECTION = 'GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED';
+
+/** A Cloud Score+ score at or below this is treated as cloud (higher = clearer). */
+const CLOUD_SCORE_CLEAR_THRESHOLD = 0.60;
 
 function validatePolygon(geoJson) {
   if (!geoJson || typeof geoJson !== 'object') return 'Boundary is required.';
@@ -51,9 +71,310 @@ export function estimateAreaHectares(geoJson) {
 }
 
 /**
+ * Are the Earth Engine credentials present and usable?
+ * Returns `{ ok: true }` or `{ ok: false, reason }` with a message safe to show.
+ */
+export function geeAvailability() {
+  if (!config.gee.enabled) {
+    return { ok: false, reason: 'Earth Engine is switched off on this server.' };
+  }
+  if (config.gee.credentialProblem) {
+    return { ok: false, reason: config.gee.credentialProblem };
+  }
+  if (!config.gee.privateKey) {
+    return { ok: false, reason: 'No Earth Engine service-account key is configured.' };
+  }
+  if (!config.gee.serviceAccountEmail) {
+    return { ok: false, reason: 'The Earth Engine service-account email is missing.' };
+  }
+  if (!config.gee.projectId) {
+    return { ok: false, reason: 'The Earth Engine project id is missing.' };
+  }
+  return { ok: true };
+}
+
+/* --------------------------- Earth Engine client --------------------------- */
+
+let eeInitPromise = null;
+
+/**
+ * Initialise the Earth Engine client once, and share the promise.
+ *
+ * Authenticating on every request would re-sign a JWT per call, which is slow and
+ * pointless. The promise is cached so concurrent requests await the same
+ * handshake; a failure clears it so a transient network problem does not
+ * permanently poison the process.
+ */
+async function initEarthEngine() {
+  if (!eeInitPromise) {
+    eeInitPromise = (async () => {
+      const ee = (await import('@google/earthengine')).default;
+      await new Promise((resolve, reject) => {
+        ee.data.authenticateViaPrivateKey(
+          {
+            client_email: config.gee.serviceAccountEmail,
+            private_key: config.gee.privateKey,
+            project_id: config.gee.projectId,
+          },
+          () => {
+            ee.initialize(
+              null,
+              null,
+              resolve,
+              (err) => reject(new Error(err?.message || String(err))),
+              config.gee.projectId,
+            );
+          },
+          (err) => reject(new Error(err?.message || String(err))),
+        );
+      });
+      return ee;
+    })().catch((err) => {
+      eeInitPromise = null;
+      throw err;
+    });
+  }
+  return eeInitPromise;
+}
+
+/** Reset the cached client. Used by tests. */
+export function resetEarthEngine() {
+  eeInitPromise = null;
+}
+
+/** Wrap an `ee` callback API in a promise. */
+function evaluate(eeObject) {
+  return new Promise((resolve, reject) => {
+    eeObject.evaluate((value, err) => (err ? reject(new Error(err?.message || String(err))) : resolve(value)));
+  });
+}
+
+/** Build an `ee.Geometry` from a stored boundary. */
+function toGeometry(ee, geoJson) {
+  const coords = geoJson.type === 'Feature' ? geoJson.geometry.coordinates : geoJson.coordinates;
+  if (geoJson.type === 'Feature' && geoJson.geometry.type === 'MultiPolygon') {
+    return ee.Geometry.MultiPolygon(coords);
+  }
+  if (geoJson.type === 'MultiPolygon') return ee.Geometry.MultiPolygon(coords);
+  // ee.Geometry.Polygon accepts a ring list or a list of rings.
+  return ee.Geometry.Polygon(Array.isArray(coords[0][0]) ? coords : [coords]);
+}
+
+/* ------------------------------ index maths ------------------------------- */
+
+/**
+ * Coerce a band value to a number, rejecting the values that would silently
+ * become zero.
+ *
+ * `Number(null)` is 0 and `Number('')` is 0, so a missing band would otherwise
+ * produce a plausible-looking index from no data — the exact fabrication the
+ * project forbids. This mirrors the guard in `ndvi.js`.
+ */
+function toFiniteNumber(value) {
+  if (value === null || value === undefined || value === '' || typeof value === 'boolean') return Number.NaN;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : Number.NaN;
+}
+
+/**
+ * Enhanced Vegetation Index:
+ *   EVI = 2.5 * (NIR - RED) / (NIR + 6*RED - 7.5*BLUE + 1)
+ *
+ * Exported and unit-tested because it is easy to get subtly wrong, and because
+ * the denominator approaches zero for dark pixels — the Earth Engine expression
+ * below guards that, and this reference documents the formula it implements.
+ */
+export function computeEviFromBands(nir, red, blue) {
+  const n = toFiniteNumber(nir);
+  const r = toFiniteNumber(red);
+  const b = toFiniteNumber(blue);
+  if (!Number.isFinite(n) || !Number.isFinite(r) || !Number.isFinite(b)) return null;
+  const denom = n + 6 * r - 7.5 * b + 1;
+  if (denom === 0) return null;
+  return Number(((2.5 * (n - r)) / denom).toFixed(4));
+}
+
+/* ------------------------------- real path -------------------------------- */
+
+/**
+ * Mask clouds and cloud shadows, add NDVI and EVI, and return the best image.
+ *
+ * Cloud handling uses Cloud Score+ (`cs_cdf`), Google's current, actively
+ * maintained Sentinel-2 cloud score, rather than the deprecated `QA60` band it
+ * replaced on this collection. A pixel is kept when its score is above the
+ * threshold; shadow is handled by the same product, which is why the mask is a
+ * single quality band rather than two ad-hoc tests.
+ *
+ * Returns the *most recent sufficiently-clear* image plus its metadata. If no
+ * pass clears the threshold the caller reports that honestly instead of relaxing
+ * the threshold until something passes.
+ */
+function buildPreparedImage(ee, geometry) {
+  const collection = ee
+    .ImageCollection(S2_COLLECTION)
+    .filterBounds(geometry)
+    .filterDate(
+      ee.Date(Date.now()).advance(-config.gee.lookbackDays, 'day'),
+      ee.Date(Date.now()).advance(1, 'day'),
+    )
+    // Join Cloud Score+ by system:index so the quality band travels with the image.
+    .linkCollection(ee.ImageCollection(CLOUD_SCORE_COLLECTION), ['system:index']);
+
+  const withIndices = collection.map((image) => {
+    const clear = image.select('cs_cdf').gte(CLOUD_SCORE_CLEAR_THRESHOLD);
+    const ndvi = image.normalizedDifference(NDVI_BANDS).rename('NDVI');
+    const evi = image.expression(
+      '2.5 * ((NIR - RED) / (NIR + 6 * RED - 7.5 * BLUE + 1))',
+      {
+        NIR: image.select(EVI_INDEX_BANDS.nir),
+        RED: image.select(EVI_INDEX_BANDS.red),
+        BLUE: image.select(EVI_INDEX_BANDS.blue),
+      },
+    ).rename('EVI');
+    // Apply the mask to the indices only, so the region reducer sees exactly the
+    // valid pixels and nothing else.
+    return ndvi.updateMask(clear)
+      .addBands(evi.updateMask(clear))
+      .copyProperties(image, ['system:time_start', 'CLOUDY_PIXEL_PERCENTAGE', 'PRODUCT_ID']);
+  });
+
+  return withIndices
+    // Prefer the newest pass whose in-boundary pixels are mostly clear; sorting by
+    // scene cloud cover alone would favour a clear-elsewhere tile.
+    .sort('system:time_start', false);
+}
+
+/**
+ * Compute one real observation for a boundary.
+ *
+ * `reduceRegion` runs twice over the same geometry: once for the masked indices
+ * (so `pixelsValid` counts only clear pixels) and once for the total pixel count
+ * of the boundary. Their ratio is the valid-pixel coverage the API reports — a
+ * low percentage is the honest signal that an average rests on few clear pixels.
+ */
+async function computeViaEarthEngine({ geoJsonBoundary }) {
+  const ee = await initEarthEngine();
+  const geometry = toGeometry(ee, geoJsonBoundary);
+  const prepared = buildPreparedImage(ee, geometry);
+
+  const size = await evaluate(prepared.size());
+  if (!size) {
+    return {
+      status: 'FAILED',
+      failureReason: `No Sentinel-2 imagery was found for this boundary in the last ${config.gee.lookbackDays} days.`,
+      meanNdviValue: null,
+      source: 'SENTINEL-2',
+      isSimulated: false,
+    };
+  }
+
+  // Take the newest image, then check whether *it* is usable. Trying images until
+  // one passes would mean reporting an older date as if it were the latest.
+  const image = ee.Image(prepared.first());
+  const scale = 10; // B8/B4/B2 are all 10 m.
+
+  const reducer = ee.Reducer.mean();
+  const validCount = ee.Reducer.count();
+
+  const [meanResult, countResult, totalCount, meta] = await Promise.all([
+    evaluate(image.select(['NDVI', 'EVI']).reduceRegion({
+      reducer,
+      geometry,
+      scale,
+      maxPixels: 1e10,
+      bestEffort: true,
+    })),
+    evaluate(image.select('NDVI').reduceRegion({
+      reducer: validCount,
+      geometry,
+      scale,
+      maxPixels: 1e10,
+      bestEffort: true,
+    })),
+    // The boundary's own pixel count, unmasked: the denominator for coverage.
+    evaluate(ee.Image(1).reduceRegion({
+      reducer: ee.Reducer.count(),
+      geometry,
+      scale,
+      maxPixels: 1e10,
+      bestEffort: true,
+    })),
+    evaluate(ee.Dictionary({
+      sceneCloud: image.get('CLOUDY_PIXEL_PERCENTAGE'),
+      productId: image.get('PRODUCT_ID'),
+      timeStart: image.get('system:time_start'),
+    })),
+  ]);
+
+  const meanNdvi = meanResult?.NDVI ?? null;
+  if (meanNdvi === null || meanNdvi === undefined) {
+    return {
+      status: 'FAILED',
+      failureReason: 'Every pixel inside this boundary was cloud or cloud shadow in the latest pass.',
+      meanNdviValue: null,
+      source: 'SENTINEL-2',
+      isSimulated: false,
+      satelliteDate: toDateOnly(meta?.timeStart),
+    };
+  }
+
+  const pixelsValid = countResult?.NDVI ?? null;
+  const pixelsTotal = totalCount?.constant ?? null;
+  const validPixelPct = pixelsValid !== null && pixelsTotal
+    ? Number(((pixelsValid / pixelsTotal) * 100).toFixed(2))
+    : null;
+
+  const satelliteDate = toDateOnly(meta?.timeStart);
+  const sceneCloud = meta?.sceneCloud ?? null;
+
+  // The documented rule: imagery above the cloud threshold is unusable. Note this
+  // is the *scene* cloud cover over the whole tile, which is why coverage is also
+  // reported — a tile can be mostly clear while the plot itself is not.
+  if (!isCloudCoverUsable(sceneCloud)) {
+    return {
+      status: 'FAILED',
+      failureReason: `Cloud cover was ${sceneCloud}% on the latest pass (${satelliteDate}), above the ${config.gee.cloudCoverFailThreshold}% limit.`,
+      meanNdviValue: null,
+      cloudCover: sceneCloud,
+      validPixelPct,
+      satelliteDate,
+      source: 'SENTINEL-2',
+      isSimulated: false,
+    };
+  }
+
+  return {
+    status: 'GENERATED',
+    meanNdviValue: Number(Number(meanNdvi).toFixed(4)),
+    meanEviValue: meanResult?.EVI === null || meanResult?.EVI === undefined
+      ? null
+      : Number(Number(meanResult.EVI).toFixed(4)),
+    cloudCover: sceneCloud,
+    validPixelPct,
+    pixelCount: pixelsValid,
+    satelliteDate,
+    source: 'SENTINEL-2',
+    isSimulated: false,
+    sceneId: meta?.productId ?? null,
+    compressedVectorJson: buildCompressedVector(geoJsonBoundary, Number(meanNdvi)),
+  };
+}
+
+/** `system:time_start` is epoch milliseconds; a date-only string is what we store. */
+function toDateOnly(epochMs) {
+  if (epochMs === null || epochMs === undefined) return null;
+  const ms = Number(epochMs);
+  if (!Number.isFinite(ms)) return null;
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/* --------------------------------- public --------------------------------- */
+
+/**
  * Compute NDVI for a boundary. Returns:
- *   { status: 'GENERATED'|'FAILED', meanNdviValue, cloudCover, satelliteDate,
- *     source, failureReason, compressedVectorJson }
+ *   { status: 'GENERATED'|'FAILED', meanNdviValue, meanEviValue, cloudCover,
+ *     validPixelPct, satelliteDate, source, isSimulated, failureReason,
+ *     compressedVectorJson }
  */
 export async function computeNdvi({ plotId, geoJsonBoundary }) {
   const invalid = validatePolygon(geoJsonBoundary);
@@ -61,24 +382,26 @@ export async function computeNdvi({ plotId, geoJsonBoundary }) {
     return { status: 'FAILED', failureReason: invalid, meanNdviValue: null, source: 'VALIDATION' };
   }
 
-  // --- Real GEE path (requires configured credentials) ---------------------
-  if (config.gee.enabled && config.gee.serviceAccountEmail && config.gee.projectId) {
+  const availability = geeAvailability();
+
+  // --- Real GEE path -------------------------------------------------------
+  if (availability.ok) {
     try {
-      // The Earth Engine call is intentionally isolated. In a deployment with
-      // credentials this function performs the Sentinel-2 collection + reduceRegion.
-      return await computeViaEarthEngine({ plotId, geoJsonBoundary });
+      return await computeViaEarthEngine({ geoJsonBoundary });
     } catch (err) {
       return {
         status: 'FAILED',
+        // The internal error is kept off the wire; the API logs it and shows this.
         failureReason: 'Satellite imagery could not be processed at this time.',
         meanNdviValue: null,
         source: 'SENTINEL-2',
+        isSimulated: false,
         internal: err.message,
       };
     }
   }
 
-  // --- Deterministic mock path (no credentials configured) -----------------
+  // --- Deterministic mock path --------------------------------------------
   const mock = mockNdviForPlot(plotId);
   if (!isCloudCoverUsable(mock.cloudCover)) {
     return {
@@ -88,6 +411,7 @@ export async function computeNdvi({ plotId, geoJsonBoundary }) {
       cloudCover: mock.cloudCover,
       satelliteDate: mock.satelliteDate,
       source: mock.source,
+      isSimulated: true,
     };
   }
   return {
@@ -96,8 +420,114 @@ export async function computeNdvi({ plotId, geoJsonBoundary }) {
     cloudCover: mock.cloudCover,
     satelliteDate: mock.satelliteDate,
     source: mock.source,
+    isSimulated: true,
+    // GEE was asked for but is not usable — say why rather than only labelling
+    // the value as simulated.
+    providerReason: availability.reason,
     compressedVectorJson: buildCompressedVector(geoJsonBoundary, mock.meanNdviValue),
   };
+}
+
+/**
+ * A full NDVI/EVI series for a boundary, straight from Earth Engine.
+ *
+ * This exists so the Node API can produce a real series without the optional
+ * FastAPI `crop-api/` service. It maps every usable pass in the window and
+ * reduces each one, which is one Earth Engine round trip per image — acceptable
+ * for a plot-sized boundary over a season, and cached by the caller.
+ *
+ * Returns the same shape `observations.js` produces from crop-api, so the
+ * analysis engine, the colour map and the database see one contract.
+ */
+export async function fetchGeeSeries({ geoJsonBoundary, days = config.satellite.defaultDays }) {
+  const invalid = validatePolygon(geoJsonBoundary);
+  if (invalid) {
+    return { available: false, source: null, isSimulated: false, readings: [], reason: invalid };
+  }
+  const availability = geeAvailability();
+  if (!availability.ok) {
+    return { available: false, source: null, isSimulated: false, readings: [], reason: availability.reason };
+  }
+
+  try {
+    const ee = await initEarthEngine();
+    const geometry = toGeometry(ee, geoJsonBoundary);
+    const start = ee.Date(Date.now()).advance(-Math.abs(days), 'day');
+
+    const collection = ee
+      .ImageCollection(S2_COLLECTION)
+      .filterBounds(geometry)
+      .filterDate(start, ee.Date(Date.now()).advance(1, 'day'))
+      .linkCollection(ee.ImageCollection(CLOUD_SCORE_COLLECTION), ['system:index'])
+      .map((image) => {
+        const clear = image.select('cs_cdf').gte(CLOUD_SCORE_CLEAR_THRESHOLD);
+        const ndvi = image.normalizedDifference(NDVI_BANDS).rename('NDVI').updateMask(clear);
+        const evi = image.expression(
+          '2.5 * ((NIR - RED) / (NIR + 6 * RED - 7.5 * BLUE + 1))',
+          {
+            NIR: image.select(EVI_INDEX_BANDS.nir),
+            RED: image.select(EVI_INDEX_BANDS.red),
+            BLUE: image.select(EVI_INDEX_BANDS.blue),
+          },
+        ).rename('EVI').updateMask(clear);
+
+        const reduced = ndvi.addBands(evi).reduceRegion({
+          reducer: ee.Reducer.mean().combine({
+            reducer2: ee.Reducer.count(),
+            sharedInputs: false,
+          }),
+          geometry,
+          scale: 10,
+          maxPixels: 1e10,
+          bestEffort: true,
+        });
+
+        return ee.Feature(null, {
+          date: image.date().format('YYYY-MM-dd'),
+          ndvi: reduced.get('NDVI_mean'),
+          evi: reduced.get('EVI_mean'),
+          pixels: reduced.get('NDVI_count'),
+          cloudPct: image.get('CLOUDY_PIXEL_PERCENTAGE'),
+        });
+      });
+
+    const features = await evaluate(collection);
+    const rows = (features?.features ?? [])
+      .map((f) => f.properties)
+      .filter((p) => p && p.date && Number.isFinite(Number(p.ndvi)))
+      .map((p) => ({
+        date: p.date,
+        ndvi: Number(Number(p.ndvi).toFixed(4)),
+        evi: p.evi === null || p.evi === undefined ? null : Number(Number(p.evi).toFixed(4)),
+        pixels: p.pixels === null || p.pixels === undefined ? null : Number(p.pixels),
+        cloudPct: p.cloudPct === null || p.cloudPct === undefined ? null : Number(p.cloudPct),
+        source: 'SENTINEL-2',
+        isSimulated: false,
+      }))
+      // Oldest first, matching the mock and crop-api series.
+      .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+    if (rows.length === 0) {
+      return {
+        available: false,
+        source: 'SENTINEL-2',
+        isSimulated: false,
+        readings: [],
+        reason: `No clear Sentinel-2 passes were found for this boundary in the last ${days} days.`,
+      };
+    }
+
+    return { available: true, source: 'SENTINEL-2', isSimulated: false, readings: rows, skipped: [] };
+  } catch (err) {
+    return {
+      available: false,
+      source: null,
+      isSimulated: false,
+      readings: [],
+      reason: 'The satellite processor could not be reached.',
+      internal: err.message,
+    };
+  }
 }
 
 /** Compressed vector alert: a compact ring plus a scalar value (docs: "compressed vector alert"). */
@@ -114,50 +544,12 @@ export function buildCompressedVector(geoJson, meanNdvi) {
   return { type: 'Feature', properties: { ndvi: meanNdvi }, geometry: { type: 'Polygon', coordinates: [simplified] } };
 }
 
-/**
- * Real Earth Engine implementation placeholder. Wiring this requires the `@google/earthengine`
- * package and a service-account key; both are documented in docs/07.
- */
-async function computeViaEarthEngine({ geoJsonBoundary }) {
-  // eslint-disable-next-line global-require
-  const ee = (await import('@google/earthengine')).default;
-  if (!ee?.data) throw new Error('Earth Engine client not initialised');
-
-  ee.data.setPrivateKey(config.gee.privateKey);
-  await new Promise((resolve, reject) => {
-    ee.data.authenticateViaPrivateKey(
-      config.gee.privateKey,
-      () => ee.initialize(null, null, resolve, reject, config.gee.projectId),
-      reject,
-    );
-  });
-  // Sentinel-2 Surface Reflectance: B8 = NIR, B4 = RED.
-  const geometry = ee.Geometry.Polygon(
-    geoJsonBoundary.type === 'Feature'
-      ? geoJsonBoundary.geometry.coordinates
-      : geoJsonBoundary.coordinates,
-  );
-  const collection = ee
-    .ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
-    .filterBounds(geometry)
-    .filterDate(ee.Date(Date.now()).advance(-60, 'day'), ee.Date(Date.now()))
-    .sort('CLOUDY_PIXEL_PERCENTAGE');
-  const image = ee.Image(collection.first());
-  const cloudCover = await new Promise((res, rej) => image.get('CLOUDY_PIXEL_PERCENTAGE').evaluate((v, e) => (e ? rej(e) : res(v))));
-  if (!isCloudCoverUsable(cloudCover)) {
-    return { status: 'FAILED', failureReason: 'Cloud cover above 80%.', meanNdviValue: null, cloudCover, source: 'SENTINEL-2' };
-  }
-  const ndvi = image.normalizedDifference(['B8', 'B4']).rename('NDVI');
-  const reduced = await new Promise((res, rej) =>
-    ndvi.reduceRegion({ reducer: ee.Reducer.mean(), geometry, scale: 10, maxPixels: 1e9 }).evaluate((v, e) => (e ? rej(e) : res(v))));
-  return {
-    status: 'GENERATED',
-    meanNdviValue: Number(Number(reduced.NDVI).toFixed(4)),
-    cloudCover,
-    satelliteDate: new Date().toISOString().slice(0, 10),
-    source: 'SENTINEL-2',
-    compressedVectorJson: buildCompressedVector(geoJsonBoundary, Number(reduced.NDVI)),
-  };
-}
-
-export default { computeNdvi, estimateAreaHectares, buildCompressedVector };
+export default {
+  computeNdvi,
+  fetchGeeSeries,
+  geeAvailability,
+  estimateAreaHectares,
+  buildCompressedVector,
+  computeEviFromBands,
+  resetEarthEngine,
+};

@@ -54,16 +54,79 @@ delivery needs implementing before it can be enabled.
 | Item | Needed |
 |------|--------|
 | 🟡 GEE access | A Google account registered for Earth Engine (cloud or non-commercial project) |
-| 🟡 Service account | `GEE_SERVICE_ACCOUNT_EMAIL` + `GEE_PRIVATE_KEY` (JSON key, never committed) |
-| 🟡 Project | `GEE_PROJECT_ID` |
+| 🟡 Service account | A **service-account key**, supplied as `GEE_KEY_FILE` (a mounted JSON file) or `GEE_KEY_JSON` |
+| 🟡 Project | `GEE_PROJECT_ID` (read from the key file when it is used) |
 | 🟡 Cost plan | Earth Engine is free for research/non-commercial; commercial use requires a plan |
-| 🟡 Asset permission | The service account must be granted access to the project |
+| 🟡 Asset permission | The service account must be granted the **Earth Engine Resource Viewer** role |
 
-**Current behaviour:** `GEE_ENABLED=false`. The pipeline (`POST /satellite/ndvi` → validate polygon →
-compute → classify → cache) runs against a **deterministic mock** generator that is always tagged
-`source: "MOCK"` in the API response and never presented as real satellite data. The real
-implementation (`computeViaEarthEngine` in `src/services/gee.js`) is written and ready but requires
-the `@google/earthengine` package and credentials.
+> ### ⚠ An API key cannot be used for Earth Engine
+>
+> Google Maps uses an `AIzaSy…` API key. **Earth Engine does not accept one**, and Google's own
+> error says so:
+>
+> ```json
+> { "code": 401,
+>   "message": "API keys are not supported by this API. Expected OAuth2 access token or other
+>               authentication credentials that assert a principal." }
+> ```
+>
+> It needs a **service-account private key** (a JSON file whose `private_key` is a PEM block).
+> A Gmail address such as `someone@gmail.com` is a *user* account and cannot be used by a server —
+> it would require an interactive browser sign-in. See §2.1 for how to create the right credential.
+
+**Current behaviour:** `GEE_ENABLED=false`. The pipeline runs against a **deterministic mock**
+generator that is always tagged `source: "MOCK"` / `isSimulated: true` in the API response and
+never presented as real satellite data.
+
+**Implemented (ready for credentials):** the real Earth Engine path in `src/services/gee.js`:
+
+- **Sentinel-2 SR Harmonized** (`COPERNICUS/S2_SR_HARMONIZED`), Band 8 (NIR) / Band 4 (RED) /
+  Band 2 (BLUE) at 10 m.
+- **Cloud and cloud-shadow masking** via **Cloud Score+** (`GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED`,
+  the `cs_cdf` band) — the current, actively maintained cloud product for this collection, rather
+  than the deprecated `QA60` band it replaced. A pixel is kept when its score is above
+  `CLOUD_SCORE_CLEAR_THRESHOLD` (0.60).
+- **NDVI** `(NIR-RED)/(NIR+RED)` and **EVI** `2.5*(NIR-RED)/(NIR+6RED-7.5BLUE+1)`, averaged over
+  the valid in-boundary pixels only.
+- **The imagery's own acquisition date** (`system:time_start`), never today's date.
+- **Valid-pixel coverage** — the clear pixel count over the boundary's total pixel count, so a low
+  percentage is visible rather than hidden.
+- A pass above `NDVI_CLOUD_COVER_FAIL_THRESHOLD` (default 80%) **fails with a dated reason**. A
+  fully-masked pass is reported as such, **never as a zero average** — an empty reduction is not
+  "no vegetation".
+
+The Node API can now produce a real series **without** the FastAPI `crop-api/` service: with
+`GEE_ENABLED=true`, `fetchObservations` uses Earth Engine directly (`fetchGeeSeries`) after
+crop-api and before the mock.
+
+**Tests:** `tests/unit/gee.test.js` (24) and `tests/unit/geeCredentials.test.js` (11).
+
+### 2.1 Creating the service-account key
+
+1. **Enable the API** — [Earth Engine](https://console.cloud.google.com/apis/library/earthengine.googleapis.com)
+   → **Enable** on project `agriconnect-512210`.
+2. **Register the project for Earth Engine** at
+   [code.earthengine.google.com/register](https://code.earthengine.google.com/register). A
+   non-commercial/research registration is free; pick the same Cloud project.
+3. **Create a service account** — IAM & Admin → Service Accounts → **Create**. Name it e.g.
+   `agri-satellite`.
+4. **Grant it a role** — add the role **Earth Engine Resource Viewer**
+   (`roles/earthengine.viewer`) on the project.
+5. **Create its key** — open the service account → Keys → **Add key → Create new key → JSON**.
+   A `.json` file downloads. **This file is a live secret**: it cannot be rotated by a console
+   toggle, and anyone holding it can read your Earth Engine assets.
+6. **Supply it to the server**, in your preferred shape:
+
+   | Where | How |
+   |-------|-----|
+   | Local dev | `GEE_KEY_FILE=C:\path\to\key.json` in `backend/.env` |
+   | Render (recommended) | Upload as a **Secret File**, then set `GEE_KEY_FILE=/etc/secrets/<name>.json` |
+   | Any host without file mounts | `GEE_KEY_JSON={"type":"service_account",...}` (store it as a secret, not a plain env var) |
+
+7. **Switch it on** — set `GEE_ENABLED=true`, then redeploy.
+
+If `GEE_ENABLED=true` but the key fails to load, the backend **refuses to start in production**
+rather than silently serving mock data that looks real.
 
 ---
 
