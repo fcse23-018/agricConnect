@@ -27,8 +27,65 @@ async function sendViaSmtp(_msg) {
   throw new Error('SMTP provider not configured');
 }
 
-async function sendViaTwilio(_msg) {
-  throw new Error('Twilio provider not configured');
+/**
+ * Send an SMS through the Twilio REST API.
+ *
+ * A plain HTTPS POST rather than the `twilio` SDK: the SDK is a large dependency
+ * for one call, and this keeps the credentials handling visible. Twilio
+ * authenticates with HTTP Basic (account SID : auth token), and returns 201 with
+ * the message SID on success.
+ *
+ * Every failure is thrown so `deliver()` records it in `message_outbox` with the
+ * reason. A code that was never sent must never look sent: the caller (password
+ * reset / verification) relies on `delivered` being honest.
+ */
+async function sendViaTwilio({ destination, body }) {
+  const { accountSid, authToken, from } = config.delivery.twilio;
+  if (!accountSid || !authToken || !from) {
+    throw new Error('Twilio credentials are incomplete (need TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM)');
+  }
+
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(accountSid)}/Messages.json`;
+  const form = new URLSearchParams({ To: destination, From: from, Body: body });
+  const auth = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  let res;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${auth}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: form.toString(),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err.name === 'AbortError') throw new Error('Twilio request timed out after 15s');
+    throw new Error(`Twilio request failed: ${err.message}`);
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const text = await res.text();
+  let parsed = null;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    // Non-JSON body (an HTML error page, say). Reported below with the status.
+  }
+
+  if (!res.ok) {
+    // Twilio's own error text is the most useful thing to log; it says whether
+    // the number is unverified, the sender is invalid, or the account is out of
+    // credit — all problems the operator must see rather than guess at.
+    const detail = parsed?.message || text.slice(0, 300) || 'no response body';
+    throw new Error(`Twilio rejected the message (HTTP ${res.status}): ${detail}`);
+  }
+
+  return { sid: parsed?.sid ?? null, status: parsed?.status ?? null };
 }
 
 /**
@@ -45,8 +102,11 @@ export async function deliver({ channel, destination, subject, body, devCode }) 
       await sendViaSmtp({ destination, subject, body });
       result.delivered = true;
     } else if (provider === 'TWILIO' && channel === 'SMS') {
-      await sendViaTwilio({ destination, body });
+      const sent = await sendViaTwilio({ destination, body });
       result.delivered = true;
+      // Record Twilio's message SID so a sent message can be traced in the
+      // Twilio console from its outbox row.
+      result.providerRef = sent?.sid ?? null;
     } else {
       // NONE / OUTBOX — persisted only. Explicitly not delivered.
       result.provider = 'OUTBOX';
@@ -56,7 +116,16 @@ export async function deliver({ channel, destination, subject, body, devCode }) 
     result.error = err.message;
   }
 
-  await record({ channel, destination, subject, body, provider: result.provider, delivered: result.delivered, error: result.error });
+  await record({
+    channel,
+    destination,
+    subject,
+    body,
+    provider: result.provider,
+    delivered: result.delivered,
+    providerRef: result.providerRef,
+    error: result.error,
+  });
 
   if (config.delivery.exposeDevCodes && devCode) {
     result.devCode = devCode;

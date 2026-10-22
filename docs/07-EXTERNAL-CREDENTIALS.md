@@ -25,6 +25,28 @@ code is written to the `message_outbox` table instead of being sent. With `EXPOS
 > **This means password recovery does not reach real users until a provider is configured.** The
 > backend refuses to start in production if `DELIVERY_PROVIDER` is `NONE`/`OUTBOX`.
 
+### Twilio (SMS) — implemented
+
+`DELIVERY_PROVIDER=TWILIO` sends through the Twilio REST API (`services/delivery.js`,
+`sendViaTwilio`) using HTTPS Basic auth — no `twilio` SDK dependency. Set
+`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_FROM`.
+
+- The returned message SID is stored in `message_outbox.provider_ref`, so a sent message can be
+  traced in the Twilio console from its outbox row.
+- **A failure is never reported as a delivery.** An incomplete configuration, a non-2xx response
+  (Twilio's own error text is kept, e.g. "number is unverified"), a transport error and a 15-second
+  timeout all set `delivered=false` and record the reason. `tests/unit/twilioDelivery.test.js`
+  pins this: the password-reset flow trusts `delivered`, so a swallowed error would tell a farmer
+  their code was sent when nothing left the server.
+- **Trial accounts can only message numbers verified in the Twilio console**
+  (Phone Numbers → Verified Caller IDs). Sending to an unverified number fails with Twilio error
+  21608 and is recorded as a failure. Upgrade the account before real use.
+
+### SMTP (email) — NOT implemented
+
+`DELIVERY_PROVIDER=SMTP` still throws (`sendViaSmtp`), so email is recorded as a failure. Email
+delivery needs implementing before it can be enabled.
+
 ---
 
 ## 2. Google Earth Engine / Sentinel-2 (NDVI)
