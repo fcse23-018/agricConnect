@@ -16,13 +16,23 @@ import { join } from 'node:path';
  *
  * `config/index.js` reads the environment at import time, so each case sets the
  * env, resets the module registry, and re-imports.
+ *
+ * Hermeticity matters here: `dotenv` would otherwise load the developer's real
+ * `backend/.env`, whose `GEE_KEY_FILE`/`GEE_ENABLED` would shadow everything these
+ * tests set up. `DOTENV_CONFIG_PATH` points it at a file that does not exist, so
+ * each case sees only the variables it declares.
  */
 
 let dir;
+let savedDotenvPath;
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'gee-creds-'));
   jest.resetModules();
+  // Detach from any real .env before importing the config module.
+  savedDotenvPath = process.env.DOTENV_CONFIG_PATH;
+  process.env.DOTENV_CONFIG_PATH = join(dir, 'no-such-env-file');
+  delete process.env.GEE_ENABLED;
   delete process.env.GEE_KEY_FILE;
   delete process.env.GEE_KEY_JSON;
   delete process.env.GEE_PRIVATE_KEY;
@@ -32,6 +42,9 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
+  if (savedDotenvPath === undefined) delete process.env.DOTENV_CONFIG_PATH;
+  else process.env.DOTENV_CONFIG_PATH = savedDotenvPath;
+  delete process.env.GEE_ENABLED;
   delete process.env.GEE_KEY_FILE;
   delete process.env.GEE_KEY_JSON;
   delete process.env.GEE_PRIVATE_KEY;
@@ -150,6 +163,44 @@ describe('raw env fields (legacy)', () => {
     // The literal \n must become a real newline, or the PEM will not parse.
     expect(config.gee.privateKey).toContain('\n');
     expect(config.gee.privateKey).not.toContain('\\n');
+  });
+});
+
+describe('relative path resolution', () => {
+  it('resolves a path given relative to the backend directory', async () => {
+    // The natural spelling inside backend/.env: the file sits in backend/secrets/.
+    const rel = 'secrets/relative-key.json';
+    writeFileSync(join(process.cwd(), rel), VALID_KEY, 'utf8');
+    process.env.GEE_KEY_FILE = rel;
+    try {
+      const config = await loadConfig();
+      expect(config.gee.credentialSource).toBe('file');
+      expect(config.gee.projectId).toBe('agriconnect-512210');
+    } finally {
+      rmSync(join(process.cwd(), rel), { force: true });
+    }
+  });
+
+  it('resolves a path given relative to the repository root', async () => {
+    // A developer who starts the process from the repo root writes
+    // `backend/secrets/...`; both spellings must work.
+    const rel = 'backend/secrets/root-relative-key.json';
+    const abs = join(process.cwd(), '..', rel);
+    writeFileSync(abs, VALID_KEY, 'utf8');
+    process.env.GEE_KEY_FILE = rel;
+    try {
+      const config = await loadConfig();
+      expect(config.gee.credentialSource).toBe('file');
+      expect(config.gee.projectId).toBe('agriconnect-512210');
+    } finally {
+      rmSync(abs, { force: true });
+    }
+  });
+
+  it('still reports a genuinely missing relative path', async () => {
+    process.env.GEE_KEY_FILE = 'secrets/definitely-not-here.json';
+    const config = await loadConfig();
+    expect(config.gee.credentialProblem).toMatch(/could not be read/i);
   });
 });
 

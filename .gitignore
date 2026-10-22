@@ -13,8 +13,11 @@ Thumbs.db
 *.jks
 keystore.properties
 service-account*.json
-*.pem
+# Google Cloud service-account keys are named "<project>-<keyid>.json" when
+# downloaded, which `service-account*.json` does NOT match. This pattern does.
+*-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f].json
 secrets/
+*.pem
 
 # ---- Node / backend ----
 node_modules/

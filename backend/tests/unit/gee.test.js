@@ -321,8 +321,8 @@ describe('computeNdvi with credentials', () => {
     enableGee();
     evaluateQueue = [
       1,
-      { NDVI: null, EVI: null }, // every in-boundary pixel was cloud or shadow
-      { NDVI: 0 },
+      { NDVI: 0, EVI: 0 }, // an empty reduction returns 0, not null
+      { NDVI: 0 }, // ...and zero valid pixels is the reliable signal
       { constant: 1000 },
       { sceneCloud: 5, productId: 'S2_masked', timeStart: Date.UTC(2026, 9, 14) },
     ];
@@ -330,9 +330,28 @@ describe('computeNdvi with credentials', () => {
     const res = await computeNdvi({ plotId: 'p', geoJsonBoundary: SQUARE });
 
     expect(res.status).toBe('FAILED');
-    // Crucially NOT 0 — an empty reduction is not "no vegetation".
+    // Crucially NOT 0 — Earth Engine returns 0 for a mean over an empty set, and
+    // reporting that as NDVI would read as "bare soil" instead of "not seen".
     expect(res.meanNdviValue).toBeNull();
     expect(res.failureReason).toMatch(/cloud or cloud shadow/i);
+  });
+
+  it('decides usability from the pixel count, not the mean', async () => {
+    enableGee();
+    // The trap this guards: a plausible-looking NDVI with zero valid pixels.
+    // Trusting the mean here would publish 0.4 from a completely masked pass.
+    evaluateQueue = [
+      1,
+      { NDVI: 0.4, EVI: 0.3 },
+      { NDVI: 0 },
+      { constant: 1000 },
+      { sceneCloud: 2, productId: 'S2_x', timeStart: Date.UTC(2026, 9, 14) },
+    ];
+
+    const res = await computeNdvi({ plotId: 'p', geoJsonBoundary: SQUARE });
+
+    expect(res.status).toBe('FAILED');
+    expect(res.meanNdviValue).toBeNull();
   });
 
   it('reports an empty collection as no imagery, with the window it searched', async () => {
@@ -392,6 +411,50 @@ describe('fetchGeeSeries', () => {
   it('is unavailable for an unusable boundary', async () => {
     const res = await fetchGeeSeries({ geoJsonBoundary: { type: 'Polygon', coordinates: [] } });
     expect(res.available).toBe(false);
+  });
+
+  it('drops all-cloud passes instead of recording a zero NDVI for them', async () => {
+    enableGee();
+    // The live bug this pins: with a 100%-cloud pass, every pixel is masked, and
+    // Earth Engine returns 0 for the mean. Five such rows arrived as
+    // `ndvi: 0` — reading as bare soil — before the pixel count was used as the
+    // test of whether anything was actually measured.
+    evaluateQueue = [
+      {
+        features: [
+          { properties: { date: '2026-09-05', ndvi: 0, evi: null, pixels: 0, cloudPct: 99.99 } },
+          { properties: { date: '2026-09-10', ndvi: 0.2257, evi: 0.5667, pixels: 44848, cloudPct: 19.17 } },
+        ],
+      },
+    ];
+
+    const res = await fetchGeeSeries({ geoJsonBoundary: SQUARE, days: 60 });
+
+    expect(res.available).toBe(true);
+    expect(res.source).toBe('SENTINEL-2');
+    expect(res.isSimulated).toBe(false);
+    // Only the real observation survives.
+    expect(res.readings).toHaveLength(1);
+    expect(res.readings[0].date).toBe('2026-09-10');
+    expect(res.readings[0].ndvi).toBeCloseTo(0.2257, 4);
+    expect(res.readings.every((r) => r.ndvi !== 0)).toBe(true);
+  });
+
+  it('is unavailable when every pass was cloud-masked, rather than empty-available', async () => {
+    enableGee();
+    evaluateQueue = [
+      {
+        features: [
+          { properties: { date: '2026-09-05', ndvi: 0, evi: null, pixels: 0, cloudPct: 99.99 } },
+        ],
+      },
+    ];
+
+    const res = await fetchGeeSeries({ geoJsonBoundary: SQUARE, days: 60 });
+
+    expect(res.available).toBe(false);
+    expect(res.readings).toEqual([]);
+    expect(res.reason).toMatch(/no clear sentinel-2 passes/i);
   });
 });
 

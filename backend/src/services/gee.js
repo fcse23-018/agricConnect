@@ -31,6 +31,17 @@ const EVI_INDEX_BANDS = { nir: 'B8', red: 'B4', blue: 'B2' };
 /** Cloud Score+ is the current, non-deprecated Sentinel-2 cloud masker. */
 const CLOUD_SCORE_COLLECTION = 'GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED';
 
+/**
+ * The band Cloud Score+ is linked on.
+ *
+ * `linkCollection` matches by BAND, not by property, so this must name the QA
+ * band — Google's own documented example uses exactly this form:
+ *   `.linkCollection(csPlus, [QA_BAND])` with `QA_BAND = 'cs_cdf'`.
+ * Passing `system:index` here fails with "Match image does not have a band named
+ * 'system:index'" (system:index is a property).
+ */
+const CLOUD_SCORE_BAND = 'cs_cdf';
+
 /** A Cloud Score+ score at or below this is treated as cloud (higher = clearer). */
 const CLOUD_SCORE_CLEAR_THRESHOLD = 0.60;
 
@@ -217,11 +228,12 @@ function buildPreparedImage(ee, geometry) {
       ee.Date(Date.now()).advance(-config.gee.lookbackDays, 'day'),
       ee.Date(Date.now()).advance(1, 'day'),
     )
-    // Join Cloud Score+ by system:index so the quality band travels with the image.
-    .linkCollection(ee.ImageCollection(CLOUD_SCORE_COLLECTION), ['system:index']);
+    // Join Cloud Score+ by its QA BAND (not system:index, which is a property
+    // and fails: "Match image does not have a band named 'system:index'").
+    .linkCollection(ee.ImageCollection(CLOUD_SCORE_COLLECTION), [CLOUD_SCORE_BAND]);
 
   const withIndices = collection.map((image) => {
-    const clear = image.select('cs_cdf').gte(CLOUD_SCORE_CLEAR_THRESHOLD);
+    const clear = image.select(CLOUD_SCORE_BAND).gte(CLOUD_SCORE_CLEAR_THRESHOLD);
     const ndvi = image.normalizedDifference(NDVI_BANDS).rename('NDVI');
     const evi = image.expression(
       '2.5 * ((NIR - RED) / (NIR + 6 * RED - 7.5 * BLUE + 1))',
@@ -306,11 +318,29 @@ async function computeViaEarthEngine({ geoJsonBoundary }) {
     })),
   ]);
 
-  const meanNdvi = meanResult?.NDVI ?? null;
-  if (meanNdvi === null || meanNdvi === undefined) {
+  const pixelsValid = toFiniteNumber(countResult?.NDVI);
+  const pixelsTotal = toFiniteNumber(totalCount?.constant);
+
+  // The pixel COUNT, not the mean, decides whether anything was measured.
+  // `reduceRegion` returns 0 for a mean over an empty set, so an all-cloud pass
+  // would otherwise arrive as NDVI = 0.0 — "bare soil" instead of "not seen".
+  if (!Number.isFinite(pixelsValid) || pixelsValid <= 0) {
     return {
       status: 'FAILED',
       failureReason: 'Every pixel inside this boundary was cloud or cloud shadow in the latest pass.',
+      meanNdviValue: null,
+      meanEviValue: null,
+      source: 'SENTINEL-2',
+      isSimulated: false,
+      satelliteDate: toDateOnly(meta?.timeStart),
+    };
+  }
+
+  const meanNdvi = toFiniteNumber(meanResult?.NDVI);
+  if (!Number.isFinite(meanNdvi)) {
+    return {
+      status: 'FAILED',
+      failureReason: 'The satellite image could not be reduced for this boundary.',
       meanNdviValue: null,
       source: 'SENTINEL-2',
       isSimulated: false,
@@ -318,9 +348,8 @@ async function computeViaEarthEngine({ geoJsonBoundary }) {
     };
   }
 
-  const pixelsValid = countResult?.NDVI ?? null;
-  const pixelsTotal = totalCount?.constant ?? null;
-  const validPixelPct = pixelsValid !== null && pixelsTotal
+  const meanEvi = toFiniteNumber(meanResult?.EVI);
+  const validPixelPct = Number.isFinite(pixelsTotal) && pixelsTotal > 0
     ? Number(((pixelsValid / pixelsTotal) * 100).toFixed(2))
     : null;
 
@@ -345,10 +374,8 @@ async function computeViaEarthEngine({ geoJsonBoundary }) {
 
   return {
     status: 'GENERATED',
-    meanNdviValue: Number(Number(meanNdvi).toFixed(4)),
-    meanEviValue: meanResult?.EVI === null || meanResult?.EVI === undefined
-      ? null
-      : Number(Number(meanResult.EVI).toFixed(4)),
+    meanNdviValue: Number(meanNdvi.toFixed(4)),
+    meanEviValue: Number.isFinite(meanEvi) ? Number(meanEvi.toFixed(4)) : null,
     cloudCover: sceneCloud,
     validPixelPct,
     pixelCount: pixelsValid,
@@ -356,7 +383,7 @@ async function computeViaEarthEngine({ geoJsonBoundary }) {
     source: 'SENTINEL-2',
     isSimulated: false,
     sceneId: meta?.productId ?? null,
-    compressedVectorJson: buildCompressedVector(geoJsonBoundary, Number(meanNdvi)),
+    compressedVectorJson: buildCompressedVector(geoJsonBoundary, meanNdvi),
   };
 }
 
@@ -458,9 +485,10 @@ export async function fetchGeeSeries({ geoJsonBoundary, days = config.satellite.
       .ImageCollection(S2_COLLECTION)
       .filterBounds(geometry)
       .filterDate(start, ee.Date(Date.now()).advance(1, 'day'))
-      .linkCollection(ee.ImageCollection(CLOUD_SCORE_COLLECTION), ['system:index'])
+      // Join by the QA band, as above.
+      .linkCollection(ee.ImageCollection(CLOUD_SCORE_COLLECTION), [CLOUD_SCORE_BAND])
       .map((image) => {
-        const clear = image.select('cs_cdf').gte(CLOUD_SCORE_CLEAR_THRESHOLD);
+        const clear = image.select(CLOUD_SCORE_BAND).gte(CLOUD_SCORE_CLEAR_THRESHOLD);
         const ndvi = image.normalizedDifference(NDVI_BANDS).rename('NDVI').updateMask(clear);
         const evi = image.expression(
           '2.5 * ((NIR - RED) / (NIR + 6 * RED - 7.5 * BLUE + 1))',
@@ -471,11 +499,19 @@ export async function fetchGeeSeries({ geoJsonBoundary, days = config.satellite.
           },
         ).rename('EVI').updateMask(clear);
 
-        const reduced = ndvi.addBands(evi).reduceRegion({
-          reducer: ee.Reducer.mean().combine({
-            reducer2: ee.Reducer.count(),
-            sharedInputs: false,
-          }),
+        // Two explicit reducers rather than `combine`, whose output naming is easy
+        // to get wrong (`NDVI_count` does not exist with sharedInputs:false).
+        // `count` is run on the same masked NDVI band, so the pixel count is
+        // exactly the number of clear in-boundary pixels the mean came from.
+        const means = ndvi.addBands(evi).reduceRegion({
+          reducer: ee.Reducer.mean(),
+          geometry,
+          scale: 10,
+          maxPixels: 1e10,
+          bestEffort: true,
+        });
+        const counts = ndvi.reduceRegion({
+          reducer: ee.Reducer.count(),
           geometry,
           scale: 10,
           maxPixels: 1e10,
@@ -484,9 +520,9 @@ export async function fetchGeeSeries({ geoJsonBoundary, days = config.satellite.
 
         return ee.Feature(null, {
           date: image.date().format('YYYY-MM-dd'),
-          ndvi: reduced.get('NDVI_mean'),
-          evi: reduced.get('EVI_mean'),
-          pixels: reduced.get('NDVI_count'),
+          ndvi: means.get('NDVI'),
+          evi: means.get('EVI'),
+          pixels: counts.get('NDVI'),
           cloudPct: image.get('CLOUDY_PIXEL_PERCENTAGE'),
         });
       });
@@ -494,16 +530,29 @@ export async function fetchGeeSeries({ geoJsonBoundary, days = config.satellite.
     const features = await evaluate(collection);
     const rows = (features?.features ?? [])
       .map((f) => f.properties)
-      .filter((p) => p && p.date && Number.isFinite(Number(p.ndvi)))
-      .map((p) => ({
-        date: p.date,
-        ndvi: Number(Number(p.ndvi).toFixed(4)),
-        evi: p.evi === null || p.evi === undefined ? null : Number(Number(p.evi).toFixed(4)),
-        pixels: p.pixels === null || p.pixels === undefined ? null : Number(p.pixels),
-        cloudPct: p.cloudPct === null || p.cloudPct === undefined ? null : Number(p.cloudPct),
-        source: 'SENTINEL-2',
-        isSimulated: false,
-      }))
+      // A pass where every in-boundary pixel was masked carries NO observation.
+      // Earth Engine's `reduceRegion` returns 0 for a mean over an empty set, and
+      // recording that as NDVI = 0.0 would read as "bare soil" when the truth is
+      // "we could not see the ground". Such a pass is dropped, not reported as a
+      // zero: the honest answer is that no measurement exists.
+      .filter((p) => p && p.date && Number(p.pixels) > 0)
+      .map((p) => {
+        const ndvi = toFiniteNumber(p.ndvi);
+        const evi = toFiniteNumber(p.evi);
+        return {
+          date: p.date,
+          // Still null if the reducer produced something non-finite, rather than
+          // surfacing a number that was never measured.
+          ndvi: Number.isFinite(ndvi) ? Number(ndvi.toFixed(4)) : null,
+          evi: Number.isFinite(evi) ? Number(evi.toFixed(4)) : null,
+          pixels: Number(p.pixels),
+          cloudPct: Number.isFinite(toFiniteNumber(p.cloudPct)) ? Number(Number(p.cloudPct).toFixed(2)) : null,
+          source: 'SENTINEL-2',
+          isSimulated: false,
+        };
+      })
+      // A row is only useful if it carries at least one index.
+      .filter((r) => r.ndvi !== null || r.evi !== null)
       // Oldest first, matching the mock and crop-api series.
       .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 

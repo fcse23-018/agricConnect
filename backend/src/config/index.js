@@ -1,6 +1,12 @@
 import 'dotenv/config';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
+import { isAbsolute, resolve, dirname } from 'node:path';
+
+/** The backend package directory (`<repo>/backend`), for resolving relative paths. */
+const BACKEND_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+/** The repository root (`<repo>`), the other sensible anchor. */
+const REPO_DIR = resolve(BACKEND_DIR, '..');
 
 function bool(v, def = false) {
   if (v === undefined || v === '') return def;
@@ -68,11 +74,35 @@ function resolveGeeCredentials() {
   };
 
   if (process.env.GEE_KEY_FILE) {
-    let raw;
-    try {
-      raw = readFileSync(process.env.GEE_KEY_FILE, 'utf8');
-    } catch (err) {
-      result.problem = `GEE_KEY_FILE could not be read (${err.code || err.message})`;
+    const configured = process.env.GEE_KEY_FILE;
+    // Resolve a relative path against several anchors, because the natural
+    // spelling depends on where the operator starts the process:
+    //   from the repo root  -> `backend/secrets/key.json`
+    //   from backend/       -> `secrets/key.json`
+    // An absolute path (a Render secret mount) is used exactly as given.
+    // Everything else is a genuine "file not found", reported as such.
+    const candidates = isAbsolute(configured)
+      ? [configured]
+      : [
+          resolve(process.cwd(), configured),
+          resolve(BACKEND_DIR, configured),
+          resolve(REPO_DIR, configured),
+        ];
+
+    let raw = null;
+    let lastErr = null;
+    for (const candidate of candidates) {
+      try {
+        raw = readFileSync(candidate, 'utf8');
+        result.used = 'file';
+        break;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+
+    if (raw === null) {
+      result.problem = `GEE_KEY_FILE could not be read (${lastErr?.code || lastErr?.message || 'unknown'})`;
       return result;
     }
     if (applyJson(raw, 'file')) return result;

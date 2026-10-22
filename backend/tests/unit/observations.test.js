@@ -93,14 +93,22 @@ describe('mockSeries', () => {
 
 describe('fetchObservations', () => {
   const originalCropApi = { ...config.cropApi };
+  const originalGee = { enabled: config.gee.enabled, problem: config.gee.credentialProblem };
 
   beforeEach(() => {
     config.cropApi.enabled = false;
     config.cropApi.url = originalCropApi.url;
+    // Turn Earth Engine off for this block. These tests describe the crop-api ->
+    // mock fallback, so they must not depend on whether the machine running them
+    // happens to have Earth Engine credentials configured. Leaving GEE on would
+    // make them reach the real network and change the source under test.
+    config.gee.enabled = false;
   });
   afterEach(() => {
     config.cropApi.enabled = originalCropApi.enabled;
     config.cropApi.url = originalCropApi.url;
+    config.gee.enabled = originalGee.enabled;
+    config.gee.credentialProblem = originalGee.problem;
   });
 
   it('falls back to the labelled mock when no processor is configured', async () => {
