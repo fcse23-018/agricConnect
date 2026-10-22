@@ -490,7 +490,7 @@ export async function getOverview({ farmerId, plotId, days, refresh = false }) {
  *
  * @param {{farmerId: string, plotId: string, index?: string, size?: number, days?: number}} params
  */
-export async function getColourMap({ farmerId, plotId, index = 'ndvi', size, days = config.satellite.defaultDays }) {
+export async function getColourMap({ farmerId, plotId, index = 'ndvi', size, days = config.satellite.defaultDays, date = null }) {
   const plot = await getOwnedPlot(farmerId, plotId);
   const window = clampDays(days);
   const stored = await loadStoredObservations(plotId, window);
@@ -514,6 +514,7 @@ export async function getColourMap({ farmerId, plotId, index = 'ndvi', size, day
     series,
     index: field,
     size,
+    date,
   });
 
   if (!built.available) {
@@ -527,10 +528,12 @@ export async function getColourMap({ farmerId, plotId, index = 'ndvi', size, day
     };
   }
 
-  // The staleness context, computed the same way the overview computes it, so the
-  // picture cannot look fresher than the data behind it.
+  // The staleness context, computed for the *selected* date, so an old picture
+  // can never look fresher than the reading behind it.
   const newest = series[series.length - 1];
-  const ageDays = Math.floor((Date.now() - new Date(newest.date).getTime()) / 86_400_000);
+  const selectedDate = built.observedOn;
+  const selectedRow = series.find((row) => String(row.date).slice(0, 10) === selectedDate) ?? newest;
+  const ageDays = Math.floor((Date.now() - new Date(`${selectedDate}T00:00:00Z`).getTime()) / 86_400_000);
   const staleDays = config.satellite.staleDays;
 
   return {
@@ -543,15 +546,15 @@ export async function getColourMap({ farmerId, plotId, index = 'ndvi', size, day
     ageDays,
     isStale: ageDays > staleDays,
     staleDays,
-    // What the newest reading actually was, so the legend can be read against it.
+    // What the *selected* reading actually was, so the legend can be read against it.
     latest: {
-      date: newest.date,
-      value: newest.value,
-      validPixelPct: newest.validPct,
-      cloudCoverPct: newest.cloudPct,
-      quality: newest.quality,
-      source: newest.source,
-      isSimulated: newest.isSimulated,
+      date: selectedDate,
+      value: selectedRow.value,
+      validPixelPct: selectedRow.validPct,
+      cloudCoverPct: selectedRow.cloudPct,
+      quality: selectedRow.quality,
+      source: selectedRow.source,
+      isSimulated: selectedRow.isSimulated,
     },
     // A single sentence that says what the *average* means, in plain language.
     interpretation: describeIndex(field, built.meanValue, ageDays, staleDays, Boolean(built.isSimulated)),

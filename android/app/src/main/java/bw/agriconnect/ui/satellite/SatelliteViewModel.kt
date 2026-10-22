@@ -49,6 +49,11 @@ data class SatelliteUiState(
     val colourMap: ColourMap? = null,
     val isLoadingColourMap: Boolean = false,
     val colourMapError: String? = null,
+    /**
+     * The observation date currently drawn. `null` means "the newest reading";
+     * a value means the farmer chose that date from the plot's own history.
+     */
+    val colourMapDate: String? = null,
     /** Farm-wide attention summary across every plot the user owns. */
     val alertsByFarm: AlertsByFarm? = null,
     val isLoadingAlertsByFarm: Boolean = false,
@@ -67,7 +72,12 @@ sealed interface SatelliteEvent {
     data class DeleteEvent(val eventId: String) : SatelliteEvent
     data class UpdateAlertStatus(val alertId: String, val status: AlertStatus) : SatelliteEvent
     /** Reloads the per-pixel colour map for a plot, optionally switching index. */
-    data class LoadColourMap(val plotId: String, val index: String = "ndvi") : SatelliteEvent
+    data class LoadColourMap(
+        val plotId: String,
+        val index: String = "ndvi",
+        /** A specific observation date (`YYYY-MM-DD`); null means the newest reading. */
+        val date: String? = null,
+    ) : SatelliteEvent
     /** Reloads the farm-wide attention summary. */
     data object LoadAlertsByFarm : SatelliteEvent
     data object DismissMessage : SatelliteEvent
@@ -111,7 +121,7 @@ class SatelliteViewModel @Inject constructor(
             is SatelliteEvent.UpdateEvent -> updateEvent(event.eventId, event.request)
             is SatelliteEvent.DeleteEvent -> deleteEvent(event.eventId)
             is SatelliteEvent.UpdateAlertStatus -> updateAlertStatus(event.alertId, event.status)
-            is SatelliteEvent.LoadColourMap -> loadColourMap(event.plotId, event.index)
+            is SatelliteEvent.LoadColourMap -> loadColourMap(event.plotId, event.index, event.date)
             is SatelliteEvent.LoadAlertsByFarm -> loadAlertsByFarm()
             is SatelliteEvent.DismissMessage -> dismissMessages()
         }
@@ -154,7 +164,9 @@ class SatelliteViewModel @Inject constructor(
                         )
                     }
                     loadEvents(plotId)
-                    loadColourMap(plotId)
+                    // A fresh plot has its own history, so the previously chosen
+                    // date would not apply — always open on the newest reading.
+                    loadColourMap(plotId, date = null)
                 }
                 is AppResult.Failure -> _state.update {
                     it.copy(
@@ -198,10 +210,12 @@ class SatelliteViewModel @Inject constructor(
      * already reports, so a failure clears the map and records its own error
      * without disturbing the rest of the screen.
      */
-    private fun loadColourMap(plotId: String, index: String = "ndvi") {
+    private fun loadColourMap(plotId: String, index: String = "ndvi", date: String? = null) {
         viewModelScope.launch {
-            _state.update { it.copy(isLoadingColourMap = true, colourMapError = null) }
-            when (val result = monitoringRepo.getColourMap(plotId, index)) {
+            _state.update {
+                it.copy(isLoadingColourMap = true, colourMapError = null, colourMapDate = date)
+            }
+            when (val result = monitoringRepo.getColourMap(plotId, index, date = date)) {
                 is AppResult.Success -> _state.update {
                     it.copy(isLoadingColourMap = false, colourMap = result.data, colourMapError = null)
                 }
@@ -277,6 +291,9 @@ class SatelliteViewModel @Inject constructor(
     /** Selects a plot and loads its monitoring overview. */
     private fun selectPlot(plotId: String) {
         _selectedPlotId.value = plotId
+        // Switching plots drops any chosen observation date: the new plot has a
+        // different series, so the old date would not exist on it.
+        _state.update { it.copy(colourMapDate = null) }
         loadOverview(plotId)
     }
 
@@ -426,7 +443,20 @@ class SatelliteViewModel @Inject constructor(
     /** Switches the colour map between NDVI and EVI for the selected plot. */
     fun switchColourMapIndex(index: String) {
         val plotId = _selectedPlotId.value ?: _state.value.overview?.plot?.plotId ?: return
-        loadColourMap(plotId, index)
+        // Keep the chosen observation date when only the index changes.
+        loadColourMap(plotId, index, _state.value.colourMapDate)
+    }
+
+    /**
+     * Draws a specific observation date instead of the newest reading. Passing
+     * null returns to the newest. The date must come from
+     * [ColourMap.availableDates]; the server refuses one it does not have rather
+     * than substituting a different day.
+     */
+    fun selectColourMapDate(date: String?) {
+        val plotId = _selectedPlotId.value ?: _state.value.overview?.plot?.plotId ?: return
+        val index = _state.value.colourMap?.index ?: "ndvi"
+        loadColourMap(plotId, index, date)
     }
 
     /**

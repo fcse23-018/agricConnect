@@ -350,6 +350,8 @@ interface ApiService {
         @Query("plotId") plotId: String,
         @Query("index") index: String? = null,
         @Query("size") size: Int? = null,
+        /** An observation date (`YYYY-MM-DD`) to draw instead of the newest one. */
+        @Query("date") date: String? = null,
     ): ColourMapDto
 
     /**

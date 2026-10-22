@@ -353,6 +353,7 @@ private fun OverviewTab(
                 showLegendMeanings = showLegendMeanings,
                 onToggleLegendMeanings = { showLegendMeanings = !showLegendMeanings },
                 onSelectIndex = { viewModel.switchColourMapIndex(it) },
+                onSelectDate = { viewModel.selectColourMapDate(it) },
             )
         }
 
@@ -2049,6 +2050,7 @@ private fun SatelliteSightCard(
     showLegendMeanings: Boolean,
     onToggleLegendMeanings: () -> Unit,
     onSelectIndex: (String) -> Unit,
+    onSelectDate: (String?) -> Unit,
 ) {
     val map = state.colourMap
 
@@ -2108,7 +2110,32 @@ private fun SatelliteSightCard(
 
                     ColourMapView(map = map)
 
-                    Spacer(Modifier.height(AgriSpacing.md))
+                    Spacer(Modifier.height(AgriSpacing.sm))
+
+                    // Date selector: draw any observation the plot actually has,
+                    // not only the newest. Shown only when there is more than one
+                    // date, and always says which day is on screen.
+                    if (map.availableDates.size > 1) {
+                        ObservationDateSelector(
+                            dates = map.availableDates,
+                            selected = map.observedOn,
+                            newest = map.newestObservedOn,
+                            onSelect = onSelectDate,
+                        )
+                        Spacer(Modifier.height(AgriSpacing.sm))
+                    }
+
+                    // If a past observation is on screen, say so plainly — an old
+                    // picture must never be mistaken for the current condition.
+                    if (map.isHistorical) {
+                        InfoBanner(
+                            message = "You are looking at an earlier image" +
+                                (map.observedOn?.let { " from ${DateFormatters.formatDate(it)}" } ?: "") +
+                                ". It shows what the field looked like then, not now. " +
+                                (map.newestObservedOn?.let { "The newest image is ${DateFormatters.formatDate(it)}." } ?: ""),
+                        )
+                        Spacer(Modifier.height(AgriSpacing.sm))
+                    }
 
                     // The measured average, in plain language. This is the number that
                     // is real; the pattern above is texture.
@@ -2118,7 +2145,7 @@ private fun SatelliteSightCard(
                             horizontalArrangement = Arrangement.spacedBy(AgriSpacing.md),
                         ) {
                             StatTile(
-                                label = "Field average",
+                                label = if (map.isHistorical) "Average on that date" else "Field average",
                                 value = map.meanValue.format2(),
                                 accent = AgriColors.ForestGreen,
                             )
@@ -2196,6 +2223,56 @@ private fun SatelliteSightCard(
 /** The range is only meaningful when the grid actually varied. */
 private fun ColourMap.latestNdviRangeIsMeaningful(): Boolean =
     min != null && max != null && (max!! - min!!) > 0.0001
+
+/**
+ * Date picker for the colour map: one chip per observation the plot actually
+ * has, newest first, with "Newest" as the default. Only real dates are offered,
+ * so a farmer can never request a day the plot has no reading for.
+ *
+ * The newest date gets its own "Newest" chip because that is what a farmer
+ * means when they want the current picture; the rest are dated chips.
+ */
+@Composable
+private fun ObservationDateSelector(
+    dates: List<String>,
+    selected: String?,
+    newest: String?,
+    onSelect: (String?) -> Unit,
+) {
+    // Oldest first from the server; show newest first so the current picture is
+    // the first thing under the thumb.
+    val newestFirst = dates.sortedDescending()
+    val latestDate = newest ?: newestFirst.firstOrNull()
+    val viewingNewest = selected == null || selected == latestDate
+
+    Column(Modifier.fillMaxWidth()) {
+        Text(
+            "Observation date",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(AgriSpacing.xs))
+        androidx.compose.foundation.lazy.LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(AgriSpacing.sm),
+        ) {
+            item {
+                AgriFilterChip(
+                    label = "Newest",
+                    selected = viewingNewest,
+                    onClick = { onSelect(null) },
+                )
+            }
+            items(newestFirst.size) { idx ->
+                val date = newestFirst[idx]
+                AgriFilterChip(
+                    label = DateFormatters.formatDate(date),
+                    selected = !viewingNewest && selected == date,
+                    onClick = { onSelect(date) },
+                )
+            }
+        }
+    }
+}
 
 /* =========================================================================
  * EXTENSIONS

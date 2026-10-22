@@ -731,3 +731,41 @@ farm-wide alert list are verified by compilation and unit tests only and **have 
 rendering on a device**. The `alertsByFarm` SQL has not been run against a database (no DB in
 CI); the fix is verified by the schema-contract test and by hitting the live endpoint. With
 no Earth Engine credentials the mean behind the picture is labelled MOCK, and the UI says so.
+
+---
+
+## 16. Satellite monitoring — observation date selector
+
+The colour map was locked to the newest reading. The design spec asks for **a date selector for
+available observations**, so the map can be drawn for any date the plot actually has. This is
+the first piece of the spec's remaining gaps (see §17 for the others).
+
+**Backend**
+- `GET /satellite/colour-map` accepts an optional `?date=YYYY-MM-DD` and now returns
+  `availableDates` (every date the plot has, oldest first), `isHistorical`, `newestObservedOn`
+  and, when a requested date is refused, `requestedDate`.
+- `buildColourMap` picks the requested date instead of the newest; the mean, coverage and
+  interpretation all describe the **drawn** date. Staleness (`ageDays`, `isStale`) is computed
+  for the drawn date too, so an old picture cannot look fresh.
+- **A date the plot does not have is refused** (`available: false`, `requestedDate`, a plain
+  reason). The server never substitutes the nearest day — that would show a different
+  observation under the requested label.
+- Schema: `colourMapQuerySchema` gains `date` (regex `YYYY-MM-DD`). No new SQL.
+
+**Android**
+- `SatelliteSightCard` gains `ObservationDateSelector`: a scrolling chip row, newest first,
+  with a "Newest" chip for the current picture. Tapping a date reloads the map for that day.
+- When a past date is drawn an `InfoBanner` says so plainly ("You are looking at an earlier
+  image from … It shows what the field looked like then, not now"), and the average tile is
+  relabelled "Average on that date".
+- `SatelliteViewModel` carries `colourMapDate`; switching plots clears it (the new plot has a
+  different series). `selectColourMapDate(null)` returns to the newest.
+- DTO/domain: `ColourMapDto`/`ColourMap` gain `isHistorical`, `newestObservedOn`,
+  `requestedDate`, `availableDates`.
+
+**Verification:** backend **378/378, 23 suites** (+6 `ndviGrid` date tests). Android compile and
+unit tests run below.
+
+**Still open from the spec (not built):** farm selector (§2A), the three-level restructure (§8),
+an explicit alert "mark as inspected" action (§6), and offline caching of satellite results
+(§5). Listed here so they are tracked, not silently dropped.

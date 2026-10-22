@@ -382,6 +382,18 @@ data class ColourMap(
     val plotId: String?,
     val plotName: String?,
     val observedOn: String?,
+    /** True when the drawn date is not the newest reading the plot has. */
+    val isHistorical: Boolean = false,
+    /** The newest date the plot has, for comparison with [observedOn]. */
+    val newestObservedOn: String? = null,
+    /**
+     * Present when a requested date was refused because the plot has no reading
+     * for it. The map is unavailable in that case, so the UI can say which date
+     * was asked for.
+     */
+    val requestedDate: String? = null,
+    /** Every date the plot has a usable reading for, oldest first. Drives the picker. */
+    val availableDates: List<String> = emptyList(),
     /** The measured field-average index. The average of the grid equals this. */
     val meanValue: Double?,
     val isSimulated: Boolean,

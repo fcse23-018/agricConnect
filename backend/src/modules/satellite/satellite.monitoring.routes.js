@@ -194,9 +194,13 @@ router.get(
  * GET /satellite/colour-map
  *
  * The per-pixel colour map behind the "satellite sight" view: a grid of the newest
- * usable observation, plus the flags and plain-language reading needed to interpret
- * it honestly. Drawn from the stored series (not a fresh provider call) so the
- * picture always agrees with the numbers shown beside it.
+ * usable observation (or of a specific `date` the plot actually has), plus the
+ * flags and plain-language reading needed to interpret it honestly. Drawn from the
+ * stored series (not a fresh provider call) so the picture always agrees with the
+ * numbers shown beside it.
+ *
+ * `availableDates` lists every date the plot has, so the client can offer a real
+ * date picker; `isHistorical` is true when the drawn date is not the newest one.
  */
 router.get(
   '/colour-map',
@@ -208,6 +212,7 @@ router.get(
       index: req.query.index,
       size: req.query.size,
       days: req.query.days,
+      date: req.query.date,
     });
     res.json(map);
   }),

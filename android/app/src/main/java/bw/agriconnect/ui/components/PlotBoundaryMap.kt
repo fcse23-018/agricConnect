@@ -14,9 +14,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,6 +40,7 @@ import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.MarkerState
 import com.google.maps.android.compose.Polygon
 import com.google.maps.android.compose.rememberCameraPositionState
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 /**
@@ -133,6 +137,29 @@ fun PlotBoundaryMap(
         }
     }
 
+    // A key that is present but rejected by Google (Maps SDK for Android not
+    // enabled, or the key restricted to a different signing certificate) renders
+    // as a grey grid with no error. That is indistinguishable from "still
+    // loading", which is how a rejected key gets mistaken for a network problem.
+    // So: watch for the first successful load, and if it never arrives, say so.
+    var mapLoaded by remember { mutableStateOf(false) }
+    var mapGaveUp by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        delay(MapLoad.TimeoutMs)
+        if (!mapLoaded) mapGaveUp = true
+    }
+
+    if (mapGaveUp) {
+        MapUnavailable(
+            reason = "The map could not load. The Google Maps API key for this build is " +
+                "not accepted — enable \"Maps SDK for Android\" for the key's project, and " +
+                "allow this app's signing certificate. Plot boundaries can still be entered " +
+                "by coordinates.",
+            modifier = modifier,
+        )
+        return
+    }
+
     GoogleMap(
         modifier = modifier,
         cameraPositionState = cameraPositionState,
@@ -143,6 +170,7 @@ fun PlotBoundaryMap(
             mapToolbarEnabled = false,
             compassEnabled = true,
         ),
+        onMapLoaded = { mapLoaded = true },
         onMapClick = { latLng ->
             if (enabled) addVertex.value(GeoVertex(latLng.latitude, latLng.longitude))
         },
@@ -174,6 +202,15 @@ private object Defaults {
 
     /** Gaborone — the app's home market — as the camera origin for a blank plot. */
     val Start = GeoVertex(-24.6282, 25.9231)
+}
+
+/**
+ * How long to wait for the first map frame before declaring the key rejected.
+ * Generous, because a slow rural connection is not a broken key: wrongly showing
+ * "unavailable" would hide a working map, which is worse than waiting.
+ */
+private object MapLoad {
+    const val TimeoutMs = 12_000L
 }
 
 /** The explained state shown when the build has no Maps key. */

@@ -88,6 +88,16 @@ export const colourMapQuerySchema = z.object({
   index: z.enum(['ndvi', 'evi']).optional(),
   size: z.coerce.number().int().min(8).max(48).optional(),
   days: windowDays,
+  /**
+   * A specific observation date (`YYYY-MM-DD`) to draw instead of the newest one.
+   * The date must exist in the stored series; the service refuses a date it does
+   * not have rather than substituting the nearest reading, because showing a
+   * different day under a requested date would be a fabricated result.
+   */
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, { message: 'The date must be in YYYY-MM-DD format.' })
+    .optional(),
 });
 
 /* ---------------------------- monitoring: events --------------------------- */

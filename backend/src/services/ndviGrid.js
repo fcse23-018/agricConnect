@@ -235,15 +235,20 @@ export function buildGrid({
  * @param {number} [options.size]
  * @returns {object} a response body that always states its own honesty flags.
  */
-export function buildColourMap({ plot, series, index = 'ndvi', size = DEFAULT_GRID_SIZE } = {}) {
+export function buildColourMap({ plot, series, index = 'ndvi', size = DEFAULT_GRID_SIZE, date = null } = {}) {
   const usable = Array.isArray(series)
     ? series.filter((row) => finite(row?.value) !== null).sort((a, b) => String(a.date).localeCompare(String(b.date)))
     : [];
+
+  // Every date the stored series actually has, so the UI can offer a real date
+  // picker instead of guessing. Oldest first, matching the series order.
+  const availableDates = usable.map((row) => String(row.date).slice(0, 10));
 
   if (!plot?.geoJsonBoundary) {
     return {
       available: false,
       index,
+      availableDates,
       reason: 'This plot has no saved boundary, so there is nothing to draw.',
     };
   }
@@ -251,26 +256,48 @@ export function buildColourMap({ plot, series, index = 'ndvi', size = DEFAULT_GR
     return {
       available: false,
       index,
+      availableDates,
       reason: 'No observations are available for this plot yet, so there is no image to show.',
+    };
+  }
+
+  // Pick the requested date when one was asked for; otherwise the newest reading.
+  // A requested date that is not in the series is refused outright — falling back
+  // to the nearest day would show a different observation under the requested
+  // label, which is exactly the kind of fabrication this module exists to prevent.
+  const wanted = date === null || date === undefined ? null : String(date).slice(0, 10);
+  const selected = wanted === null
+    ? usable[usable.length - 1]
+    : usable.find((row) => String(row.date).slice(0, 10) === wanted);
+
+  if (!selected) {
+    return {
+      available: false,
+      index,
+      availableDates,
+      requestedDate: wanted,
+      reason: `There is no stored observation for ${wanted}. Pick one of the dates the plot actually has.`,
     };
   }
 
   const latest = usable[usable.length - 1];
   const built = buildGrid({
     plotId: plot.plotId,
-    date: latest.date,
+    date: selected.date,
     geoJsonBoundary: plot.geoJsonBoundary,
-    meanValue: latest.value,
+    meanValue: selected.value,
     index,
     size,
-    validPixelPct: latest.validPct ?? null,
-    isSimulated: Boolean(latest.isSimulated),
+    validPixelPct: selected.validPct ?? null,
+    isSimulated: Boolean(selected.isSimulated),
   });
 
   if (!built) {
     return {
       available: false,
       index,
+      availableDates,
+      requestedDate: wanted,
       reason: 'The boundary is too small or too irregular to render a colour map.',
     };
   }
@@ -279,10 +306,15 @@ export function buildColourMap({ plot, series, index = 'ndvi', size = DEFAULT_GR
     available: true,
     index,
     plotId: plot.plotId,
-    observedOn: latest.date,
+    observedOn: String(selected.date).slice(0, 10),
+    // True when this is not the newest reading — the UI says so rather than
+    // letting an old observation pass as the current picture.
+    isHistorical: String(selected.date).slice(0, 10) !== String(latest.date).slice(0, 10),
+    newestObservedOn: String(latest.date).slice(0, 10),
+    availableDates,
     // The real, measured number behind the picture.
-    meanValue: round(latest.value),
-    isSimulated: Boolean(latest.isSimulated),
+    meanValue: round(selected.value),
+    isSimulated: Boolean(selected.isSimulated),
     variationSimulated: true,
     grid: built.grid,
     size: built.size,

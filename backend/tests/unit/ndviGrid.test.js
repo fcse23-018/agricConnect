@@ -194,6 +194,65 @@ describe('ndviGrid.buildColourMap', () => {
     expect(r.legend.length).toBeGreaterThanOrEqual(3);
     expect(r.legend.every((s) => typeof s.colour === 'string' && s.label)).toBe(true);
   });
+
+  describe('a specific observation date', () => {
+    const series = [
+      { date: '2026-01-01', value: 0.2 },
+      { date: '2026-02-01', value: 0.4 },
+      { date: '2026-03-01', value: 0.6 },
+    ];
+
+    it('lists every date the plot actually has, oldest first', () => {
+      const r = buildColourMap({ plot, series });
+      expect(r.availableDates).toEqual(['2026-01-01', '2026-02-01', '2026-03-01']);
+    });
+
+    it('draws the requested date instead of the newest one', () => {
+      const r = buildColourMap({ plot, series, date: '2026-01-01' });
+      expect(r.available).toBe(true);
+      expect(r.observedOn).toBe('2026-01-01');
+      // The mean shown is the requested day's, not the latest day's.
+      expect(r.meanValue).toBe(0.2);
+      expect(r.isHistorical).toBe(true);
+      expect(r.newestObservedOn).toBe('2026-03-01');
+    });
+
+    it('reports the newest date as not historical', () => {
+      const r = buildColourMap({ plot, series, date: '2026-03-01' });
+      expect(r.observedOn).toBe('2026-03-01');
+      expect(r.isHistorical).toBe(false);
+      expect(r.meanValue).toBe(0.6);
+    });
+
+    it('defaults to the newest date when none is requested', () => {
+      const r = buildColourMap({ plot, series });
+      expect(r.observedOn).toBe('2026-03-01');
+      expect(r.isHistorical).toBe(false);
+    });
+
+    it('refuses a date the plot does not have, rather than substituting a nearby day', () => {
+      const r = buildColourMap({ plot, series, date: '2026-02-15' });
+      expect(r.available).toBe(false);
+      expect(r.requestedDate).toBe('2026-02-15');
+      // The caller can still see which dates are real.
+      expect(r.availableDates).toEqual(['2026-01-01', '2026-02-01', '2026-03-01']);
+      expect(r.reason).toMatch(/2026-02-15/);
+    });
+
+    it('refuses a date whose value is null, because there is no reading for it', () => {
+      const r = buildColourMap({
+        plot,
+        series: [
+          { date: '2026-01-01', value: 0.4 },
+          { date: '2026-02-01', value: null },
+        ],
+        date: '2026-02-01',
+      });
+      expect(r.available).toBe(false);
+      // A null date is not offered as available either.
+      expect(r.availableDates).toEqual(['2026-01-01']);
+    });
+  });
 });
 
 describe('ndviGrid.buildLegend', () => {

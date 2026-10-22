@@ -1165,10 +1165,11 @@ paths:
       summary: Per-pixel NDVI/EVI colour map for a plot's newest reading (farm owner only)
       description: |
         The "satellite sight" view: a grid of index values for the most recent
-        usable stored observation, plus everything needed to read it honestly.
+        usable stored observation, or for a specific `date` the plot actually has,
+        plus everything needed to read it honestly.
 
         **The grid is built so its in-boundary average equals the measured plot
-        mean** — that average is a real number. The *pattern* across the grid is a
+        mean** - that average is a real number. The *pattern* across the grid is a
         simulated texture generated from the plot id and date, not a per-pixel
         observation, and the response always says so via
         `variationSimulated: true`. `isSimulated: true` additionally means the
@@ -1179,6 +1180,11 @@ paths:
 
         Drawn from the **stored** series, never a fresh provider call, so the
         picture always agrees with the numbers on the same screen.
+
+        `availableDates` lists every date the plot has, so the client can offer a
+        date picker; `isHistorical` is true when the drawn date is not the newest
+        one. A requested `date` that is not in the series returns
+        `available: false` rather than substituting a nearby day.
       parameters:
         - name: plotId
           in: query
@@ -1190,12 +1196,19 @@ paths:
           schema: { type: string, enum: [ndvi, evi], default: ndvi }
         - name: size
           in: query
-          description: Grid resolution per side (cells). Clamped to 8–48.
+          description: Grid resolution per side (cells). Clamped to 8-48.
           schema: { type: integer, minimum: 8, maximum: 48, default: 24 }
         - name: days
           in: query
           description: Observation window used to find the newest reading.
           schema: { type: integer, minimum: 15, maximum: 730, default: 15 }
+        - name: date
+          in: query
+          description: |
+            An observation date (`YYYY-MM-DD`) to draw instead of the newest one.
+            Must be a date in the stored series; a date the plot does not have is
+            refused with `available: false`, never substituted.
+          schema: { type: string, format: date }
       responses:
         '200':
           description: |
@@ -2772,10 +2785,10 @@ components:
     ColourMap:
       type: object
       description: |
-        Per-pixel colour map for a plot's newest reading (`GET /satellite/colour-map`).
-        `grid` is row-major; a `null` cell is **outside the plot boundary** and must
-        be left blank, never drawn as a low value. When `available` is false, `reason`
-        explains why and `grid` is empty.
+        Per-pixel colour map for a plot's newest reading, or a chosen date
+        (`GET /satellite/colour-map`). `grid` is row-major; a `null` cell is
+        **outside the plot boundary** and must be left blank, never drawn as a low
+        value. When `available` is false, `reason` explains why and `grid` is empty.
       properties:
         available: { type: boolean }
         reason: { type: string, nullable: true }
@@ -2783,6 +2796,23 @@ components:
         plotId: { type: string, format: uuid, nullable: true }
         plotName: { type: string, nullable: true }
         observedOn: { type: string, format: date, nullable: true }
+        isHistorical:
+          type: boolean
+          description: True when the drawn date is not the newest reading the plot has.
+        newestObservedOn:
+          type: string
+          format: date
+          nullable: true
+          description: The newest date the plot has, for comparison with `observedOn`.
+        requestedDate:
+          type: string
+          format: date
+          nullable: true
+          description: Present when a `date` was requested that the plot does not have.
+        availableDates:
+          type: array
+          description: Every date the plot has a usable reading for, oldest first.
+          items: { type: string, format: date }
         meanValue:
           type: number
           nullable: true

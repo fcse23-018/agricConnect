@@ -72,6 +72,35 @@ class ColourMapAndFarmAlertsMappingTest {
     }
 
     @Test
+    fun `maps the observation dates and the historical flag`() {
+        val map = json.decodeFromString<ColourMapDto>(COLOUR_MAP_HISTORICAL).toDomain()
+        assertThat(map.observedOn).isEqualTo("2026-05-01")
+        assertThat(map.newestObservedOn).isEqualTo("2026-05-10")
+        assertThat(map.isHistorical).isTrue()
+        assertThat(map.availableDates)
+            .containsExactly("2026-05-01", "2026-05-10")
+            .inOrder()
+    }
+
+    @Test
+    fun `a newest-date map is not flagged historical`() {
+        val map = json.decodeFromString<ColourMapDto>(COLOUR_MAP).toDomain()
+        assertThat(map.isHistorical).isFalse()
+        // An older server that does not send the field defaults to "not historical",
+        // which is the safe reading for the newest reading it would have sent.
+        assertThat(map.availableDates).isEmpty()
+    }
+
+    @Test
+    fun `a refused date carries the requested date and no grid`() {
+        val map = json.decodeFromString<ColourMapDto>(COLOUR_MAP_REFUSED_DATE).toDomain()
+        assertThat(map.available).isFalse()
+        assertThat(map.requestedDate).isEqualTo("2026-05-15")
+        assertThat(map.availableDates).containsExactly("2026-05-01", "2026-05-10")
+        assertThat(map.grid).isEmpty()
+    }
+
+    @Test
     fun `a plot with no data is flagged, never defaulted to healthy`() {
         val summary = json.decodeFromString<AlertsByFarmDto>(ALERTS_BY_FARM).toDomain()
 
@@ -143,6 +172,31 @@ class ColourMapAndFarmAlertsMappingTest {
           "variationSimulated": true,
           "grid": [[0.4, null]],
           "size": 1
+        }
+        """
+
+        const val COLOUR_MAP_HISTORICAL = """
+        {
+          "available": true,
+          "index": "ndvi",
+          "observedOn": "2026-05-01",
+          "isHistorical": true,
+          "newestObservedOn": "2026-05-10",
+          "availableDates": ["2026-05-01", "2026-05-10"],
+          "meanValue": 0.31,
+          "variationSimulated": true,
+          "grid": [[0.31, null]],
+          "size": 1
+        }
+        """
+
+        const val COLOUR_MAP_REFUSED_DATE = """
+        {
+          "available": false,
+          "index": "ndvi",
+          "requestedDate": "2026-05-15",
+          "availableDates": ["2026-05-01", "2026-05-10"],
+          "reason": "There is no stored observation for 2026-05-15. Pick one of the dates the plot actually has."
         }
         """
 

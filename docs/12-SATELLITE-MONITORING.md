@@ -265,7 +265,28 @@ states — stay `farmOwnerOnly`.
 ## 9. The colour map ("satellite sight")
 
 `GET /satellite/colour-map` returns a per-pixel grid of the newest usable stored
-observation, drawn as a colour map in the Satellite screen's Overview tab.
+observation — or of a **chosen date** — drawn as a colour map in the Satellite
+screen's Overview tab.
+
+### Choosing an observation date
+
+The plot's history is what makes the feature useful, so the map is not locked to
+the newest reading. The response lists every date the plot has in
+`availableDates`, and the Overview tab renders those as chips (newest first, with
+a "Newest" chip for the current picture). Passing `?date=YYYY-MM-DD` draws that
+day instead:
+
+- `observedOn` is the date drawn; `newestObservedOn` is the newest date the plot
+  has; `isHistorical: true` means the two differ.
+- The UI **says so** whenever a past date is shown ("You are looking at an earlier
+  image from … It shows what the field looked like then, not now"), because an old
+  picture must never pass as the current condition.
+- A requested `date` that is **not in the stored series** is refused with
+  `available: false`, `requestedDate` set and a plain `reason`. The server never
+  substitutes the nearest day: showing a different observation under the requested
+  label would be a fabricated result.
+- Switching plots clears the chosen date, because the new plot has its own series
+  and the old date would not exist on it.
 
 ### The honesty rule it is built around
 

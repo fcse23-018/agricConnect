@@ -70,21 +70,23 @@ class SatelliteMonitoringRepository @Inject constructor(
 
     /**
      * The per-pixel NDVI (or EVI) colour map for the plot's newest stored
-     * observation. Drawn server-side, so the picture always agrees with the
-     * numbers on the same screen. Never triggers a provider fetch for the same
-     * reason.
+     * observation, or for a specific [date] the plot actually has. Drawn
+     * server-side, so the picture always agrees with the numbers on the same
+     * screen. Never triggers a provider fetch for the same reason.
      *
      * The result carries the honesty flags ([ColourMap.isSimulated],
-     * [ColourMap.variationSimulated], [ColourMap.isStale]) — the UI must surface
-     * them, because this is the most persuasive element on the screen.
+     * [ColourMap.variationSimulated], [ColourMap.isStale], [ColourMap.isHistorical])
+     * — the UI must surface them, because this is the most persuasive element on
+     * the screen.
      */
     suspend fun getColourMap(
         plotId: String,
         index: String = "ndvi",
         size: Int? = null,
+        date: String? = null,
     ): AppResult<ColourMap> =
         runCatchingApi(errorParser::parse) {
-            api.getColourMap(plotId, index, size).toDomain()
+            api.getColourMap(plotId, index, size, date).toDomain()
         }
 
     // ============================ Weather ============================
