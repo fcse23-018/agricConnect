@@ -17,9 +17,9 @@ and provider-dependent items remain unexecuted.
 |------|--------|
 | Backend code compiles / runs | ✅ Executed — see `05-TEST-REPORT.md` |
 | Android app compiles | ✅ Executed (`:app:assembleDebug`, 24.0 MB APK — `1.1.1`/build 3) |
-| Backend tests executed | ✅ 434/434 (26 suites) — re-run 2026-10-22 |
+| Backend tests executed | ✅ 434/434 (26 suites) — re-run 2026-10-23 |
 | Crop-API tests executed | ✅ 34/34 (`pytest`, mock GEE) |
-| Android unit tests executed | ✅ 50/50 — see `05-TEST-REPORT.md` |
+| Android unit tests executed | ✅ 131/131 (17 classes) — re-run 2026-10-23, see `05-TEST-REPORT.md` |
 | Real Sentinel-2 observations | ✅ **Verified live 2026-10-22** — 10 real Sentinel-2 observations for a Gaborone plot (2026-08-26 → 2026-10-20), `source: "SENTINEL-2"`, `isSimulated: false` |
 | Real SMS delivery | ✅ **Verified live 2026-10-22** — a real SMS reached a handset via Twilio (status `delivered`). The account is a Twilio **Trial**, so only console-verified numbers can be messaged |
 | Real email delivery | **Not implemented** — `sendViaSmtp` throws by design rather than pretending to send |
@@ -89,8 +89,16 @@ and provider-dependent items remain unexecuted.
 - That the retention periods satisfy Botswana law (needs counsel).
 - That instrumented UI tests pass (no device was available).
 - That the Google Map renders on a device (the Cloud project still needs Maps SDK for Android enabled).
+- That the new Satellite Insights screen — the interactive farm map, the plot-status and
+  latest-observation cards, and the full report — has been **seen** by a human. It
+  compiles (`:app:assembleDebug` succeeded 2026-10-23), the offline cache and the v2→v3
+  migration are unit-tested, and the inspection-advice wording is unit-tested, but no
+  device or emulator was available, so no visual or interaction verification is claimed.
+- That the map's polygons actually align with the imagery on a device. The geometry is
+  the stored boundary and the tint is the measured mean, both unit-level facts, but the
+  on-screen alignment was not observed.
 
-*Verified and therefore claimable as of 2026-10-22: real Sentinel-2 observations via Earth Engine, and real SMS delivery via Twilio.*
+*Verified and therefore claimable as of 2026-10-22: real Sentinel-2 observations via Earth Engine, and real SMS delivery via Twilio. Verified as of 2026-10-23: the Android app compiles with the satellite map, offline cache and insights report, and all 131 unit tests pass.*
 
 Honest reporting is a hard requirement of this project: **nothing above is marked as passing until
 it has actually been run and observed.**
