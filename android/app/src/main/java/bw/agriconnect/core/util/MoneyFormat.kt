@@ -70,6 +70,20 @@ object DateFormatters {
         }
     }
 
+    /** "3 hours ago" from a local epoch-millis stamp (used by the offline caches). */
+    fun relativeMillis(millis: Long?): String {
+        if (millis == null) return "—"
+        val minutes = java.time.Duration.between(Instant.ofEpochMilli(millis), Instant.now()).toMinutes()
+        return when {
+            minutes < 1 -> "Just now"
+            minutes < 60 -> "$minutes min ago"
+            minutes < 60 * 24 -> "${minutes / 60} h ago"
+            minutes < 60 * 48 -> "Yesterday"
+            minutes < 60 * 24 * 7 -> "${minutes / (60 * 24)} days ago"
+            else -> formatDate(Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).toLocalDate().toString())
+        }
+    }
+
     fun parseInstant(value: String?): Instant? {
         if (value.isNullOrBlank()) return null
         return try {

@@ -16,6 +16,8 @@ import bw.agriconnect.data.repository.SatelliteRepository
 import bw.agriconnect.domain.model.FarmPlot
 import bw.agriconnect.domain.model.SatelliteNdvi
 import bw.agriconnect.domain.model.satellite.*
+import bw.agriconnect.core.util.PlotBoundary
+import bw.agriconnect.ui.components.PlotMapShape
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -26,6 +28,11 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
+import java.util.UUID
 import javax.inject.Inject
 
 /** UI state for the unified satellite monitoring dashboard. */
@@ -57,6 +64,22 @@ data class SatelliteUiState(
     /** Farm-wide attention summary across every plot the user owns. */
     val alertsByFarm: AlertsByFarm? = null,
     val isLoadingAlertsByFarm: Boolean = false,
+    /**
+     * True when [overview] came from the local mirror rather than the network, so the
+     * screen says "Cached" instead of implying a live fetch.
+     */
+    val overviewFromCache: Boolean = false,
+    /** When the local mirror was written (millis). Never an observation date. */
+    val overviewCachedAtMillis: Long? = null,
+    /**
+     * Every plot the farmer owns, shaped for the map: stored boundary, centroid, and the
+     * measured NDVI mean when one exists. A plot with no ring is kept with
+     * [PlotMapShape.hasBoundary] false rather than dropped, so it still appears as a pin.
+     */
+    val plotMapShapes: List<PlotMapShape> = emptyList(),
+    /** Plain-language result of creating a plot from the map. */
+    val createPlotMessage: String? = null,
+    val isCreatingPlot: Boolean = false,
 )
 
 /** Event representing a user action on the satellite screen. */
@@ -89,7 +112,7 @@ class SatelliteViewModel @Inject constructor(
     private val monitoringRepo: SatelliteMonitoringRepository,
     private val legacyRepo: SatelliteRepository,
     private val farmPlots: FarmPlotRepository,
-    authRepository: bw.agriconnect.data.repository.AuthRepository,
+    private val auth: bw.agriconnect.data.repository.AuthRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SatelliteUiState())
@@ -102,7 +125,7 @@ class SatelliteViewModel @Inject constructor(
     val selectedPlotId: StateFlow<String?> = _selectedPlotId.asStateFlow()
 
     /** Only the farm owner can request a fresh NDVI computation. */
-    val canGenerate: StateFlow<Boolean> = authRepository.session
+    val canGenerate: StateFlow<Boolean> = auth.session
         .map { it?.role?.canComputeNdvi == true }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
@@ -131,34 +154,35 @@ class SatelliteViewModel @Inject constructor(
     private fun loadOverview(plotId: String) {
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null, offline = false, infoMessage = null) }
-            when (val result = monitoringRepo.getOverview(plotId)) {
+            when (val result = monitoringRepo.getOverviewWithFallback(plotId)) {
                 is AppResult.Success -> {
+                    val overview = result.data.overview
                     _state.update {
                         it.copy(
                             isLoading = false,
-                            overview = result.data,
+                            overview = overview,
+                            overviewFromCache = result.data.fromCache,
+                            overviewCachedAtMillis = result.data.cachedAtMillis,
+                            // A cached payload is not an error, but it must not read as
+                            // live either: the banner below says which it is.
+                            offline = result.data.fromCache,
                             // Derive a legacy-compatible Ndvi from the newest observation so
                             // the pre-existing advice/guidance UI keeps working. The series
                             // arrives oldest-first, so pick by date rather than position.
-                            ndvi = result.data.observations.maxByOrNull { obs -> obs.observedOn }?.let { obs ->
+                            ndvi = overview.observations.maxByOrNull { obs -> obs.observedOn }?.let { obs ->
                                 SatelliteNdvi(
                                     ndviId = obs.observationId,
                                     plotId = obs.plotId,
                                     farmerId = obs.farmerId,
                                     satelliteDate = obs.observedOn,
                                     meanNdviValue = obs.ndvi,
-                                    stressLevel = when {
-                                        obs.ndvi == null -> null
-                                        obs.ndvi!! < 0.3 -> bw.agriconnect.domain.model.StressLevel.HIGH_STRESS
-                                        obs.ndvi!! < 0.5 -> bw.agriconnect.domain.model.StressLevel.MODERATE_STRESS
-                                        else -> bw.agriconnect.domain.model.StressLevel.HEALTHY_VEGETATION
-                                    },
+                                    stressLevel = bw.agriconnect.core.util.NdviUtil.classify(obs.ndvi),
                                     status = bw.agriconnect.domain.model.NdviProcessingStatus.GENERATED,
                                     cloudCover = obs.cloudCoverPct,
                                     source = obs.source ?: "SENTINEL-2",
                                     isCached = obs.isSimulated,
                                     createdAt = obs.createdAt.orEmpty(),
-                                    plotName = it.overview?.plot?.plotName,
+                                    plotName = overview.plot.plotName,
                                 )
                             } ?: it.ndvi,
                         )
@@ -167,6 +191,9 @@ class SatelliteViewModel @Inject constructor(
                     // A fresh plot has its own history, so the previously chosen
                     // date would not apply — always open on the newest reading.
                     loadColourMap(plotId, date = null)
+                    // The tint on the map depends on the newest stored reading, which
+                    // may have just changed.
+                    refreshMapShapes()
                 }
                 is AppResult.Failure -> _state.update {
                     it.copy(
@@ -178,6 +205,115 @@ class SatelliteViewModel @Inject constructor(
             }
         }
     }
+
+    /**
+     * Rebuilds [SatelliteUiState.plotMapShapes] from the local plot list, attaching each
+     * plot's measured NDVI mean from the local observation mirror when one exists.
+     *
+     * The NDVI value only ever comes from a stored observation; a plot with no reading
+     * gets `null`, which the map draws as an untinted default rather than as green.
+     */
+    private fun refreshMapShapes() {
+        viewModelScope.launch {
+            val plots = farmPlots.observeAll().first()
+            val shapes = plots.filter { !it.plotId.isBlank() }.map { plot ->
+                val vertices = PlotBoundary.fromGeoJson(plot.geoJsonBoundary)
+                val cached = monitoringRepo.getCachedOverview(plot.plotId)
+                val newest = cached?.overview?.observations?.maxByOrNull { it.observedOn }
+                PlotMapShape(
+                    plotId = plot.plotId,
+                    plotName = plot.plotName.ifBlank { "Plot" },
+                    vertices = vertices,
+                    centroid = plot.centroidLat?.let { lat ->
+                        plot.centroidLng?.let { lng -> bw.agriconnect.core.util.GeoVertex(lat, lng) }
+                    },
+                    hasBoundary = vertices.size >= PlotBoundary.MIN_VERTICES,
+                    ndvi = newest?.ndvi,
+                    isSimulated = newest?.isSimulated ?: false,
+                )
+            }
+            _state.update { it.copy(plotMapShapes = shapes) }
+        }
+    }
+
+    /**
+     * Creates a plot from the map: the farmer places or draws a boundary and names it,
+     * and the SAME repository call the Farm Management screen uses persists it (locally,
+     * queued for sync). There is deliberately no second write path, so a plot created here
+     * is immediately a Farm Management plot — one record, two screens.
+     *
+     * A boundary is required: without one the plot cannot be monitored, and inventing a
+     * polygon around a single pin would be a fabricated survey. A point-only plot is still
+     * allowed through [centreOnly] for a plot the farmer intends to survey later, and is
+     * saved with no boundary at all rather than a made-up one.
+     */
+    fun createPlotFromMap(
+        name: String,
+        boundary: List<bw.agriconnect.core.util.GeoVertex>,
+        centreOnly: bw.agriconnect.core.util.GeoVertex? = null,
+        areaHectares: Double? = null,
+    ) {
+        val trimmed = name.trim()
+        if (trimmed.isBlank()) {
+            _state.update { it.copy(createPlotMessage = "Give the plot a name first.") }
+            return
+        }
+        val hasBoundary = boundary.size >= PlotBoundary.MIN_VERTICES
+        if (!hasBoundary && centreOnly == null) {
+            _state.update { it.copy(createPlotMessage = "Add at least three corners, or drop a single pin.") }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(isCreatingPlot = true, createPlotMessage = null) }
+            val ownerId = auth.session.value?.userId
+            if (ownerId.isNullOrBlank()) {
+                _state.update { it.copy(isCreatingPlot = false, createPlotMessage = "You need to be signed in to add a plot.") }
+                return@launch
+            }
+            val now = nowIso
+            val geoJson = if (hasBoundary) PlotBoundary.toGeoJsonPolygon(boundary) else null
+            val centre = if (hasBoundary) PlotBoundary.centroid(boundary) else centreOnly
+            val plot = FarmPlot(
+                plotId = UUID.randomUUID().toString(),
+                farmerId = ownerId,
+                plotName = trimmed,
+                areaHectares = areaHectares ?: PlotBoundary.estimateAreaHectares(boundary),
+                geoJsonBoundary = geoJson,
+                centroidLat = centre?.latitude,
+                centroidLng = centre?.longitude,
+                createdAt = now,
+                updatedAt = now,
+            )
+            when (val saved = farmPlots.savePlot(plot)) {
+                is AppResult.Success -> {
+                    _selectedPlotId.value = saved.data.plotId
+                    _state.update {
+                        it.copy(
+                            isCreatingPlot = false,
+                            createPlotMessage = if (hasBoundary) {
+                                "Plot saved and queued for sync."
+                            } else {
+                                "Plot saved without a boundary. Draw one to start monitoring it."
+                            },
+                        )
+                    }
+                    refreshMapShapes()
+                    loadOverview(saved.data.plotId)
+                }
+                is AppResult.Failure -> _state.update {
+                    it.copy(isCreatingPlot = false, createPlotMessage = saved.error.message)
+                }
+            }
+        }
+    }
+
+    /** Clears the plot-creation result message once it has been shown. */
+    fun dismissCreatePlotMessage() = _state.update { it.copy(createPlotMessage = null) }
+
+    private val nowIso: String
+        get() = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
+            .apply { timeZone = TimeZone.getTimeZone("UTC") }
+            .format(Date())
 
     /**
      * Loads the farmer + system event log for [plotId].
@@ -296,6 +432,9 @@ class SatelliteViewModel @Inject constructor(
         _state.update { it.copy(colourMapDate = null) }
         loadOverview(plotId)
     }
+
+    /** Public selection entry point for the farm map (tapping a polygon or pin). */
+    fun selectPlotFromMap(plotId: String) = selectPlot(plotId)
 
     /**
      * Measures a boundary the farmer is still drawing, without saving anything.
@@ -437,7 +576,7 @@ class SatelliteViewModel @Inject constructor(
 
     /** Clears error/info messages. */
     private fun dismissMessages() {
-        _state.update { it.copy(error = null, infoMessage = null) }
+        _state.update { it.copy(error = null, infoMessage = null, createPlotMessage = null) }
     }
 
     /** Switches the colour map between NDVI and EVI for the selected plot. */
@@ -465,6 +604,7 @@ class SatelliteViewModel @Inject constructor(
      */
     fun start(preferred: String?) {
         viewModelScope.launch {
+            refreshMapShapes()
             if (!preferred.isNullOrBlank()) {
                 _selectedPlotId.value = preferred
                 loadOverview(preferred)

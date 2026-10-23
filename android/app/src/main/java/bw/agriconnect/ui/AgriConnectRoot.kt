@@ -168,6 +168,7 @@ fun AgriConnectRoot(
                     onBack = null,
                     onOpenPlot = { id -> if (id.isNotBlank()) navController.navigate(Routes.farmDetail(id)) },
                     onAddPlot = { navController.navigate(Routes.FARMS) },
+                    onOpenInsights = { id -> navController.navigate(Routes.satelliteInsights(id)) },
                 )
             }
             composable(Routes.MARKETPLACE) {
@@ -238,6 +239,17 @@ fun AgriConnectRoot(
                     onBack = { navController.popBackStack() },
                     onOpenPlot = { id -> if (id.isNotBlank()) navController.navigate(Routes.farmDetail(id)) },
                     onAddPlot = { navController.navigate(Routes.FARMS) },
+                    onOpenInsights = { id -> navController.navigate(Routes.satelliteInsights(id)) },
+                )
+            }
+            composable(
+                Routes.SATELLITE_INSIGHTS,
+                arguments = listOf(navArgument(Routes.ARG_PLOT_ID) { type = NavType.StringType }),
+            ) { entry ->
+                val plotId = entry.arguments?.getString(Routes.ARG_PLOT_ID) ?: return@composable
+                bw.agriconnect.ui.satellite.SatelliteInsightsScreen(
+                    plotId = plotId,
+                    onBack = { navController.popBackStack() },
                 )
             }
             composable(Routes.LISTING_NEW) {

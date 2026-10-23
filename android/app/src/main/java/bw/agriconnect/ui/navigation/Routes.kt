@@ -31,6 +31,8 @@ object Routes {
     const val HARVESTS = "harvests"
     const val LIVESTOCK = "livestock"
     const val SATELLITE = "satellite/{plotId}"
+    /** The detailed, scrollable satellite insights report for one plot. */
+    const val SATELLITE_INSIGHTS = "satellite/{plotId}/insights"
     const val LISTING_NEW = "listing/new"
     const val LISTING_DETAIL = "listing/{listingId}"
     const val ORDER_DETAIL = "order/{orderId}"
@@ -51,6 +53,7 @@ object Routes {
 
     fun farmDetail(plotId: String) = "farms/$plotId"
     fun satellite(plotId: String) = "satellite/$plotId"
+    fun satelliteInsights(plotId: String) = "satellite/$plotId/insights"
     fun listingDetail(listingId: String) = "listing/$listingId"
     fun orderDetail(orderId: String) = "order/$orderId"
 }

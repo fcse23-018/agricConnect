@@ -213,9 +213,9 @@ private object MapLoad {
     const val TimeoutMs = 12_000L
 }
 
-/** The explained state shown when the build has no Maps key. */
+/** The explained state shown when the build has no Maps key, or the key was rejected. */
 @Composable
-private fun MapUnavailable(reason: String, modifier: Modifier = Modifier) {
+internal fun MapUnavailable(reason: String, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))

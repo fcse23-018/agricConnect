@@ -12,6 +12,7 @@ import bw.agriconnect.data.local.dao.OrderDao
 import bw.agriconnect.data.local.dao.ProduceListingDao
 import bw.agriconnect.data.local.dao.SaleTransactionDao
 import bw.agriconnect.data.local.dao.SatelliteNdviDao
+import bw.agriconnect.data.local.dao.SatelliteOverviewCacheDao
 import bw.agriconnect.data.local.dao.SyncQueueDao
 import bw.agriconnect.data.local.entity.ExpenseEntity
 import bw.agriconnect.data.local.entity.FarmPlotEntity
@@ -22,6 +23,7 @@ import bw.agriconnect.data.local.entity.OrderEntity
 import bw.agriconnect.data.local.entity.ProduceListingEntity
 import bw.agriconnect.data.local.entity.SaleTransactionEntity
 import bw.agriconnect.data.local.entity.SatelliteNdviEntity
+import bw.agriconnect.data.local.entity.SatelliteOverviewCacheEntity
 import bw.agriconnect.data.local.entity.SyncQueueEntity
 
 /**
@@ -44,12 +46,13 @@ import bw.agriconnect.data.local.entity.SyncQueueEntity
         SaleTransactionEntity::class,
         ExpenseEntity::class,
         SatelliteNdviEntity::class,
+        SatelliteOverviewCacheEntity::class,
         ProduceListingEntity::class,
         OrderEntity::class,
         NotificationEntity::class,
         SyncQueueEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -66,6 +69,8 @@ abstract class AgriDatabase : RoomDatabase() {
     abstract fun expenseDao(): ExpenseDao
 
     abstract fun satelliteNdviDao(): SatelliteNdviDao
+
+    abstract fun satelliteOverviewCacheDao(): SatelliteOverviewCacheDao
 
     abstract fun produceListingDao(): ProduceListingDao
 

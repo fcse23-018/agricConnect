@@ -26,5 +26,38 @@ val MIGRATION_1_2 = object : Migration(1, 2) {
     }
 }
 
+/**
+ * v2 → v3: adds the satellite overview cache.
+ *
+ * `satellite_overview_cache` stores one row per plot holding the last successful
+ * `GET /satellite/overview` body, so the Satellite Insights screen can show the farmer's
+ * real last reading — with its **original** observation date — when there is no
+ * connection. It is additive: no existing table or row is touched, so an upgrade cannot
+ * lose an offline farm record.
+ */
+val MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS satellite_overview_cache (
+                plot_id TEXT NOT NULL PRIMARY KEY,
+                farmer_id TEXT NOT NULL,
+                plot_name TEXT,
+                observed_on TEXT,
+                latest_ndvi REAL,
+                source TEXT,
+                is_simulated INTEGER NOT NULL DEFAULT 0,
+                overview_json TEXT NOT NULL,
+                cached_at INTEGER NOT NULL
+            )
+            """.trimIndent(),
+        )
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS index_satellite_overview_cache_farmer_id " +
+                "ON satellite_overview_cache (farmer_id)",
+        )
+    }
+}
+
 /** All migrations, in order. Passed to the Room builder by `DatabaseProvider`. */
-val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2)
+val ALL_MIGRATIONS = arrayOf(MIGRATION_1_2, MIGRATION_2_3)

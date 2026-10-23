@@ -434,3 +434,46 @@ The same class of bug hid `summary.dataAgeDays`: `String(now).slice(0, 10)` on t
 This document corresponds to the thresholds in `satelliteAnalysis.js` as of
 the `DEFAULT_THRESHOLDS` export. When thresholds change, update this file in
 the same commit.
+
+## 14. The on-device farm map
+
+The Satellite screen opens with an interactive Google map
+(`ui/components/PlotMapView.kt`) that draws the **stored** plot boundaries — the same
+GeoJSON Farm Management writes — as polygons tinted by each plot's **measured** mean
+NDVI, using the single shared classifier in `core/util/NdviUtil.kt` (thresholds 0.20 /
+0.45, §11). Rules:
+
+- A plot with a stored boundary and `>= 3` corners is a polygon. A plot with only a
+  centroid is a marker. **A marker is never converted into a polygon**: a single point
+  does not define an area, and inventing one would be a fabricated survey. The plot card
+  says "no boundary stored yet" and points at the boundary-creation flow.
+- Only the plot's **average** is drawn as a tint. The per-pixel *pattern* the backend
+  generates for the colour map is `variationSimulated: true` (§9) and is never rendered
+  onto the map as imagery — doing so would present generated texture as a measurement.
+- A simulated (MOCK) mean is tinted like any other reading but is labelled `DEMO`, never
+  silently made to look real.
+- A missing Maps key, or a key Google rejects ("Maps SDK for Android" not enabled for the
+  project), renders an explained panel naming the cause. It is never a silent blank grid.
+
+## 15. Offline overview cache (Room v3)
+
+`GET /satellite/overview` is mirrored on the device in `satellite_overview_cache`
+(`SatelliteOverviewCacheEntity`), one row per plot, holding the raw response JSON plus
+two **separate** timestamps:
+
+- `observed_on` — the server's own newest observation date. A satellite pass.
+- `cached_at` — when the device last received the payload. A local write.
+
+These must never be conflated. When the screen falls back to the cache it shows the
+original `observed_on` and a **Cached** chip with "saved on this device <relative time>",
+and it never re-dates the observation to today. Opening the screen does not create an
+observation. If the request cannot reach the server and no cached row exists, the state is
+**Offline** / **No observation available** — never a fresh-looking number.
+
+Cache states shown to the farmer, in this precedence: Updated, Cached, Offline,
+No observation available, Update failed. A failed request that has a cached row is
+"Cached", not "Update failed", because the farmer is looking at real stored data.
+
+The migration is `MIGRATION_2_3` (`data/local/Migrations.kt`), covered by
+`SatelliteCacheMigrationTest`, which asserts both that the new table exists and that an
+existing `farm_plots` row survives the upgrade.

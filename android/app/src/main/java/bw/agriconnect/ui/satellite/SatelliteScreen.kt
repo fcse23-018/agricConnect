@@ -64,6 +64,7 @@ import bw.agriconnect.ui.components.StatTile
 import bw.agriconnect.core.result.AppResult
 import bw.agriconnect.core.util.DateFormatters
 import bw.agriconnect.core.util.GeoVertex
+import bw.agriconnect.core.util.NdviUtil
 import bw.agriconnect.core.util.PlotBoundary
 import bw.agriconnect.domain.model.FarmPlot
 import bw.agriconnect.domain.model.satellite.*
@@ -118,6 +119,8 @@ fun SatelliteScreen(
     onOpenPlot: ((String) -> Unit)? = null,
     /** Sends the user to the farms list to add a plot (optional, navigation-owned). */
     onAddPlot: (() -> Unit)? = null,
+    /** Opens the full, scrollable insights report for a plot (optional). */
+    onOpenInsights: ((String) -> Unit)? = null,
     viewModel: SatelliteViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -308,6 +311,10 @@ fun SatelliteScreen(
                                     overview = overview,
                                     plotId = currentPlotId,
                                     viewModel = viewModel,
+                                    onOpenInsights = {
+                                        val id = currentPlotId
+                                        if (onOpenInsights != null && id != null) onOpenInsights(id)
+                                    },
                                 )
                                 1 -> ChartTab(overview)
                                 2 -> WeatherTab(overview)
@@ -333,19 +340,49 @@ private fun OverviewTab(
     overview: SatelliteOverview,
     plotId: String?,
     viewModel: SatelliteViewModel,
+    onOpenInsights: () -> Unit,
 ) {
     val geometry = overview.geometry
     val obsStatus = overview.observationStatus
     val summary = overview.summary
     var showBoundaryEditor by remember { mutableStateOf(false) }
     var showLegendMeanings by remember { mutableStateOf(false) }
+    var showCreatePlot by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(AgriSpacing.lg),
     ) {
-        // Satellite sight: the colour map is the most informative element, so it
-        // sits at the top, immediately after the plot identity card.
+        // The farm map is the first thing on the screen: it answers "where is this
+        // plot, and how is each of my plots doing?" in one glance, which the
+        // generated colour map below cannot, because it has no geography at all.
+        item {
+            FarmMapCard(
+                state = state,
+                selectedPlotId = plotId,
+                onSelectPlot = { viewModel.selectPlotFromMap(it) },
+                onAddPlot = { showCreatePlot = true },
+            )
+        }
+
+        // Plot-specific status: identity, the measured NDVI, the health band, and the
+        // date it was measured on, with a way through to the full report.
+        item {
+            PlotStatusCard(
+                overview = overview,
+                fromCache = state.overviewFromCache,
+                onOpenInsights = onOpenInsights,
+            )
+        }
+
+        // The single most important honesty element: which reading the screen is
+        // showing, when it was taken, and whether it is fresh, cached or failed.
+        item {
+            LatestObservationCard(state = state, overview = overview)
+        }
+
+        // Satellite sight: the per-pixel picture. It is a detail view now, not the
+        // headline — the map above carries the geography.
         item {
             SatelliteSightCard(
                 state = state,
@@ -424,12 +461,9 @@ private fun OverviewTab(
                         append(if (latestObs.isSimulated) "MOCK" else latestObs.source ?: "Sentinel-2")
                         if (latestObs.isOutlier) append(" - OUTLIER")
                     },
-                    stressLevel = when {
-                        latestObs.ndvi == null -> null
-                        latestObs.ndvi!! < 0.3 -> bw.agriconnect.domain.model.StressLevel.HIGH_STRESS
-                        latestObs.ndvi!! < 0.5 -> bw.agriconnect.domain.model.StressLevel.MODERATE_STRESS
-                        else -> bw.agriconnect.domain.model.StressLevel.HEALTHY_VEGETATION
-                    },
+                    // One classification, shared with the backend and the rest of the
+                    // app. The bands are never hard-coded per screen (docs/12 §11).
+                    stressLevel = NdviUtil.classify(latestObs.ndvi),
                     cached = obsStatus.isCached,
                 )
             } else {
@@ -553,6 +587,21 @@ private fun OverviewTab(
                     onDismiss = {
                         showBoundaryEditor = false
                         viewModel.onEvent(SatelliteEvent.ClearBoundaryPreview)
+                    },
+                )
+            }
+        }
+
+        // Create a plot from the map. This is the same write path Farm Management uses,
+        // so the plot it saves is the same record both screens show.
+        if (showCreatePlot) {
+            item {
+                CreatePlotSheet(
+                    state = state,
+                    viewModel = viewModel,
+                    onDismiss = {
+                        showCreatePlot = false
+                        viewModel.dismissCreatePlotMessage()
                     },
                 )
             }

@@ -13,18 +13,19 @@
 
 | Suite | Tests | Result | Executed here? |
 |-------|------:|--------|:--------------:|
-| Backend — unit (`backend/tests/unit`, 8 suites) | 139 | ✅ **Pass — re-run 2026-10-19** | ✅ Yes (bundled Node) |
-| Backend — API (`backend/tests/api`, 2 suites) | 13 | ✅ **Pass — re-run 2026-10-19** (`uploads.supabase` needs the network) | ✅ Yes (bundled Node) |
+| Backend — unit (`backend/tests/unit`, 8 suites) | 139 | ✅ **Pass — re-run 2026-10-22** | ✅ Yes (bundled Node) |
+| Backend — API (`backend/tests/api`, 2 suites) | 13 | ✅ **Pass — re-run 2026-10-22** (`uploads.supabase` needs the network) | ✅ Yes (bundled Node) |
+| Backend — full Jest suite | **434** (26 suites) | ✅ **Pass — re-run 2026-10-23** | ✅ Yes |
 | Backend — ESLint (`npm run lint`) | — | ✅ 0 errors (24 pre-existing warnings) | ✅ Yes |
 | Crop API — `crop-api` (`pytest`) | 34 | ✅ **Pass — re-run 2026-10-18** | ✅ Yes |
-| Android — unit (`app/src/test`, 9 classes) | 50 | ✅ **Pass — re-run 2026-10-19** | ✅ Yes |
+| Android — unit (`app/src/test`, 17 classes) | **131** | ✅ **Pass — re-run 2026-10-23** | ✅ Yes |
 | Android — instrumented (`app/src/androidTest`) | 0 authored | ⏭️ Not run | ❌ No emulator/device |
 | Android — `:app:assembleDebug` | — | ✅ **BUILD SUCCESSFUL** | ✅ Yes |
 | Manual on-device walkthrough | — | ⏭️ Not run | ❌ No emulator/device |
 
 Legend: ✅ executed and passed · ❌ could not be executed here · ⏭️ deliberately not run.
 
-On 2026-10-19 the backend and Android suites were re-executed on this machine (Node 24.21.0
+On 2026-10-23 the backend and Android suites were re-executed on this machine (Node 24.21.0
 and JDK 17 are installed under `C:\Users\src.president\agri-tooling\`, just not on `PATH`);
 the crop-API figure is from 2026-10-18. The backend suites are also run by CI
 (`.github/workflows/ci.yml`).
@@ -57,20 +58,26 @@ run here (it requires `android/keystore.properties`).
 
 ## 3. Android unit tests (`:app:testDebugUnitTest`)
 
-Executed 2026-10-19 with `./gradlew :app:testDebugUnitTest`.
-**50 tests · 0 failures · 0 errors · 0 skipped (9 classes).**
+Executed 2026-10-23 with `./gradlew :app:testDebugUnitTest`.
+**131 tests · 0 failures · 0 errors · 0 skipped (17 classes).**
 
 | Class | Tests | Focus |
 |-------|------:|-------|
-| `data.local.AgriDatabaseTest` | 5 | Room persistence, enum converters, sync-queue enqueue on write/delete, plot `imageUrl` round-trip |
+| `data.local.AgriDatabaseTest` | 9 | Room persistence, enum converters, sync-queue enqueue on write/delete, plot `imageUrl` round-trip, and the **satellite overview cache** (round-trip with the observation date kept separate from the cache write time, upsert replacing one plot's row, `observeForPlot` emitting on write, `deleteForFarmer` clearing one owner without touching another) |
+| `data.local.SatelliteCacheMigrationTest` | 2 | The **v2 → v3 migration**: runs the production `MIGRATION_2_3` against a real v2 file that already contains a plot, asserts the plot survives untouched and the new table accepts a row; plus idempotency, so a retried upgrade cannot fail |
 | `data.remote.AuthApiTest` | 6 | Wire contract: `POST /auth/login`, `POST /auth/register` (path + idempotency key + body), 400 error-envelope → field errors, the generic "highlighted fields" copy replaced by the joined field messages, a specific server message kept verbatim even when details exist, 5xx never leaks server text. The register fixture uses `FARM_OWNER`, the role that owns the farm |
 | `data.remote.MediaApiTest` | 3 | Wire contract: `POST /uploads` (path + `image` multipart field + `{url}` parse), repository success path, 5xx never leaks server text |
 | `data.remote.SyncApiTest` | 1 | `sync/push` parses `synced` / `conflict` / `failed` results |
 | `data.remote.TokenAuthenticatorTest` | 2 | 401 → single refresh + retry + rotated token persisted; refresh failure → session cleared |
 | `data.remote.dto.NdviAdviceMappingTest` | 9 | NDVI advice wire contract → domain: full block, trend/context/confidence, a missing `advice`, an advice block with no `assessment`, unknown enum values, a blank action title, a simulated source, and a partial block |
+| `data.remote.dto.ColourMapAndFarmAlertsMappingTest` | 10 | Colour-map and farm-wide alert wire contracts → domain |
+| `data.update.UpdateDecisionTest` / `UpdateStateRulesTest` / `UpdateVersionApiTest` | 16 / 22 / 6 | APK update manifest: version comparison, never locking a user out when the manifest host is unavailable, and the wire shape |
+| `ui.satellite.InsightsRecommendationsTest` | 8 | The insights report's on-device inspection advice: it never names a pest, disease, deficiency or drought for any reading; it gives boundary advice instead of crop advice when the geometry is unusable; it waits rather than guessing when there is no reading; and every path ends by asking the farmer to record what they found |
+| `ui.components.ColourMapViewTest` | 7 | Colour-map legend stops and null-cell handling (a null cell is outside the boundary; `0.0` is a real reading) |
 | `core.util.ImageUrlsTest` | 7 | Origin-relative `/uploads/…` → absolute API-origin URL, absolute/`content://` untouched, blank → null |
 | `core.util.BaseUrlTest` | 6 | Server-override validation: trailing `/` added, whitespace trimmed, host-only accepted, and null/blank/relative/non-`http(s)` values rejected |
 | `core.util.PlotBoundaryTest` | 11 | Corner → closed GeoJSON `Polygon`, ring closure, degenerate rings rejected, local hectares/centroid estimate, the boundary that `POST /satellite/ndvi` requires, and `isUsableBoundary` (accepts Polygon/MultiPolygon/Feature with coordinates; rejects null, blank, malformed, empty and non-polygon input) |
+| `domain.model.UnitTest` | 6 | Marketplace units, including the livestock ("herd") unit |
 
 These are pure JVM tests (Robolectric/MockWebServer) — no device required. The advice
 mapping tests decode the **real** payload shape the backend emits, so the client and the

@@ -3,13 +3,29 @@ package bw.agriconnect.data.repository
 import bw.agriconnect.core.result.AppError
 import bw.agriconnect.core.result.AppResult
 import bw.agriconnect.core.result.runCatchingApi
+import bw.agriconnect.data.local.dao.SatelliteOverviewCacheDao
+import bw.agriconnect.data.local.entity.SatelliteOverviewCacheEntity
 import bw.agriconnect.data.remote.ApiService
 import bw.agriconnect.data.remote.NetworkErrorParser
 import bw.agriconnect.data.remote.dto.*
 import bw.agriconnect.domain.model.satellite.*
 import kotlinx.coroutines.flow.Flow
+import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/**
+ * An overview that may have come from the local mirror rather than the network.
+ *
+ * [fromCache] is the honesty flag the UI shows as a "Cached" chip. [cachedAtMillis] is
+ * when the row was written locally — useful for "last updated", and deliberately *not*
+ * the observation date, which stays the server's own `observedOn`.
+ */
+data class CachedOverview(
+    val overview: SatelliteOverview,
+    val fromCache: Boolean,
+    val cachedAtMillis: Long? = null,
+)
 
 /**
  * Satellite monitoring repository — unified dashboard, events, alerts, weather, boundaries.
@@ -18,11 +34,20 @@ import javax.inject.Singleton
  * the network call 1:1 and does not cache the monitoring overview (it is a composite
  * view that must reflect the latest server state). Individual pieces like weather
  * are cached by the server with a TTL.
+ *
+ * **Offline reading.** A successful overview is mirrored into
+ * `satellite_overview_cache`, and [getOverview] falls back to that mirror when the
+ * network fails. The fallback keeps the server's **own** observation date and source
+ * fields — it never re-dates a reading or presents a cache write time as a satellite
+ * pass. A caller can tell the two apart because a fallback carries the same
+ * [SatelliteOverview] shape but is flagged via [getCachedOverview].
  */
 @Singleton
 class SatelliteMonitoringRepository @Inject constructor(
     private val api: ApiService,
     private val errorParser: NetworkErrorParser,
+    private val cacheDao: SatelliteOverviewCacheDao,
+    private val json: Json,
 ) {
 
     // ============================ Overview ============================
@@ -34,14 +59,71 @@ class SatelliteMonitoringRepository @Inject constructor(
      * geometry, observations (NDVI + EVI, raw + smoothed), growth-cycle estimates,
      * detected drops with explanations, weather, alerts, quality metrics, and
      * model status. No fabricated values; every field is honest about its source.
+     *
+     * On success the payload is mirrored locally. On failure the mirror is used as a
+     * fallback so the screen still shows the farmer's last real reading; the failure
+     * itself is still returned as a [AppResult.Failure] by [getOverview], and callers
+     * that want the offline view use [getOverviewWithFallback].
      */
     suspend fun getOverview(
         plotId: String,
         daysBack: Int? = null,
     ): AppResult<SatelliteOverview> =
         runCatchingApi(errorParser::parse) {
-            api.getSatelliteOverview(plotId, daysBack).toDomain()
+            val dto = api.getSatelliteOverview(plotId, daysBack)
+            cacheOverview(plotId, dto)
+            dto.toDomain()
         }
+
+    /**
+     * Like [getOverview], but returns the cached mirror when the network fails.
+     *
+     * The returned [CachedOverview.overview] in that case is the **last real reading**
+     * with its original dates; [CachedOverview.fromCache] is true so the UI can say
+     * "Cached" instead of implying a live fetch. When neither the network nor the cache
+     * has anything, the original failure is returned unchanged.
+     */
+    suspend fun getOverviewWithFallback(
+        plotId: String,
+        daysBack: Int? = null,
+    ): AppResult<CachedOverview> =
+        when (val live = getOverview(plotId, daysBack)) {
+            is AppResult.Success -> AppResult.Success(CachedOverview(live.data, fromCache = false))
+            is AppResult.Failure -> {
+                val cached = getCachedOverview(plotId)
+                if (cached != null) AppResult.Success(CachedOverview(cached.overview, fromCache = true))
+                else live
+            }
+        }
+
+    /** The cached overview for a plot, with the local time it was written. */
+    suspend fun getCachedOverview(plotId: String): CachedOverview? = runCatching {
+        val row = cacheDao.findForPlot(plotId) ?: return@runCatching null
+        val dto = json.decodeFromString(SatelliteOverviewDto.serializer(), row.overviewJson)
+        CachedOverview(dto.toDomain(), fromCache = true, cachedAtMillis = row.cachedAt)
+    }.getOrNull()
+
+    /** Writes the payload into the mirror. A cache failure must never fail the request. */
+    private suspend fun cacheOverview(plotId: String, dto: SatelliteOverviewDto) {
+        runCatching {
+            val domain = dto.toDomain()
+            val newest = domain.observations.maxByOrNull { it.observedOn }
+            cacheDao.upsert(
+                SatelliteOverviewCacheEntity(
+                    plotId = plotId,
+                    farmerId = domain.plot.farmerId,
+                    plotName = domain.plot.plotName,
+                    observedOn = newest?.observedOn,
+                    latestNdvi = newest?.ndvi,
+                    source = newest?.source,
+                    isSimulated = newest?.isSimulated ?: false,
+                    overviewJson = json.encodeToString(SatelliteOverviewDto.serializer(), dto),
+                    cachedAt = System.currentTimeMillis(),
+                ),
+            )
+        }
+    }
+
 
     // ============================ Boundary ============================
 

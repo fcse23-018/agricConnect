@@ -3,6 +3,7 @@ package bw.agriconnect.data.local
 import android.app.Application
 import androidx.room.Room
 import bw.agriconnect.data.local.entity.FarmPlotEntity
+import bw.agriconnect.data.local.entity.SatelliteOverviewCacheEntity
 import bw.agriconnect.data.local.entity.SyncQueueEntity
 import bw.agriconnect.domain.model.FarmPlot
 import bw.agriconnect.domain.model.SyncOperation
@@ -165,7 +166,102 @@ class AgriDatabaseTest {
             }
     }
 
+    // --- satellite overview cache (v2 → v3) ---------------------------------
+
+    @Test
+    fun satelliteOverviewCache_roundTrips_andKeepsObservationDateSeparateFromCacheTime() = runTest {
+        val dao = db.satelliteOverviewCacheDao()
+        val entity = SatelliteOverviewCacheEntity(
+            plotId = "plot-cache",
+            farmerId = "farmer-1",
+            plotName = "North Field",
+            observedOn = "2026-10-22",
+            latestNdvi = 0.31,
+            source = "SENTINEL-2",
+            isSimulated = false,
+            overviewJson = """{"plot":{"plotId":"plot-cache"}}""",
+            cachedAt = 1_700_000_000_000L,
+        )
+
+        dao.upsert(entity)
+        val loaded = dao.findForPlot("plot-cache")!!
+
+        assertThat(loaded.observedOn).isEqualTo("2026-10-22")
+        assertThat(loaded.cachedAt).isEqualTo(1_700_000_000_000L)
+        assertThat(loaded.latestNdvi).isEqualTo(0.31)
+        // The two timestamps must never be conflated: one is a satellite pass, one is a
+        // local write. If these were ever equal by construction the honesty rule would be
+        // untestable.
+        assertThat(loaded.observedOn).isNotEqualTo(loaded.cachedAt.toString())
+    }
+
+    @Test
+    fun satelliteOverviewCache_upsertReplacesTheRow_forOnePlot() = runTest {
+        val dao = db.satelliteOverviewCacheDao()
+        dao.upsert(
+            SatelliteOverviewCacheEntity(
+                plotId = "plot-cache",
+                farmerId = "farmer-1",
+                observedOn = "2026-10-01",
+                overviewJson = "{}",
+                cachedAt = 1L,
+            ),
+        )
+        dao.upsert(
+            SatelliteOverviewCacheEntity(
+                plotId = "plot-cache",
+                farmerId = "farmer-1",
+                observedOn = "2026-10-22",
+                overviewJson = "{}",
+                cachedAt = 2L,
+            ),
+        )
+
+        assertThat(dao.findForFarmer("farmer-1")).hasSize(1)
+        assertThat(dao.findForPlot("plot-cache")!!.observedOn).isEqualTo("2026-10-22")
+    }
+
+    @Test
+    fun satelliteOverviewCache_observeForPlot_emitsOnWrite() = runTest {
+        val dao = db.satelliteOverviewCacheDao()
+        assertThat(dao.observeForPlot("plot-cache").first()).isNull()
+
+        dao.upsert(
+            SatelliteOverviewCacheEntity(
+                plotId = "plot-cache",
+                farmerId = "farmer-1",
+                observedOn = "2026-10-22",
+                overviewJson = "{}",
+                cachedAt = 5L,
+            ),
+        )
+
+        assertThat(dao.observeForPlot("plot-cache").first()?.observedOn).isEqualTo("2026-10-22")
+    }
+
+    @Test
+    fun satelliteOverviewCache_deleteForFarmer_clearsEveryPlotOfThatOwner() = runTest {
+        val dao = db.satelliteOverviewCacheDao()
+        dao.upsert(cacheRow("plot-a", "farmer-1"))
+        dao.upsert(cacheRow("plot-b", "farmer-1"))
+        dao.upsert(cacheRow("plot-c", "farmer-2"))
+
+        dao.deleteForFarmer("farmer-1")
+
+        assertThat(dao.findForFarmer("farmer-1")).isEmpty()
+        // Another owner's cache is untouched — the DAO must never be able to wipe it.
+        assertThat(dao.findForFarmer("farmer-2")).hasSize(1)
+    }
+
     // --- fixtures -----------------------------------------------------------
+
+    private fun cacheRow(plotId: String, farmerId: String) = SatelliteOverviewCacheEntity(
+        plotId = plotId,
+        farmerId = farmerId,
+        observedOn = "2026-10-22",
+        overviewJson = "{}",
+        cachedAt = 1L,
+    )
 
     private fun samplePlot(plotId: String) = FarmPlot(
         plotId = plotId,

@@ -12,6 +12,7 @@ import bw.agriconnect.data.local.dao.OrderDao
 import bw.agriconnect.data.local.dao.ProduceListingDao
 import bw.agriconnect.data.local.dao.SaleTransactionDao
 import bw.agriconnect.data.local.dao.SatelliteNdviDao
+import bw.agriconnect.data.local.dao.SatelliteOverviewCacheDao
 import bw.agriconnect.data.local.dao.SyncQueueDao
 import dagger.Module
 import dagger.Provides
@@ -48,6 +49,10 @@ object DatabaseModule {
     @Provides fun provideExpenseDao(db: AgriDatabase): ExpenseDao = db.expenseDao()
 
     @Provides fun provideSatelliteNdviDao(db: AgriDatabase): SatelliteNdviDao = db.satelliteNdviDao()
+
+    @Provides
+    fun provideSatelliteOverviewCacheDao(db: AgriDatabase): SatelliteOverviewCacheDao =
+        db.satelliteOverviewCacheDao()
 
     @Provides fun provideProduceListingDao(db: AgriDatabase): ProduceListingDao = db.produceListingDao()
 
