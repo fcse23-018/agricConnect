@@ -305,19 +305,21 @@ fun PlotStatusCard(
  * A reading is never re-dated. The date shown is always the server's own `observedOn`.
  */
 @Composable
-fun LatestObservationCard(state: SatelliteUiState, overview: SatelliteOverview) {
+fun LatestObservationCard(
+    state: SatelliteUiState,
+    overview: SatelliteOverview,
+    onRetry: () -> Unit,
+) {
     val latest = overview.observations.maxByOrNull { it.observedOn }
     val status = overview.observationStatus
 
-    val label = when {
-        state.isLoading -> "Checking for a new pass"
-        state.error != null && state.overviewFromCache -> "Cached"
-        state.overviewFromCache -> "Cached"
-        state.error != null && state.offline -> "Offline"
-        state.error != null -> "Update failed"
-        latest?.ndvi == null -> "No observation available"
-        else -> "Updated"
-    }
+    val label = observationStateLabel(
+        isLoading = state.isLoading,
+        hasError = state.error != null,
+        isOffline = state.offline,
+        fromCache = state.overviewFromCache,
+        hasReading = latest?.ndvi != null,
+    )
     val labelColour = when (label) {
         "Updated" -> AgriColors.SuccessGreen
         "Cached" -> AgriColors.WarningAmber
@@ -400,10 +402,46 @@ fun LatestObservationCard(state: SatelliteUiState, overview: SatelliteOverview) 
 
             if (state.error != null) {
                 Spacer(Modifier.height(AgriSpacing.sm))
-                ErrorBanner(message = state.error.orEmpty())
+                ErrorBanner(
+                    message = state.error.orEmpty(),
+                    // A real re-fetch, not a cosmetic dismiss: the only way an old cache
+                    // becomes "Updated" is the network actually answering.
+                    onRetry = onRetry,
+                )
+            } else if (state.overviewFromCache) {
+                Spacer(Modifier.height(AgriSpacing.sm))
+                AgriSecondaryButton(
+                    text = "Try for a fresh pass",
+                    onClick = onRetry,
+                    fillWidth = true,
+                )
             }
         }
     }
+}
+
+/**
+ * The one place the card's state word is decided, extracted so the precedence is
+ * unit-testable rather than buried in a composable.
+ *
+ * Order matters: a payload restored from the device mirror is always **Cached** — even if
+ * the request that produced it then failed — because the farmer is looking at real stored
+ * data and must not be told it is a fresh download. `isLoading` outranks everything so a
+ * half-finished refresh never reads as settled.
+ */
+internal fun observationStateLabel(
+    isLoading: Boolean,
+    hasError: Boolean,
+    isOffline: Boolean,
+    fromCache: Boolean,
+    hasReading: Boolean,
+): String = when {
+    isLoading -> "Checking for a new pass"
+    fromCache -> "Cached"
+    hasError && isOffline -> "Offline"
+    hasError -> "Update failed"
+    !hasReading -> "No observation available"
+    else -> "Updated"
 }
 
 /** One line comparing the newest reading with the previous one, when both exist. */
@@ -525,6 +563,11 @@ fun CreatePlotSheet(
                 isLocating = isLocating,
                 enabled = !state.isCreatingPlot,
                 onAddVertex = { vertex -> vertices = vertices + vertex },
+                // Without this, the map's corner markers still look draggable but the move
+                // is discarded — the drawn shape and the saved shape would disagree.
+                onMoveVertex = { index, moved ->
+                    vertices = vertices.mapIndexed { i, v -> if (i == index) moved else v }
+                },
             )
 
             Spacer(Modifier.height(AgriSpacing.sm))

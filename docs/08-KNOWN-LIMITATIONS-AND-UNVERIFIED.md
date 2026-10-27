@@ -78,6 +78,7 @@ and provider-dependent items remain unexecuted.
 | T7 | Idempotency key retention | The `idempotency_keys` table grows; add a purge job. |
 | T8 | NDVI advice on a device | The post-reading guidance is unit-tested on both sides (builder, wire contract and mapping) but has not been displayed on a device — no emulator/phone was available. |
 | T9 | Role rename deployment | `006_role_rename.sql` runs automatically at deploy (`npm run migrate`). **Verified live 2026-10-19**: `POST /auth/register` accepts `FARM_OWNER` and `FARMER` and rejects `FARM_EMPLOYEE`, and the container only serves once its migrations exited `0` — see `05-TEST-REPORT.md` §6. `backend/scripts/apply-role-rename.sql` applies the same change idempotently by hand if a database is ever found on the old labels. |
+| T10 | ~~`java.time` crash on Android 7.x~~ | **Fixed 2026-10-23**: `minSdk` is 24 but the app uses `java.time` throughout (dates, periods, the satellite "saved 3 h ago" line). Those calls only exist from API 26, so on Android 7.0/7.1 they would throw `NoClassDefFoundError` — lint reported 44 `NewApi` errors. Core-library desugaring is now enabled (`desugar_jdk_libs` 2.1.3 in `app/build.gradle.kts`), which back-ports the API. Still unverified on an actual API 24/25 device. |
 
 ---
 

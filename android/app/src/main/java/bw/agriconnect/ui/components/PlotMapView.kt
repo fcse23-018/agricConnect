@@ -229,9 +229,15 @@ fun PlotMapView(
             }
 
             // The device position, drawn only when the caller says it is known and allowed.
-            if (locationEnabled && myLocation != null) {
+            val device = myLocation
+            if (locationEnabled && device != null) {
+                // Remembered: creating MarkerState during composition would reset the
+                // marker on every recomposition and leak the old state.
+                val deviceMarker = remember(device.latitude, device.longitude) {
+                    MarkerState(position = LatLng(device.latitude, device.longitude))
+                }
                 Marker(
-                    state = MarkerState(position = LatLng(myLocation.latitude, myLocation.longitude)),
+                    state = deviceMarker,
                     title = "Your position",
                 )
             }

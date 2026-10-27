@@ -241,6 +241,16 @@ fun SatelliteScreen(
                             if (state.infoMessage != null) {
                                 InfoBanner(message = state.infoMessage.orEmpty())
                             }
+                            if (state.overviewFromCache) {
+                                // The device-side mirror — distinct from the server's own
+                                // `isCached`. The reading keeps its original observation
+                                // date; only the "saved on this device" time is local.
+                                InfoBanner(
+                                    message = "You are offline, so this is the last reading saved " +
+                                        "on this device. It keeps its original observation date — " +
+                                        "nothing has been re-dated. Tap Try for a fresh pass to check again.",
+                                )
+                            }
                             if (overview.observationStatus.isCached) {
                                 InfoBanner(message = "Showing cached data. Reconnect to fetch the latest satellite pass.")
                             }
@@ -378,7 +388,13 @@ private fun OverviewTab(
         // The single most important honesty element: which reading the screen is
         // showing, when it was taken, and whether it is fresh, cached or failed.
         item {
-            LatestObservationCard(state = state, overview = overview)
+            LatestObservationCard(
+                state = state,
+                overview = overview,
+                onRetry = {
+                    plotId?.let { viewModel.onEvent(SatelliteEvent.RefreshOverview(it)) }
+                },
+            )
         }
 
         // Satellite sight: the per-pixel picture. It is a detail view now, not the

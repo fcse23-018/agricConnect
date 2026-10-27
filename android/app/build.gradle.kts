@@ -135,6 +135,9 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // minSdk is 24, but `java.time` (used app-wide for dates and cached-write times)
+        // only exists from API 26. Desugaring back-ports it so Android 7.x does not crash.
+        isCoreLibraryDesugaringEnabled = true
     }
     kotlinOptions {
         jvmTarget = "17"
@@ -171,6 +174,9 @@ android {
 }
 
 dependencies {
+    // Back-ports `java.time` so it works on API 24-25 (see compileOptions above).
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)

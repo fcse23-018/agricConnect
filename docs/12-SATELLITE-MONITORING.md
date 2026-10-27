@@ -455,6 +455,21 @@ NDVI, using the single shared classifier in `core/util/NdviUtil.kt` (thresholds 
 - A missing Maps key, or a key Google rejects ("Maps SDK for Android" not enabled for the
   project), renders an explained panel naming the cause. It is never a silent blank grid.
 
+### Creating a plot from the map
+
+The map's "Add a plot" sheet draws **Method B** (custom polygon): tap the map to add a
+corner, **drag a corner to move it**, and remove one from the list. Fewer than three
+corners is refused with a plain reason and the Save button stays disabled.
+
+A farmer who has not walked the plot yet can save a **single pin** instead. That plot is
+stored with **no boundary at all** — not a generated polygon — and the card says it cannot
+be measured. **Method A** (rotated rectangle: centre, width, length, bearing) remains
+available on the existing "Set boundary" editor for that plot once the farmer knows the
+shape.
+
+Saving goes through the same `FarmPlotRepository.savePlot` call Farm Management uses, so
+one record reaches both screens and the server deduplicates it by `plot_id`.
+
 ## 15. Offline overview cache (Room v3)
 
 `GET /satellite/overview` is mirrored on the device in `satellite_overview_cache`
@@ -473,6 +488,16 @@ observation. If the request cannot reach the server and no cached row exists, th
 Cache states shown to the farmer, in this precedence: Updated, Cached, Offline,
 No observation available, Update failed. A failed request that has a cached row is
 "Cached", not "Update failed", because the farmer is looking at real stored data.
+
+Both the "Cached" and the failed states carry a working **retry** — the error banner's
+`Retry` button and a "Try for a fresh pass" action — which issues a real re-fetch. There is
+no dismiss-only affordance, because the only way a cached reading becomes "Updated" is the
+network actually answering. A screen-level banner also states plainly that the app is
+offline and that the reading keeps its original observation date.
+
+The state word is decided by one pure function, `observationStateLabel` in
+`ui/satellite/SatelliteCards.kt`, covered by `ObservationStateLabelTest`, so the precedence
+cannot drift between the card, the report and the legend.
 
 The migration is `MIGRATION_2_3` (`data/local/Migrations.kt`), covered by
 `SatelliteCacheMigrationTest`, which asserts both that the new table exists and that an
