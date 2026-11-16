@@ -150,6 +150,11 @@ fun SatelliteScreen(
         "Alerts",
     ).let { if (showPlotsTab) it else it.drop(1) }
 
+    // Index into the analysis tabs (Overview..Alerts). The Plots tab is a local
+    // list and is deliberately kept out of this mapping: it must remain usable
+    // even when no satellite reading has ever loaded.
+    val analysisTab = if (showPlotsTab) selectedTab - 1 else selectedTab
+
     // One-shot start effect
     LaunchedEffect(plotId) { viewModel.start(plotId) }
 
@@ -191,53 +196,62 @@ fun SatelliteScreen(
                 }
             }
 
-            // Tab content
-            androidx.compose.foundation.layout.Box(
+            // Tab content. Deliberately NOT wrapped in verticalScroll: the tabs
+            // that need to scroll do it themselves. A scrolling parent measures
+            // its children with infinite height, which breaks a LazyColumn and
+            // leaves content clipped instead of fully visible.
+            Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
+                    .fillMaxWidth()
+                    .weight(1f),
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(AgriSpacing.md),
+                        .padding(AgriSpacing.md)
+                        .let { base ->
+                            // Plots and Overview are lazy lists and scroll on
+                            // their own; the other tabs use a regular Column.
+                            if ((showPlotsTab && selectedTab == 0) || analysisTab == 0) {
+                                base
+                            } else {
+                                base.verticalScroll(rememberScrollState())
+                            }
+                        },
                     verticalArrangement = Arrangement.spacedBy(AgriSpacing.lg),
                 ) {
-                    when {
+                    // The plot list is local data. It works with no network and
+                    // with no satellite overview, so it is never gated on one.
+                    if (showPlotsTab && selectedTab == 0) {
+                        FarmScreen(
+                            onPlotClick = { id -> if (onOpenPlot != null) onOpenPlot(id) },
+                            onOpenHarvests = onOpenHarvests,
+                            onOpenLivestock = onOpenLivestock,
+                            embedded = true,
+                        )
+                    } else when {
                         state.isLoading && state.overview == null -> {
-                            LoadingState(message = "Loading satellite monitoring...")
-                        }
-
-                        state.error != null && state.overview == null -> {
-                            if (state.offline) {
-                                OfflineEmptyState(onRetry = { currentPlotId?.let { viewModel.onEvent(SatelliteEvent.RefreshOverview(it)) } })
-                            } else {
-                                ErrorState(
-                                    message = state.error.orEmpty(),
-                                    onRetry = { currentPlotId?.let { viewModel.onEvent(SatelliteEvent.RefreshOverview(it)) } },
-                                )
-                            }
+                            LoadingState(message = "Loading crop health data...")
                         }
 
                         state.overview == null -> {
-                            when {
-                                plots.isEmpty() -> EmptyState(
-                                    title = "No plots yet",
-                                    message = "Add a plot with a boundary to monitor its vegetation health.",
-                                    actionLabel = "Add a plot",
-                                    onAction = { onAddPlot?.invoke() },
-                                )
-                                canGenerate -> EmptyState(
-                                    title = "No monitoring data yet",
-                                    message = "Generate a fresh NDVI result for this plot. If the plot has no saved boundary, you'll need to add one first.",
-                                    actionLabel = if (state.isGenerating) "Generating..." else "Generate satellite data",
-                                    onAction = { if (!state.isGenerating) currentPlotId?.let { viewModel.onEvent(SatelliteEvent.GenerateLegacyNdvi(it)) } },
-                                )
-                                else -> EmptyState(
-                                    title = "No monitoring data yet",
-                                    message = "Only the farm owner can generate satellite data. The last computed result will appear here if available.",
-                                )
-                            }
+                            // A failed read used to replace the WHOLE screen with a
+                            // dead-end "Something went wrong" state, taking the local
+                            // Plot tab and every other button with it. Keep the
+                            // failure on this tab only, with actions that work
+                            // offline (retry, generate, add a plot).
+                            AnalysisUnavailable(
+                                state = state,
+                                hasPlots = plots.isNotEmpty(),
+                                canGenerate = canGenerate,
+                                onRetry = { viewModel.start(currentPlotId) },
+                                onGenerate = {
+                                    currentPlotId?.let {
+                                        viewModel.onEvent(SatelliteEvent.GenerateLegacyNdvi(it))
+                                    }
+                                },
+                                onAddPlot = onAddPlot,
+                            )
                         }
 
                         else -> {
@@ -245,7 +259,7 @@ fun SatelliteScreen(
 
                             // Error/Info banners
                             if (state.error != null) {
-                                ErrorBanner(message = state.error.orEmpty(), onRetry = { currentPlotId?.let { viewModel.onEvent(SatelliteEvent.RefreshOverview(it)) } })
+                                ErrorBanner(message = state.error.orEmpty(), onRetry = { viewModel.start(currentPlotId) })
                             }
                             if (state.infoMessage != null) {
                                 InfoBanner(message = state.infoMessage.orEmpty())
@@ -324,24 +338,13 @@ fun SatelliteScreen(
                                     )
                                 }
                             }
-                            val analysisTab = if (showPlotsTab) selectedTab - 1 else selectedTab
-                            if (showPlotsTab && selectedTab == 0) {
-                                // The two old tabs are now one: plots and their analysis
-                                // live together, so a farmer never has to switch tabs to
-                                // see what a plot list entry actually means.
-                                FarmScreen(
-                                    onPlotClick = { id -> if (onOpenPlot != null) onOpenPlot(id) },
-                                    onOpenHarvests = onOpenHarvests,
-                                    onOpenLivestock = onOpenLivestock,
-                                    embedded = true,
-                                )
-                            } else {
-                                when (analysisTab) {
+                            when (analysisTab) {
                                     0 -> OverviewTab(
                                         state = state,
                                         overview = overview,
                                         plotId = currentPlotId,
                                         viewModel = viewModel,
+                                        modifier = Modifier.weight(1f),
                                         onOpenInsights = {
                                             val id = currentPlotId
                                             if (onOpenInsights != null && id != null) onOpenInsights(id)
@@ -353,11 +356,64 @@ fun SatelliteScreen(
                                     4 -> EventsTab(state, currentPlotId, viewModel)
                                     5 -> AlertsTab(state, overview, viewModel)
                                 }
-                            }
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * The analysis tabs' shared "nothing to show yet" state.
+ *
+ * A failed or not-yet-run overview used to blank the entire screen with the
+ * generic ErrorState, which made every button on the page — including the
+ * purely local Plots list — look broken. Here the failure stays on these tabs
+ * and every action is reachable: retry the read, generate a reading (owner),
+ * or add a plot when there are none.
+ */
+@Composable
+private fun AnalysisUnavailable(
+    state: SatelliteUiState,
+    hasPlots: Boolean,
+    canGenerate: Boolean,
+    onRetry: () -> Unit,
+    onGenerate: () -> Unit,
+    onAddPlot: (() -> Unit)?,
+) {
+    val failed = state.error != null || state.offline
+    val message = when {
+        state.offline -> "You're offline and this plot has no saved reading. Check your connection, then try again."
+        state.error?.contains("Something went wrong", ignoreCase = true) == true ->
+            "We couldn't load crop health data right now. Check your connection and try again."
+        state.error != null -> state.error.orEmpty()
+        !hasPlots -> "Add a plot with a boundary to start tracking vegetation health."
+        else -> "No satellite reading for this plot yet. Generate one to see its crop health."
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(AgriSpacing.md),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        EmptyState(
+            title = if (failed) "Couldn't load crop health" else "No crop health data yet",
+            message = message,
+        )
+        // Full-width buttons stack instead of overflowing on a narrow phone.
+        AgriSecondaryButton(text = "Try again", onClick = onRetry)
+        if (canGenerate && hasPlots) {
+            AgriPrimaryButton(
+                text = if (state.isGenerating) "Generating..." else "Generate satellite data",
+                onClick = onGenerate,
+                enabled = !state.isGenerating,
+            )
+        }
+        if (!hasPlots && onAddPlot != null) {
+            AgriPrimaryButton(text = "Add a plot", onClick = onAddPlot, fillWidth = false)
         }
     }
 }
@@ -373,6 +429,7 @@ private fun OverviewTab(
     plotId: String?,
     viewModel: SatelliteViewModel,
     onOpenInsights: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val geometry = overview.geometry
     val obsStatus = overview.observationStatus
@@ -382,7 +439,9 @@ private fun OverviewTab(
     var showCreatePlot by remember { mutableStateOf(false) }
 
     LazyColumn(
-        modifier = Modifier.fillMaxWidth(),
+        // Fills the space left by the banners and scrolls on its own. Never put
+        // this inside a verticalScroll parent — that gives it infinite height.
+        modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(AgriSpacing.lg),
     ) {
         // The farm map is the first thing on the screen: it answers "where is this
@@ -676,7 +735,9 @@ private fun ChartTab(overview: SatelliteOverview) {
     val advice = trendAdvice(overview.summary?.ndvi)
 
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(AgriSpacing.lg),
     ) {
         AnalysisAdviceCard(
@@ -703,14 +764,11 @@ private fun ChartTab(overview: SatelliteOverview) {
         AgriCard {
             Column {
                 SectionHeader(title = "Observation Details")
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(AgriSpacing.xs),
-                ) {
-                    items(sorted.size) { idx ->
-                        ObservationRow(obs = sorted[idx])
-                        if (idx != sorted.lastIndex) Spacer(Modifier.height(AgriSpacing.xs))
-                    }
+                // A plain Column, not another LazyColumn: the tab already
+                // scrolls, and nesting the two breaks measurement.
+                sorted.forEachIndexed { idx, obs ->
+                    ObservationRow(obs = obs)
+                    if (idx != sorted.lastIndex) Spacer(Modifier.height(AgriSpacing.xs))
                 }
             }
         }
@@ -1060,7 +1118,9 @@ private fun WeatherTab(overview: SatelliteOverview) {
     }
 
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(AgriSpacing.lg),
     ) {
         weather.summary?.let { summary ->
@@ -1112,15 +1172,10 @@ private fun WeatherTab(overview: SatelliteOverview) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(AgriSpacing.xs),
-                ) {
-                    val sorted = weather.daily.sortedByDescending { it.date }
-                    items(sorted.size) { idx ->
-                        WeatherRow(day = sorted[idx])
-                        if (idx != sorted.lastIndex) Spacer(Modifier.height(AgriSpacing.xs))
-                    }
+                val sorted = weather.daily.sortedByDescending { it.date }
+                sorted.forEachIndexed { idx, day ->
+                    WeatherRow(day = day)
+                    if (idx != sorted.lastIndex) Spacer(Modifier.height(AgriSpacing.xs))
                 }
             }
         }
@@ -1142,7 +1197,9 @@ private fun GrowthCycleTab(overview: SatelliteOverview) {
     }
 
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(AgriSpacing.lg),
     ) {
         AnalysisAdviceCard(
@@ -1215,7 +1272,9 @@ private fun EventsTab(
     var pendingDelete by remember { mutableStateOf<PlotEvent?>(null) }
 
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(AgriSpacing.lg),
     ) {
         AnalysisAdviceCard(
@@ -1244,6 +1303,10 @@ private fun EventsTab(
                     onClick = { showAddDialog = true },
                     fillWidth = true,
                 )
+
+                state.eventsError?.let {
+                    ErrorBanner(message = it, onRetry = { viewModel.reloadEvents() })
+                }
 
                 when {
                     state.isLoadingEvents && state.events.isEmpty() -> {
@@ -1580,7 +1643,9 @@ private fun AlertsTab(
     LaunchedEffect(Unit) { viewModel.loadAlertsByFarm() }
 
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(AgriSpacing.lg),
     ) {
         val advice = alertsAdvice(alerts)

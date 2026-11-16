@@ -1,18 +1,18 @@
 {
   "_comment": "APK update manifest served at GET /api/v1/app/version. Update this file on every release: bump latestVersionCode to the new Android versionCode, set downloadUrl to the HTTPS location of the signed APK, add the release notes, and set releasedAt. Uploading an APK does NOT update this file automatically. While downloadUrl is empty the endpoint reports 'available: false, reason: no release is published' and clients show no update prompt. See docs/13-ANDROID-RELEASES.md.",
   "published": true,
-  "latestVersionName": "1.2.0",
-  "latestVersionCode": 4,
+  "latestVersionName": "1.2.1",
+  "latestVersionCode": 5,
   "minSupportedVersionCode": 1,
-  "downloadUrl": "https://fcse23-018.github.io/agriconnect-website/assets/agriConnect-1.2.0.apk",
+  "downloadUrl": "https://fcse23-018.github.io/agriconnect-website/assets/agriConnect-1.2.1.apk",
   "packageName": "bw.agriconnect",
   "releaseNotes": [
-    "Farm and Satellite are now one tab with plots, map and all crop analyses together.",
-    "Every analysis now shows what the reading means and what to do next.",
-    "Trend, weather, growth stage, alerts and field log include clear field actions."
+    "Fix: Plots and every button on Farm and Crop Health work even when satellite data cannot load.",
+    "Screens now scroll and fit properly: no clipped content or nested-list crashes.",
+    "Failed reads stay on their tab with working Try again, Generate and Add plot actions."
   ],
   "releasedAt": "2026-11-16",
-  "checksumSha256": "2af740007dca00b92102e624683f585ede86c304fe3563d4c0bdeb00e9f58225",
+  "checksumSha256": "79e6f63c594ed9fac879fd85a6f1482ff18bd095d8d89c77afd418583c20df1c",
   "sizeBytes": 24825772,
   "requiredMessage": "Please update AgriConnect to continue using satellite monitoring.",
   "optionalMessage": "A newer version of AgriConnect is available."

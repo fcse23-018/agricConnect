@@ -48,6 +48,8 @@ data class SatelliteUiState(
     /** Farmer + system event log for the selected plot (newest first). */
     val events: List<PlotEvent> = emptyList(),
     val isLoadingEvents: Boolean = false,
+    /** A failed event read is local to the Events tab — it must never blank the screen. */
+    val eventsError: String? = null,
     /** Latest boundary preview (computed area/perimeter) — not yet saved. */
     val boundaryPreview: BoundaryPreview? = null,
     val isPreviewingBoundary: Boolean = false,
@@ -153,7 +155,15 @@ class SatelliteViewModel @Inject constructor(
     /** Loads the complete monitoring overview for a plot. */
     private fun loadOverview(plotId: String) {
         viewModelScope.launch {
-            _state.update { it.copy(isLoading = true, error = null, offline = false, infoMessage = null) }
+            _state.update {
+                it.copy(
+                    isLoading = true,
+                    error = null,
+                    offline = false,
+                    infoMessage = null,
+                    eventsError = null,
+                )
+            }
             when (val result = monitoringRepo.getOverviewWithFallback(plotId)) {
                 is AppResult.Success -> {
                     val overview = result.data.overview
@@ -323,20 +333,24 @@ class SatelliteViewModel @Inject constructor(
      */
     private fun loadEvents(plotId: String) {
         viewModelScope.launch {
-            _state.update { it.copy(isLoadingEvents = true) }
+            _state.update { it.copy(isLoadingEvents = true, eventsError = null) }
             when (val result = monitoringRepo.getEvents(plotId)) {
                 is AppResult.Success -> _state.update {
                     it.copy(isLoadingEvents = false, events = result.data)
                 }
                 is AppResult.Failure -> _state.update {
-                    it.copy(
-                        isLoadingEvents = false,
-                        error = it.error ?: result.error.message,
-                        offline = it.offline || result.error.isNetwork,
-                    )
+                    // Keep the overview and its buttons intact. The Events tab
+                    // shows this message on its own and offers a retry.
+                    it.copy(isLoadingEvents = false, eventsError = result.error.message)
                 }
             }
         }
+    }
+
+    /** Retry the event log alone, without disturbing the overview. */
+    fun reloadEvents() {
+        val plotId = _selectedPlotId.value ?: _state.value.overview?.plot?.plotId ?: return
+        loadEvents(plotId)
     }
 
     /**

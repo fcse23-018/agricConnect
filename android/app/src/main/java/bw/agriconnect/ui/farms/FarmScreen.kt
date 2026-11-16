@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -123,7 +124,11 @@ fun FarmScreen(
             onOpenHarvests = onOpenHarvests,
             onOpenLivestock = onOpenLivestock,
             onAddPlot = { viewModel.showForm(true) },
-            modifier = Modifier.padding(horizontal = AgriSpacing.lg).height(560.dp),
+            // Fill the space the merged tab gives us instead of a fixed 560dp:
+            // on a short screen a fixed height pushed the list past the bottom.
+            modifier = Modifier
+                .padding(horizontal = AgriSpacing.lg)
+                .fillMaxSize(),
         )
     } else {
         MainScaffold(
