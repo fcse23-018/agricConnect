@@ -97,6 +97,22 @@ data class ResetTokenResponse(val resetToken: String)
 data class MessageResponse(val message: String)
 
 /**
+ * What the transport actually did with a code — reported only to the signed-in
+ * owner of the account, and only as a fixed [reason] code (never provider text).
+ *
+ * `reason` is `TRIAL_UNVERIFIED_NUMBER` when Twilio refused an unverified trial
+ * recipient (error 21608), `NO_PROVIDER` when the server has no SMS transport,
+ * or another fixed code. It is null when `delivered` is true.
+ */
+@Serializable
+data class DeliveryStatusDto(
+    /** `SMS` | `EMAIL`. */
+    val channel: String? = null,
+    val delivered: Boolean = false,
+    val reason: String? = null,
+)
+
+/**
  * `202` acknowledgement for endpoints that send a recovery or verification code.
  *
  * When the backend runs with `EXPOSE_DEV_CODES=true` in a non-production
@@ -108,6 +124,16 @@ data class MessageResponse(val message: String)
 data class CodeDispatchResponse(
     val message: String,
     val devCode: String? = null,
+    /** Present only for the authenticated owner of the account. */
+    val delivery: DeliveryStatusDto? = null,
+    val expiresInMinutes: Int? = null,
+)
+
+/** `200` body for `/auth/verification/confirm`: the now-verified user. */
+@Serializable
+data class VerifyResponse(
+    val message: String,
+    val user: UserDto? = null,
 )
 
 /** `GET /auth/me` returns the user nested under `user`. */

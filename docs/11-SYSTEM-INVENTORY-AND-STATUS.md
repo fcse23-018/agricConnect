@@ -10,7 +10,7 @@
 > `AgriConnect_Coding_Implementation_Plan (draft).docx`,
 > `Open Requirements requiring confirmation.docx`, plus the code itself.
 >
-> **Last updated:** 2026-10-19 · **HEAD:** `ef16184`
+> **Last updated:** 2026-11-16 · **HEAD:** `923c2ff` (+ uncommitted work)
 
 ---
 
@@ -19,13 +19,13 @@
 | Layer | Planned (UML v1.1 §3) | As built | Where |
 |-------|-----------------------|----------|-------|
 | Mobile UI | Kotlin, Jetpack Compose & ViewBinding | Kotlin + Jetpack Compose, **Material 3** (ViewBinding not used) | `android/app/src/main/java/bw/agriconnect/ui/` |
-| Local storage | Room ORM over SQLite | Room **v2**, 10 entities + 10 DAOs | `.../data/local/` |
+| Local storage | Room ORM over SQLite | Room **v2**, 11 entities + 11 DAOs | `.../data/local/` |
 | Background sync | WorkManager + ConnectivityManager | `SyncWorker` (WorkManager) + `SyncScheduler` + `SyncEngine`/`SyncQueue`/`SyncApplier`/`ConflictResolver` | `.../data/sync/` |
 | API client | Retrofit 2 / OkHttp 4, JWT, HTTPS | Retrofit 2 + OkHttp 4, `AuthInterceptor`, `TokenAuthenticator` (silent refresh) | `.../data/remote/` |
 | Cloud service | Node.js + Express (RBAC, validation, conflict resolution) | Node.js + Express, zod validation, RBAC middleware, `LastWriteWinsResolver` | `backend/src/` |
-| Central DB | PostgreSQL 15 | PostgreSQL (Supabase), 16 tables, 6 migrations | `backend/migrations/`, `backend/db/` |
+| Central DB | PostgreSQL 15 | PostgreSQL (Supabase), 23 tables, 9 migrations | `backend/migrations/`, `backend/db/` |
 | Satellite | Google Earth Engine / Sentinel-2 | Two paths: Express `/satellite` NDVI (mock when GEE unconfigured) **and** a standalone FastAPI `crop-api/` (mock by default) | `backend/src/services/gee.js`, `crop-api/` |
-| Mapping | Android-compatible map + GeoJSON | GeoJSON boundary capture (GPS corners / manual lat-lng); **OSMDroid is declared as a dependency but no `MapView` is wired into any screen** | `.../core/util/PlotBoundary.kt`, `ui/components/BoundaryEditor.kt` |
+| Mapping | Android-compatible map + GeoJSON | GeoJSON boundary capture (GPS corners / manual lat-lng) plus Google Maps Compose (`PlotMapView`, `PlotBoundaryMap`) for plot and NDVI display | `ui/components/PlotMapView.kt`, `.../core/util/PlotBoundary.kt`, `ui/components/BoundaryEditor.kt` |
 | Hosting | (not fixed in UML) | Render (Node API) + Supabase (DB + Storage) | `render.yaml` |
 | Image storage | (not fixed in UML) | Supabase Storage bucket `agriconnect-uploads`, `POST /uploads` → `/uploads/:name` 302 → public URL | `backend/src/services/uploads.js` |
 
@@ -43,7 +43,7 @@
 | `users` | `/api/v1/users` | profile, avatar upload, employer link, notification prefs, password change, data export |
 | `account` | `/api/v1` | account-deletion request / status / cancel |
 | `farms` | `/api/v1/farms` | farm-plot CRUD (GeoJSON boundary) |
-| `farm` (records) | `/api/v1/farm` | harvest + livestock records |
+| `farm` (records) | `/api/v1/farm` | harvest + livestock records, herd register (CR1), shareable herd summary (CR3) |
 | `finance` | `/api/v1/finance` | sales, expenses, summary (owner only) |
 | `satellite` | `/api/v1/satellite` | NDVI generate / history / latest / by-id (+ advice) |
 | `uploads` | `/api/v1/uploads` | generic image upload |
@@ -61,7 +61,9 @@
 
 ## 3. Endpoint inventory
 
-**73 Express routes** under `/api/v1` (plus `/api-docs` and `/health`). Full list (file · method · path):
+**96 operations across 70 paths** under `/api/v1` (plus `/api-docs` and `/health`), per
+`backend/openapi.yaml` (79 schemas). Representative list (file · method · path); the
+OpenAPI file is the authoritative, complete inventory:
 
 ```
 account      POST   /users/me/deletion-request        account   GET   /users/me/deletion-request
@@ -102,7 +104,8 @@ users        POST   /me/employer-link                 users     GET   /me/export
 users        PUT    /me/notification-preferences      users     POST  /me/password
 ```
 
-**FastAPI `crop-api/` — 4 endpoints** (standalone; not yet called by the app):
+**FastAPI `crop-api/` — 4 endpoints** (standalone; the backend calls it from
+`services/observations.js` when `CROP_API_ENABLED=true`):
 
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -115,7 +118,7 @@ users        PUT    /me/notification-preferences      users     POST  /me/passwo
 
 ## 4. Database schema inventory
 
-6 migrations, **16 tables**:
+9 migrations, **23 tables**:
 
 | Migration | Tables created |
 |-----------|----------------|
@@ -125,6 +128,9 @@ users        PUT    /me/notification-preferences      users     POST  /me/passwo
 | `004_sync_notifications_retention.sql` | `notifications`, `device_tokens`, `sync_queue_items`, `account_deletion_requests`, `retention_ledger`, `audit_log`, `message_outbox` |
 | `005_employee_link.sql` | (alters `users` — employer link) |
 | `006_role_rename.sql` | (renames `UserRole` values; `FARMER`→`FARM_OWNER`, `FARM_EMPLOYEE`→`FARMER`) |
+| `007_satellite_monitoring.sql` | `plot_observations`, `plot_events`, `plot_alerts` |
+| `008_livestock_units.sql` | (widens `produce_listings.unit` to add `herd` and `flock`) |
+| `009_herd_register.sql` | `herd_events` + `herd_register_summary` view; adds CR2 per-animal listing attributes (`animal_class`, `age_months`, `weight_kg`, `tag_number`) |
 
 Supabase Storage bucket `agriconnect-uploads` is created by SQL (`backend/supabase-update.sql`), not
 by a migration.
@@ -133,26 +139,32 @@ by a migration.
 
 ## 5. Android surface inventory
 
-- **27 screens** (`ui/**/*Screen.kt`): Splash, Welcome, Onboarding, Login, Register, ForgotPassword,
-  Dashboard, Farm, FarmDetail, Harvests, Livestock, Satellite, Finance, Marketplace, ListingDetail,
-  CreateListing, Orders, OrderDetail, Notifications, Profile, Settings, NotificationPrefs, Privacy,
-  AccountDeletion, OfflineSync, Help, ServerSettings.
+- **29 screens** (`ui/**/*Screen.kt`): Splash, Welcome, Onboarding, Login, Register, ForgotPassword,
+  VerifyAccount, Dashboard, Farm, FarmDetail, Harvests, Livestock, Satellite, SatelliteInsights,
+  Finance, Marketplace, ListingDetail, CreateListing, Orders, OrderDetail, Notifications, Profile,
+  Settings, NotificationPrefs, Privacy, AccountDeletion, OfflineSync, Help, ServerSettings.
 - **30 route constants** in `ui/navigation/Routes.kt`, incl. tab routes and pushed detail routes.
 - **Role-based navigation** (`AgriNavItems.kt`) — no tab may 403; `more` is in every role because it
   is the only path to profile/settings/sign-out:
 
   | Role | Tabs |
   |------|------|
-  | `FARM_OWNER` | home · farms · satellite · market · more |
+  | `FARM_OWNER` | home · farms (plots + crop health in one tab) · market · more |
   | `FARMER` | home · farms · market · orders · more |
   | `BUYER` | market · orders · alerts · more |
 
   `homeRouteFor`: `BUYER → market`, else `dashboard`.
-- **Data layer:** Room v2, 10 entities + 10 DAOs (FarmPlot, HarvestRecord, LivestockCount, Expense,
-  SaleTransaction, ProduceListing, Order, Notification, SatelliteNdvi, SyncQueue).
-- **Repositories (11):** Auth, Account, FarmPlot, Harvest, Livestock, Finance, Marketplace, Order,
-  Notification, Satellite, Media (+ `RepositoryErrors`, `RepositorySupport` helpers).
-- **Unit tests:** 9 classes, 50 tests (see `05-TEST-REPORT.md`).
+- **Data layer:** Room v2, 11 entities + 11 DAOs (FarmPlot, HarvestRecord, LivestockCount, Expense,
+  SaleTransaction, ProduceListing, Order, Notification, SatelliteNdvi, SatelliteOverviewCache,
+  SyncQueue).
+- **Repositories (12):** Auth, Account, FarmPlot, Harvest, Livestock, Finance, Marketplace, Order,
+  Notification, Satellite, SatelliteMonitoring, Media (+ `RepositoryErrors`, `RepositorySupport`
+  helpers).
+- **Actionable analysis cards** (`ui/components/AnalysisAdviceCard.kt`, `ui/satellite/FarmAdvice.kt`):
+  the merged Farm tab attaches "what to do" to every analysis - vegetation health, trend, weather,
+  growth stage, alerts and the field log. Wording reuses the server's own fields and the shared
+  non-diagnostic recommendation builder; the device never names a cause it cannot measure.
+- **Unit tests:** 21 classes, 164 tests (see `05-TEST-REPORT.md`).
 
 ---
 
@@ -165,11 +177,12 @@ unit/wire tests exist but no device run; **🔴 incomplete**; **⛔ missing/out 
 
 | Item | Evidence |
 |------|----------|
-| Backend REST API — all 73 routes | 152/152 backend tests, ESLint 0 errors |
-| Domain + auth + RBAC + retention + sync logic | `backend/tests/unit/*` (8 suites) |
-| API smoke + Supabase upload round trip | `backend/tests/api/*` (2 suites) |
+| Backend REST API - all 96 operations across 70 paths | 539/539 backend tests (32 suites), ESLint 0 errors / 41 warnings |
+| Domain + auth + RBAC + retention + sync logic | `backend/tests/unit/*` (29 suites) |
+| API smoke + Supabase upload round trip | `backend/tests/api/*` (3 suites) |
 | crop-api FastAPI service | 34/34 pytest (mock GEE) |
-| Android data/domain/remote layers | 50/50 Android unit tests |
+| Android data/domain/remote/UI unit layers | 164/164 Android unit tests (21 classes) |
+| Android lint + debug build | `:app:lintDebug` 0 errors / 109 warnings; `:app:assembleDebug` succeeds |
 | Live deployment | Render `/health` 200, `/version` 200, `/api-docs` 200, protected routes 401 |
 | Live upload pipeline | `201 → /uploads/:name 302 → Supabase public URL`, 14 449-byte PNG |
 | Live role rename | `FARM_OWNER`/`FARMER` accepted, `FARM_EMPLOYEE` → 400 |
@@ -193,10 +206,11 @@ unit/wire tests exist but no device run; **🔴 incomplete**; **⛔ missing/out 
 | Conflict resolution UI | `CONFLICT` badge + review affordance exist; full merge screen is minimal (`08` T5) |
 | Retention/deletion scheduler | `processDueDeletions()` exists; no cron/queue in production (`08` T1) |
 | Email verification enforcement | Codes issued; account usable before verification (`08` T2, U7) |
-| crop-api in-app integration | The service exists but the app still reads NDVI via Express `/satellite` (`08` T3b) |
+| crop-api integration | The backend calls it when `CROP_API_ENABLED=true` (`services/observations.js`); with it disabled the app still reads NDVI via Express `/satellite` (Earth Engine or the labelled mock). The app never calls crop-api directly (`08` T3b) |
 | Offline map tiles | No map engine; no region pre-download (`08` T4) |
 | Shared rate-limit / idempotency store | Per-instance in-memory + DB; needs a shared store for multi-instance (`08` T6/T7) |
 | Instrumented test suite | `androidTest/` holds only `HiltTestRunner`; zero UI tests |
+| Herd register / animal listing attributes / herd summary (CR1-CR3) | Backend endpoints, validation and migrations 008/009 exist; there is **no Android UI or repository** for them yet |
 
 ### 6.4 ⛔ Missing / out of scope (per the brief)
 
@@ -221,7 +235,7 @@ The UML suite defines 8 diagrams with assigned owners and SRS IDs (v1.1 §8). Co
 | UML artifact | SRS IDs (v1.1) | Implementation |
 |--------------|----------------|----------------|
 | Use Case Diagram | FR-01..03, 08, 15 | role-aware nav + RBAC middleware; offline execution in Room/WorkManager |
-| Class Diagram | FR-04..06, 12, NFR-01 | 10 Room entities + 16 Postgres tables; universal sync status |
+| Class Diagram | FR-04..06, 12, NFR-01 | 11 Room entities + 23 Postgres tables; universal sync status |
 | Component Diagram | NFR-02, 03, FR-22 | decoupled UI/sync; `ApiService` abstraction |
 | Deployment Diagram | NFR-04, 05, FR-35 | Render + Supabase; HTTPS; encrypted token store |
 | Sequence 1 (Sync) | FR-10, 11, 13, 14 | `SyncEngine` + `SyncWorker` + `ConflictResolver`; `/sync/push\|pull` |

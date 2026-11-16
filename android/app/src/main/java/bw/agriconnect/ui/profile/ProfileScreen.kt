@@ -32,6 +32,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import bw.agriconnect.core.util.ImageFiles
 import bw.agriconnect.ui.chrome.MainScaffold
@@ -59,10 +61,16 @@ fun ProfileScreen(
     onNotifications: () -> Unit,
     onPrivacy: () -> Unit,
     onDeleteAccount: () -> Unit,
+    onVerifyAccount: () -> Unit = {},
     onLogout: () -> Unit,
     viewModel: ProfileViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+
+    // Re-read the account on every return to this screen: verification happens on
+    // a pushed destination, so without this the badge would stay "not verified"
+    // until the app restarted.
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -106,6 +114,35 @@ fun ProfileScreen(
                         enabled = !state.isUploadingAvatar,
                         loading = state.isUploadingAvatar,
                     )
+                }
+            }
+
+            state.accountStatus?.let { status ->
+                if (status.needsVerification) {
+                    AgriCard {
+                        Column(verticalArrangement = Arrangement.spacedBy(AgriSpacing.sm)) {
+                            Text(
+                                text = "Account not verified",
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            Text(
+                                text = "Confirm the phone number on your account so we can reach " +
+                                    "you about orders and account recovery. We'll send a code to " +
+                                    state.phoneNumber.ifBlank { "the number saved on your account" } +
+                                    ".",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            AgriPrimaryButton(text = "Verify now", onClick = onVerifyAccount)
+                        }
+                    }
+                } else if (status.isActive) {
+                    AgriCard {
+                        Text(
+                            text = "Account verified",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = AgriColors.ForestGreen,
+                        )
+                    }
                 }
             }
 

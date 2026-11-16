@@ -42,6 +42,7 @@ import bw.agriconnect.data.remote.dto.RefreshRequest
 import bw.agriconnect.data.remote.dto.RegisterRequest
 import bw.agriconnect.data.remote.dto.ResetPasswordRequest
 import bw.agriconnect.data.remote.dto.ResetTokenResponse
+import bw.agriconnect.data.remote.dto.VerifyResponse
 import bw.agriconnect.data.remote.dto.SaleDto
 import bw.agriconnect.data.remote.dto.SyncPushRequest
 import bw.agriconnect.data.remote.dto.SyncPushResponse
@@ -143,7 +144,7 @@ interface ApiService {
     suspend fun verificationRequest(@Body body: IdentifierRequest): CodeDispatchResponse
 
     @POST("auth/verification/confirm")
-    suspend fun verificationConfirm(@Body body: VerifyCodeRequest): MessageResponse
+    suspend fun verificationConfirm(@Body body: VerifyCodeRequest): VerifyResponse
 
     /* --------------------------------- users ------------------------------- */
 

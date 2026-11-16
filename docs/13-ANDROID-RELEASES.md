@@ -29,23 +29,40 @@ the **security requirements** that must be followed on every release.
   "latestVersionName": "1.1.1",
   "latestVersionCode": 3,
   "minSupportedVersionCode": 2,
-  "downloadUrl": "https://example.com/agriconnect-v1.1.1.apk",
-  "releaseNotes": "Fixed satellite boundary editor; added weather history.",
-  "releaseDate": "2026-07-20",
-  "severity": "OPTIONAL"
+  "downloadUrl": "https://github.com/your-org/agriconnect/releases/download/v1.1.1/app-release.apk",
+  "packageName": "bw.agriconnect",
+  "releaseNotes": [
+    "Fixed satellite boundary editor.",
+    "Added weather history."
+  ],
+  "releasedAt": "2026-07-20",
+  "checksumSha256": null,
+  "sizeBytes": null,
+  "requiredMessage": "Please update AgriConnect to continue.",
+  "optionalMessage": "A newer version of AgriConnect is available."
 }
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `published` | `boolean` | **yes** | `false` → "no update available" (safe default). Prevents accidental leaks of draft URLs. |
-| `latestVersionName` | `string` | **yes** | Human-readable version (e.g. `1.1.1`). Must match `versionName` in `build.gradle.kts`. |
-| `latestVersionCode` | `integer` | **yes** | Monotonically increasing integer. Must match `versionCode` in `build.gradle.kts`. |
-| `minSupportedVersionCode` | `integer` | **yes** | Any installed app with `versionCode < minSupportedVersionCode` receives a **required** update (blocking dialog, but never locks out if the check server is down). |
-| `downloadUrl` | `string (HTTPS)` | **yes if published** | Direct download URL for the APK. **Must be HTTPS**. The file is verified against the expected package name before install. |
-| `releaseNotes` | `string` | **yes if published** | Shown in the update dialog. Plain text, no markdown. |
-| `releaseDate` | `string (YYYY-MM-DD)` | **yes if published** | For display and for the "last checked" timestamp logic. |
-| `severity` | `enum` | **yes if published** | `OPTIONAL` (non-intrusive) or `REQUIRED` (explains why, provides action, never locks out if server unreachable). |
+| `published` | `boolean` | **yes** | `false` → "no update available" (safe default). Also treated as unpublished when `downloadUrl` is missing or blank. |
+| `latestVersionName` | `string` | **yes when published** | Human-readable version (e.g. `1.1.1`). Must match `versionName` in `build.gradle.kts`. |
+| `latestVersionCode` | `integer` | **yes when published** | Monotonically increasing integer. Must match `versionCode` in `build.gradle.kts`. |
+| `minSupportedVersionCode` | `integer` | no (default `1`) | Any installed app with `versionCode < minSupportedVersionCode` receives a **required** update (blocking dialog, but never locks out if the check server is down). Clamped to `1..latestVersionCode` by the server. |
+| `downloadUrl` | `string (HTTPS)` | **yes when published** | Direct download URL for the APK. **Must be HTTPS** or the manifest is rejected. The file is verified against the expected package name and signer before install. |
+| `packageName` | `string` | no (default `bw.agriconnect`) | Application id the APK is expected to carry. Echoed to the client; the archive is checked against the **installed** applicationId. |
+| `releaseNotes` | `array of strings` | no (default `[]`) | One string per bullet, shown in the update dialog. Plain text, no markdown. A non-array value is normalised to `[]`. |
+| `releasedAt` | `string (YYYY-MM-DD)` | no (default `null`) | Release date shown in the dialog. |
+| `checksumSha256` | `string (64 hex chars)` | no (default `null`) | Lower-case SHA-256 of the APK. An absent checksum is not a verification failure; when present it must match the downloaded file. |
+| `sizeBytes` | `integer` | no (default `null`) | Expected APK size, used for the free-space pre-check before download. |
+| `requiredMessage` | `string` | no | Copy for the blocking required-update dialog. Default: `Please update AgriConnect to continue.` |
+| `optionalMessage` | `string` | no | Copy for the dismissible optional-update dialog. Default: `A newer version of AgriConnect is available.` |
+| `releaseNotesUrl` | `string` | no | **Response only**; taken from the server's `APP_RELEASE_NOTES_URL`, not read from this file. Optional link to full release notes. |
+
+The endpoint wraps the manifest: when published it returns `{ "available": true, ... }`
+with the fields above; when not published (or updates are disabled, or the file is
+malformed) it returns `{ "available": false, "reason": "..." }`. A `releaseDate`,
+`severity`, or string `releaseNotes` field is **ignored** by the code.
 
 ---
 
@@ -89,17 +106,33 @@ Edit `backend/version-manifest.json`:
   "latestVersionCode": 3,
   "minSupportedVersionCode": 2,
   "downloadUrl": "https://github.com/your-org/agriconnect/releases/download/v1.1.1/app-release.apk",
-  "releaseNotes": "Fixed satellite boundary editor; added weather history.",
-  "releaseDate": "2026-07-20",
-  "severity": "OPTIONAL"
+  "packageName": "bw.agriconnect",
+  "releaseNotes": [
+    "Fixed satellite boundary editor.",
+    "Added weather history."
+  ],
+  "releasedAt": "2026-07-20",
+  "checksumSha256": null,
+  "sizeBytes": null,
+  "requiredMessage": "Please update AgriConnect to continue.",
+  "optionalMessage": "A newer version of AgriConnect is available."
 }
 ```
 
-- `published: true` **only** when the APK is live at `downloadUrl`.
-- `minSupportedVersionCode`: set to the oldest versionCode that should **not**
-  be forced to update. Typically `latestVersionCode - 1` for optional, or the
-  version before a breaking API change for required.
-- `severity`: `REQUIRED` only for security fixes or breaking API changes.
+- `published: true` **only** when the APK is live at `downloadUrl` (a blank or
+  missing `downloadUrl` still reports "no release is published").
+- `minSupportedVersionCode`: the oldest versionCode that should **not** be forced
+  to update. Any device below it gets the blocking `requiredMessage` dialog;
+  devices at or above it but below `latestVersionCode` get the dismissible
+  `optionalMessage` dialog. The server clamps it to `1..latestVersionCode`.
+- `requiredMessage` / `optionalMessage`: optional overrides for the dialog copy.
+  The client falls back to its own text when either is absent.
+- `checksumSha256` / `sizeBytes`: paste the signed APK's SHA-256 (64 lower-case hex
+  characters) and byte size. `null` is valid and skips the checksum/free-space
+  pre-check, but set both for a real release.
+- `releaseNotes` is an array (one string per bullet), and the date field is
+  `releasedAt` (YYYY-MM-DD). Bump both version numbers together with
+  `android/app/build.gradle.kts`.
 
 ### 3.4 Deploy the backend (serves the manifest)
 
@@ -120,8 +153,9 @@ npm run migrate && npm start`). The manifest is served at
 curl https://your-api-host/api/v1/app/version
 ```
 
-Response should match the manifest exactly (the endpoint normalises but does
-not modify the JSON).
+Response should follow the manifest (the endpoint normalises it: defaults are
+filled, `minSupportedVersionCode` is clamped, types are coerced, unknown keys are
+dropped) — see `normaliseManifest()`.
 
 ### 3.6 (Optional) Google Play In-App Updates
 
@@ -266,11 +300,11 @@ app:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `APP_UPDATES_ENABLED` | yes | `true`/`false` — master switch. |
+| `APP_UPDATES_ENABLED` | no (default `true`) | `true`/`false` — master switch. When `false` the endpoint answers `available: false`. |
 | `APP_VERSION_MANIFEST` | no | Path to manifest file (default: `backend/version-manifest.json`). |
-| `APK_DOWNLOAD_URL` | if published | Mirror of `downloadUrl` in manifest (for CI convenience). |
-| `APK_PACKAGE_NAME` | yes | `bw.agriconnect` — verified on download. |
-| `APP_RELEASE_NOTES_URL` | no | Optional URL to full release notes (shown in dialog). |
+| `APK_DOWNLOAD_URL` | no | Read into config but **not served**; the manifest's `downloadUrl` is authoritative. Reserved for CI convenience. |
+| `APK_PACKAGE_NAME` | no (default `bw.agriconnect`) | Package name reported when the manifest omits `packageName`; verified on install. |
+| `APP_RELEASE_NOTES_URL` | no | Optional URL to full release notes; this is the only source of `releaseNotesUrl` in the response. |
 
 ---
 
@@ -278,22 +312,26 @@ app:
 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
-| "Update available" but dialog doesn't appear | `severity: OPTIONAL` and user previously dismissed this version | Clear app storage or wait for a newer version. |
+| "Update available" but dialog doesn't appear | The update is optional (installed >= `minSupportedVersionCode`) and the user previously dismissed this version | Clear app storage or wait for a newer version. |
 | Download fails with "Package name mismatch" | `downloadUrl` points to wrong APK | Verify `aapt dump badging` matches `APK_PACKAGE_NAME`. |
 | Install fails with "Parse error" | APK corrupted or not signed | Re-build and re-sign; verify with `apksigner verify`. |
 | App crashes on install intent | `FileProvider` authority mismatch | Update installs use `${applicationId}.fileprovider.updates` (see `AndroidManifest.xml` + `file_paths_updates.xml`). |
-| Manifest returns `published: false` after deploy | Forgot to set `published: true` in JSON | Edit `version-manifest.json`, commit, push. |
+| Manifest returns `published: false` after deploy | Forgot to set `published: true`, or `downloadUrl` is blank | Edit `version-manifest.json`, commit, push. |
 
 ---
 
 ## 7. Version history (example)
 
-| Version | Code | Date | Severity | Notes |
-|---------|------|------|----------|-------|
-| 1.0.0 | 1 | 2026-01-15 | REQUIRED | Initial release |
-| 1.0.1 | 2 | 2026-03-10 | OPTIONAL | Bug fixes, avatar upload |
-| 1.1.0 | 3 | 2026-06-01 | REQUIRED | Satellite monitoring v1, API v1.1 |
-| 1.1.1 | 4 | 2026-07-20 | OPTIONAL | Boundary editor fixes, weather history |
+`Forced` means `minSupportedVersionCode` was set above that build, so devices on it
+received the blocking required-update dialog. The current build is `1.2.0` /
+versionCode `4`.
+
+| Version | Code | Date | Forced | Notes |
+|---------|------|------|--------|-------|
+| 1.0.0 | 1 | 2026-01-15 | yes | Initial release |
+| 1.0.1 | 2 | 2026-03-10 | no | Bug fixes, avatar upload |
+| 1.1.1 | 3 | 2026-07-20 | no | Boundary editor fixes, weather history |
+| 1.2.0 | 4 | 2026-11-16 | no | Farm and Satellite merged; actionable advice for every analysis |
 
 ---
 

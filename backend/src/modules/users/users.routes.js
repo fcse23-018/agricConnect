@@ -21,6 +21,7 @@ import {
   toPlot,
   toHarvest,
   toLivestock,
+  toHerdEvent,
   toSale,
   toExpense,
   toListing,
@@ -224,12 +225,13 @@ router.get(
   '/me/export',
   asyncHandler(async (req, res) => {
     const userId = req.user.id;
-    const [user, plots, harvests, livestock, sales, expenses, listings, buyerOrders, farmerOrders, notifications, ndvi] =
+    const [user, plots, harvests, livestock, herdEvents, sales, expenses, listings, buyerOrders, farmerOrders, notifications, ndvi] =
       await Promise.all([
         loadSelf(userId),
         many(`SELECT * FROM farm_plots WHERE farmer_id = $1 AND deleted_at IS NULL ORDER BY created_at`, [userId]),
         many(`SELECT * FROM harvest_records WHERE farmer_id = $1 AND deleted_at IS NULL ORDER BY harvest_date DESC`, [userId]),
         many(`SELECT * FROM livestock_counts WHERE farmer_id = $1 AND deleted_at IS NULL ORDER BY record_date DESC`, [userId]),
+        many(`SELECT * FROM herd_events WHERE farmer_id = $1 AND deleted_at IS NULL ORDER BY event_date DESC`, [userId]),
         many(`SELECT * FROM sale_transactions WHERE farmer_id = $1 AND deleted_at IS NULL ORDER BY sale_date DESC`, [userId]),
         many(`SELECT * FROM expenses WHERE farmer_id = $1 AND deleted_at IS NULL ORDER BY expense_date DESC`, [userId]),
         many(`SELECT * FROM produce_listings WHERE farmer_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC`, [userId]),
@@ -256,6 +258,7 @@ router.get(
       farmPlots: plots.map(toPlot),
       harvests: harvests.map(toHarvest),
       livestock: livestock.map(toLivestock),
+      herdRegister: herdEvents.map(toHerdEvent),
       sales: sales.map(toSale),
       expenses: expenses.map(toExpense),
       listings: listings.map(toListing),

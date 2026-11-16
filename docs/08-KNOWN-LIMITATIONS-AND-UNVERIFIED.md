@@ -16,18 +16,43 @@ and provider-dependent items remain unexecuted.
 | Area | Status |
 |------|--------|
 | Backend code compiles / runs | ✅ Executed — see `05-TEST-REPORT.md` |
-| Android app compiles | ✅ Executed (`:app:assembleDebug`, 24.0 MB APK — `1.1.1`/build 3) |
-| Backend tests executed | ✅ 434/434 (26 suites) — re-run 2026-10-23 |
+| Android app compiles | ✅ Executed (`:app:assembleDebug`, 23.7 MB APK — `1.2.0`/build 4) |
+| Backend tests executed | ✅ 539/539 (32 suites) — re-run 2026-11-16 |
 | Crop-API tests executed | ✅ 34/34 (`pytest`, mock GEE) |
-| Android unit tests executed | ✅ 131/131 (17 classes) — re-run 2026-10-23, see `05-TEST-REPORT.md` |
+| Android unit tests executed | ✅ 164/164 (21 classes) — re-run 2026-11-16, see `05-TEST-REPORT.md` |
 | Real Sentinel-2 observations | ✅ **Verified live 2026-10-22** — 10 real Sentinel-2 observations for a Gaborone plot (2026-08-26 → 2026-10-20), `source: "SENTINEL-2"`, `isSimulated: false` |
-| Real SMS delivery | ✅ **Verified live 2026-10-22** — a real SMS reached a handset via Twilio (status `delivered`). The account is a Twilio **Trial**, so only console-verified numbers can be messaged |
+| Real SMS delivery | ✅ **Verified live 2026-10-22** — a real SMS reached a handset via Twilio (status `delivered`). The account is a Twilio **Trial**, so only console-verified numbers can be messaged; the app now reports a refused send explicitly (`TRIAL_UNVERIFIED_NUMBER`) instead of claiming the code was sent |
+| Account verification journey | **Not verified on a device** — the screen, post-registration routing and delivery warnings are unit/wire-tested only (see §1.1) |
 | Real email delivery | **Not implemented** — `sendViaSmtp` throws by design rather than pretending to send |
 | Instrumented (device) tests executed | **Not executed** — requires an emulator/device |
 | App run on a real device | **Not verified** — never clicked through by a human on a handset |
 | Image upload/display on a device | **Not verified** — unit/wire-tested only, never run on a device |
 | Server override (Settings → Server) | **Not verified on a device** — the stored value and restart path are reviewed, but the URL rewrite was never exercised against a live host |
 | Google Maps rendering | **Blocked** — the key is embedded, but Google returns `REQUEST_DENIED` until Maps SDK for Android is enabled on the Cloud project |
+
+### 1.1 Account verification (added 2026-10-27)
+
+The app had repository methods for verification but **no screen** calling them, so an account could
+never actually be verified from the app. That is now wired:
+
+- **Profile → "Verify now"** for an unverified account, and **straight after registration** (the
+  account is created `UNVERIFIED` and a code is already sent), with "I'll do this later" so nobody
+  is trapped.
+- The screen requests a code, accepts six digits, resends after a 45-second pause, shows the
+  server's code lifetime, and reports success only when the server confirms it (`confirm` returns
+  the verified user).
+- **Delivery is reported honestly.** `POST /auth/verification/request` returns
+  `delivery {channel, delivered, reason}` **only** when the bearer token belongs to the account
+  being verified; anonymous callers and other accounts get the unchanged uniform message, so the
+  endpoint is not an account-existence oracle. `reason` is a fixed code, never provider text.
+- **Twilio trial:** only numbers verified in the Twilio console can receive SMS (error `21608`).
+  That case now renders as "No SMS was sent … add this number under Twilio's Verified Caller IDs",
+  never as "a code has been sent". `+26774887802` is the trial-verified number used for testing.
+- **Server configuration required:** `DELIVERY_PROVIDER=TWILIO`, `TWILIO_ACCOUNT_SID`,
+  `TWILIO_AUTH_TOKEN`, `TWILIO_FROM`, and `ALLOW_DELIVERY_GAP=false`. With
+  `DELIVERY_PROVIDER=NONE` the screen honestly says no message provider is configured.
+- **Still unverified:** no emulator/device is available on this machine, so the flow has not been
+  clicked through on a handset.
 
 ---
 

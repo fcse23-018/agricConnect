@@ -407,21 +407,40 @@ export async function resetPassword(resetToken, newPassword, req) {
 export async function requestVerificationCode(identifier, req) {
   const message = 'If an account matches those details, a verification code has been sent.';
   const user = await findUserByIdentifier(identifier);
+  const ttlMinutes = config.tokens.verificationCodeTtlMinutes;
   let devCode;
+  let delivery;
 
   if (user && !user.deleted_at && user.account_status !== 'DELETED' && !user.verified_at) {
     const isEmail = String(identifier).includes('@');
-    const ttlMinutes = config.tokens.verificationCodeTtlMinutes;
     const code = await createVerificationCode(user.id, isEmail ? 'EMAIL_VERIFICATION' : 'PHONE_VERIFICATION', {
       ttlMinutes,
       destination: maskIdentifier(identifier),
     });
-    await sendVerificationCode({ to: String(identifier).trim(), code, expiresMinutes: ttlMinutes });
+    const sent = await sendVerificationCode({ to: String(identifier).trim(), code, expiresMinutes: ttlMinutes });
+    // The transport's own verdict. Kept as a fixed code rather than provider
+    // text so the app can explain a Twilio refusal (e.g. 21608 on a trial)
+    // without the server leaking provider internals.
+    delivery = {
+      channel: isEmail ? 'EMAIL' : 'SMS',
+      delivered: Boolean(sent?.delivered),
+      reason: sent?.delivered ? null : (sent?.reason ?? 'NO_PROVIDER'),
+    };
     await audit(req, 'VERIFICATION_CODE_REQUESTED', { entityType: 'user', entityId: user.id });
     if (config.delivery.exposeDevCodes) devCode = code;
   }
 
-  return { message, devCode };
+  // Only the signed-in owner of the account is told what the transport did.
+  // An anonymous caller still gets the uniform message, so this cannot become a
+  // way to discover whether a phone number is registered.
+  const isOwner = Boolean(user && req?.user?.id && req.user.id === user.id);
+
+  return {
+    message,
+    devCode,
+    expiresInMinutes: ttlMinutes,
+    delivery: isOwner ? delivery ?? null : undefined,
+  };
 }
 
 export async function confirmVerification(identifier, code, req) {
@@ -430,7 +449,7 @@ export async function confirmVerification(identifier, code, req) {
     throw badRequest('That code is invalid or has expired.');
   }
   if (user.verified_at || user.account_status === 'VERIFIED') {
-    return { message: 'Your account is already verified.' };
+    return { message: 'Your account is already verified.', user: serializeUser(user) };
   }
 
   const matched = await matchNumericCode(user.id, ['PHONE_VERIFICATION', 'EMAIL_VERIFICATION'], code);
@@ -443,7 +462,13 @@ export async function confirmVerification(identifier, code, req) {
   });
 
   await audit(req, 'ACCOUNT_VERIFIED', { entityType: 'user', entityId: user.id });
-  return { message: 'Your account has been verified.' };
+  // Return the updated record so the client can show "Verified" immediately,
+  // without a second round trip that could fail and leave the badge stale.
+  const verified = await findUserById(user.id);
+  return {
+    message: 'Your account has been verified.',
+    user: verified ? serializeUser(verified) : undefined,
+  };
 }
 
 export default {

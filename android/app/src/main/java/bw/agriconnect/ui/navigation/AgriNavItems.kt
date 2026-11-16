@@ -8,7 +8,6 @@ import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.ReceiptLong
-import androidx.compose.material.icons.filled.Satellite
 import androidx.compose.material.icons.filled.Storefront
 import bw.agriconnect.domain.model.UserRole
 import bw.agriconnect.ui.components.AgriNavItem
@@ -34,7 +33,6 @@ object AgriNavItems {
     private val home = AgriNavItem(Routes.DASHBOARD, "Home", Icons.Filled.Home)
     private val farms = AgriNavItem(Routes.FARMS, "Farm", Icons.Filled.Agriculture)
     private val finance = AgriNavItem(Routes.FINANCE, "Finance", Icons.Filled.AccountBalanceWallet)
-    private val satellite = AgriNavItem(Routes.SATELLITE_TAB, "Satellite", Icons.Filled.Satellite)
     private val market = AgriNavItem(Routes.MARKETPLACE, "Market", Icons.Filled.Storefront)
     private val orders = AgriNavItem(Routes.ORDERS, "Orders", Icons.Filled.ReceiptLong)
     private val alerts = AgriNavItem(Routes.NOTIFICATIONS, "Alerts", Icons.Filled.Notifications)
@@ -42,9 +40,9 @@ object AgriNavItems {
     private val more = AgriNavItem(Routes.MORE, "More", Icons.Filled.MoreHoriz)
 
     fun forRole(role: UserRole?): List<AgriNavItem> = when (role) {
-        // Owns the farm: farm plots plus satellite monitoring of the same plots, and
-        // both sides of the marketplace. Finance lives on the home shortcuts.
-        UserRole.FARM_OWNER -> listOf(home, farms, satellite, market, more)
+        // Owns the farm: plots and their satellite analysis share one Farm tab, and
+        // both sides of the marketplace remain available. Finance lives on the home shortcuts.
+        UserRole.FARM_OWNER -> listOf(home, farms, market, more)
         // Works the land: the owner's plots to record against, and buying.
         UserRole.FARMER -> listOf(home, farms, market, orders, more)
         // Buys: the catalogue first, then order tracking.

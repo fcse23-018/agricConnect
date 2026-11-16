@@ -1,6 +1,7 @@
 package bw.agriconnect.ui.satellite
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -95,7 +96,9 @@ import bw.agriconnect.data.remote.dto.BoundaryDto
 import bw.agriconnect.data.remote.dto.BoundaryPreviewRequest
 import bw.agriconnect.data.remote.dto.LatLonDto
 import bw.agriconnect.data.remote.dto.SetBoundaryRequest
+import bw.agriconnect.ui.components.AnalysisAdviceCard
 import bw.agriconnect.ui.components.NdviAdviceCard
+import bw.agriconnect.ui.farms.FarmScreen
 import bw.agriconnect.ui.components.NdviGauge
 import bw.agriconnect.ui.components.OfflineEmptyState
 import bw.agriconnect.ui.components.SectionHeader
@@ -121,6 +124,11 @@ fun SatelliteScreen(
     onAddPlot: (() -> Unit)? = null,
     /** Opens the full, scrollable insights report for a plot (optional). */
     onOpenInsights: ((String) -> Unit)? = null,
+    /** From the merged Farm tab: shortcuts into the record books. */
+    onOpenHarvests: () -> Unit = {},
+    onOpenLivestock: () -> Unit = {},
+    /** Plot-scoped entry points keep the analysis focused on one plot. */
+    showPlotsTab: Boolean = true,
     viewModel: SatelliteViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -133,19 +141,20 @@ fun SatelliteScreen(
     // Tab state
     var selectedTab by remember { mutableStateOf(0) }
     val tabs = listOf(
+        "Plots",
         "Overview",
         "Chart",
         "Weather",
         "Growth",
         "Events",
         "Alerts",
-    )
+    ).let { if (showPlotsTab) it else it.drop(1) }
 
     // One-shot start effect
     LaunchedEffect(plotId) { viewModel.start(plotId) }
 
     MainScaffold(
-        title = "Satellite Monitoring",
+        title = if (showPlotsTab) "Farm & Crop Health" else "Satellite Monitoring",
         subtitle = state.overview?.plot?.plotName?.takeIf { it.isNotBlank() },
         onBack = onBack,
     ) { padding ->
@@ -158,6 +167,7 @@ fun SatelliteScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
                     .background(MaterialTheme.colorScheme.surfaceContainer),
                 horizontalArrangement = Arrangement.spacedBy(0.dp),
             ) {
@@ -166,7 +176,6 @@ fun SatelliteScreen(
                     androidx.compose.material3.TextButton(
                         onClick = { selectedTab = index },
                         modifier = Modifier
-                            .fillMaxWidth()
                             .height(48.dp)
                             .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent),
                         shape = RoundedCornerShape(0.dp),
@@ -315,22 +324,35 @@ fun SatelliteScreen(
                                     )
                                 }
                             }
-                            when (selectedTab) {
-                                0 -> OverviewTab(
-                                    state = state,
-                                    overview = overview,
-                                    plotId = currentPlotId,
-                                    viewModel = viewModel,
-                                    onOpenInsights = {
-                                        val id = currentPlotId
-                                        if (onOpenInsights != null && id != null) onOpenInsights(id)
-                                    },
+                            val analysisTab = if (showPlotsTab) selectedTab - 1 else selectedTab
+                            if (showPlotsTab && selectedTab == 0) {
+                                // The two old tabs are now one: plots and their analysis
+                                // live together, so a farmer never has to switch tabs to
+                                // see what a plot list entry actually means.
+                                FarmScreen(
+                                    onPlotClick = { id -> if (onOpenPlot != null) onOpenPlot(id) },
+                                    onOpenHarvests = onOpenHarvests,
+                                    onOpenLivestock = onOpenLivestock,
+                                    embedded = true,
                                 )
-                                1 -> ChartTab(overview)
-                                2 -> WeatherTab(overview)
-                                3 -> GrowthCycleTab(overview)
-                                4 -> EventsTab(state, currentPlotId, viewModel)
-                                5 -> AlertsTab(state, overview, viewModel)
+                            } else {
+                                when (analysisTab) {
+                                    0 -> OverviewTab(
+                                        state = state,
+                                        overview = overview,
+                                        plotId = currentPlotId,
+                                        viewModel = viewModel,
+                                        onOpenInsights = {
+                                            val id = currentPlotId
+                                            if (onOpenInsights != null && id != null) onOpenInsights(id)
+                                        },
+                                    )
+                                    1 -> ChartTab(overview)
+                                    2 -> WeatherTab(overview)
+                                    3 -> GrowthCycleTab(overview)
+                                    4 -> EventsTab(state, currentPlotId, viewModel)
+                                    5 -> AlertsTab(state, overview, viewModel)
+                                }
                             }
                         }
                     }
@@ -394,6 +416,18 @@ private fun OverviewTab(
                 onRetry = {
                     plotId?.let { viewModel.onEvent(SatelliteEvent.RefreshOverview(it)) }
                 },
+            )
+        }
+
+        // Every analysis ends in an action. This card sits with the reading it
+        // explains so a farmer never has to interpret a bare number alone.
+        item {
+            val advice = vegetationAdvice(overview)
+            AnalysisAdviceCard(
+                title = advice.title,
+                reading = advice.reading,
+                actions = advice.actions,
+                caution = advice.caution,
             )
         }
 
@@ -639,11 +673,19 @@ private fun ChartTab(overview: SatelliteOverview) {
 
     // Newest first, so the most recent pass is at the top of the table.
     val sorted = observations.sortedByDescending { it.observedOn }
+    val advice = trendAdvice(overview.summary?.ndvi)
 
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(AgriSpacing.lg),
     ) {
+        AnalysisAdviceCard(
+            title = advice.title,
+            reading = advice.reading,
+            actions = advice.actions,
+            caution = advice.caution,
+        )
+
         AgriCard {
             Column {
                 SectionHeader(title = "NDVI / EVI Time Series", subtitle = "Solid = raw, Dashed = smoothed")
@@ -1006,6 +1048,7 @@ private fun Double.format5(): String = "%.5f".format(this)
 @Composable
 private fun WeatherTab(overview: SatelliteOverview) {
     val weather = overview.weather
+    val advice = weatherAdvice(weather)
 
     if (weather == null || !weather.available || weather.daily.isEmpty()) {
         EmptyState(
@@ -1049,6 +1092,13 @@ private fun WeatherTab(overview: SatelliteOverview) {
             }
         }
 
+        AnalysisAdviceCard(
+            title = advice.title,
+            reading = advice.reading,
+            actions = advice.actions,
+            caution = advice.caution,
+        )
+
         AgriCard {
             Column {
                 SectionHeader(
@@ -1080,6 +1130,7 @@ private fun WeatherTab(overview: SatelliteOverview) {
 @Composable
 private fun GrowthCycleTab(overview: SatelliteOverview) {
     val cycle = overview.growthCycle
+    val advice = growthAdvice(cycle)
 
     if (cycle == null || !cycle.available) {
         EmptyState(
@@ -1094,6 +1145,13 @@ private fun GrowthCycleTab(overview: SatelliteOverview) {
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(AgriSpacing.lg),
     ) {
+        AnalysisAdviceCard(
+            title = advice.title,
+            reading = advice.reading,
+            actions = advice.actions,
+            caution = advice.caution,
+        )
+
         AgriCard {
             Column {
                 SectionHeader(
@@ -1160,6 +1218,17 @@ private fun EventsTab(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(AgriSpacing.lg),
     ) {
+        AnalysisAdviceCard(
+            title = "Field log - what to do",
+            reading = "Your notes turn a satellite change into a known event. The more you confirm, the more useful the next analysis becomes.",
+            actions = listOf(
+                "After each visit, confirm what a detected drop was or correct it.",
+                "Record harvests, clearing, watering and stress with the date.",
+                "Write one sentence about what you saw - that note is compared with the next pass.",
+            ),
+            caution = "Only confirmed farmer labels are used for training; a satellite change alone is not a confirmed cause.",
+        )
+
         AgriCard {
             Column(
                 modifier = Modifier.fillMaxWidth(),
@@ -1514,6 +1583,14 @@ private fun AlertsTab(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(AgriSpacing.lg),
     ) {
+        val advice = alertsAdvice(alerts)
+        AnalysisAdviceCard(
+            title = advice.title,
+            reading = advice.reading,
+            actions = advice.actions,
+            caution = advice.caution,
+        )
+
         // Farm-wide attention summary. This is the first thing on the tab because
         // the question a farmer with many plots has is "which farm needs me?", not
         // "what does this one plot say?".

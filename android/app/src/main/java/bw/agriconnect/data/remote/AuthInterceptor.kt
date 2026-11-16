@@ -41,13 +41,18 @@ class AuthInterceptor(private val tokenStore: TokenStore) : Interceptor {
          * True for the auth and public routes that must never carry (or be judged
          * by) a bearer token. Matches on path suffix/segment so it is independent
          * of the versioned prefix (`/api/v1`).
+         *
+         * Verification is deliberately **not** exempt: the route accepts an
+         * optional token, and only an authenticated owner is told whether the SMS
+         * was actually delivered. Sending the token there is what makes the app's
+         * "the message could not be sent" warning possible without turning the
+         * endpoint into an account-existence oracle.
          */
         fun isAuthExempt(path: String): Boolean =
             path.endsWith("/auth/login") ||
                 path.endsWith("/auth/register") ||
                 path.endsWith("/auth/refresh") ||
                 path.contains("/auth/password/") ||
-                path.contains("/auth/verification/") ||
                 path.contains("/public/") ||
                 path == "/health"
     }

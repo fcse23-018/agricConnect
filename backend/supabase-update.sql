@@ -4,13 +4,22 @@
 --
 -- WHAT THIS IS
 --   A single, re-runnable script that brings a Supabase PostgreSQL database up
---   to the state described by backend/migrations/001..005. It is safe to run on
+--   to the state described by backend/migrations/001..009. It is safe to run on
 --   a database in ANY state:
 --     * empty database        → creates the whole schema
 --     * fully migrated        → no-ops (every statement is guarded)
 --     * partially migrated    → applies only what is missing
 --   The whole script runs in ONE transaction: if any statement fails, nothing
---   is committed.
+--   is committed. Migrations 007..009 each define their own BEGIN/COMMIT; those
+--   wrappers are deliberately omitted below so the sections join this script's
+--   single transaction instead of nesting a transaction inside it.
+--
+--   Migrations 007..009 contribute, and this script therefore also creates:
+--     * 007  plot_observations, plot_events, plot_alerts and the
+--            plot_event_label_counts view
+--     * 008  the widened produce_listings unit CHECK (adds 'herd' and 'flock')
+--     * 009  herd_events, the herd_register_summary view, and the per-animal
+--            listing columns animal_class, age_months, weight_kg, tag_number
 --
 -- HOW TO RUN
 --   1. Supabase Dashboard → your project → SQL Editor → New query
@@ -23,7 +32,7 @@
 --   * It does not change any row contents.
 --
 -- AFTER RUNNING
---   All five migration filenames are recorded in schema_migrations, so a later
+--   All nine migration filenames are recorded in schema_migrations, so a later
 --   `npm run migrate` against the same database will skip them instead of
 --   failing with "already exists".
 -- ============================================================================
@@ -463,6 +472,256 @@ $roles$;
 ALTER TABLE users ALTER COLUMN role SET DEFAULT 'FARM_OWNER';
 
 -- ---------------------------------------------------------------------------
+-- 4h. 007_satellite_monitoring — clean observation series, farmer event log and
+--     derived alerts
+--
+--     Why new tables rather than columns on `satellite_ndvi`: `satellite_ndvi`
+--     records *requests* (including FAILED ones, which is deliberate), whereas
+--     `plot_observations` records a *clean time series* — one row per plot and
+--     acquisition date, with the valid-pixel coverage. A failed request never
+--     pollutes the series and a reprocessed series never destroys the request
+--     audit trail. All three tables are additive; nothing existing is altered.
+--     Triggers are in section 5 and RLS in section 7, matching the layout above.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS plot_observations (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  plot_id        uuid NOT NULL REFERENCES farm_plots(id) ON DELETE CASCADE,
+  farmer_id      uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  observed_on    date NOT NULL,
+  ndvi           numeric(8, 4) CHECK (ndvi IS NULL OR (ndvi >= -1 AND ndvi <= 1)),
+  evi            numeric(8, 4) CHECK (evi IS NULL OR (evi >= -1 AND evi <= 1)),
+  valid_pixel_pct numeric(6, 2) CHECK (valid_pixel_pct IS NULL OR (valid_pixel_pct >= 0 AND valid_pixel_pct <= 100)),
+  cloud_cover_pct numeric(6, 2) CHECK (cloud_cover_pct IS NULL OR (cloud_cover_pct >= 0 AND cloud_cover_pct <= 100)),
+  pixel_count    integer CHECK (pixel_count IS NULL OR pixel_count >= 0),
+  quality        text NOT NULL DEFAULT 'GOOD'
+                   CHECK (quality IN ('GOOD', 'FAIR', 'POOR')),
+  -- True when the reading came from the deterministic generator, not Sentinel-2.
+  -- A row is never downgraded from real to simulated, only the other way round.
+  is_simulated   boolean NOT NULL DEFAULT false,
+  source         text,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT plot_observations_unique UNIQUE (plot_id, observed_on)
+);
+
+CREATE INDEX IF NOT EXISTS idx_plot_observations_plot_date
+  ON plot_observations (plot_id, observed_on DESC);
+CREATE INDEX IF NOT EXISTS idx_plot_observations_farmer
+  ON plot_observations (farmer_id, observed_on DESC);
+
+-- `kind` is what happened; `classification` is what the system thinks it was.
+-- A farmer-created row (source = 'FARMER') is the training label; a system row
+-- is a suggestion the farmer may confirm or correct.
+CREATE TABLE IF NOT EXISTS plot_events (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  plot_id           uuid NOT NULL REFERENCES farm_plots(id) ON DELETE CASCADE,
+  farmer_id         uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  event_date        date NOT NULL,
+  -- DETECTED_DROP is only ever written by the analysis engine; the rest may be
+  -- written by the farmer. The engine never claims a cause, so POSSIBLE_* is not
+  -- a kind here — any such explanation lives in `classification`.
+  kind              text NOT NULL
+                      CHECK (kind IN ('DETECTED_DROP', 'HARVEST', 'CLEARING', 'HEAT_STRESS',
+                                      'WATER_STRESS', 'OBSERVATION', 'OTHER')),
+  source            text NOT NULL DEFAULT 'FARMER'
+                      CHECK (source IN ('FARMER', 'SYSTEM')),
+  classification    text,
+  -- Only a confirmed row may ever be used as a training label.
+  confirmed         boolean NOT NULL DEFAULT false,
+  notes             text,
+  ndvi_before       numeric(8, 4),
+  ndvi_after        numeric(8, 4),
+  magnitude         numeric(8, 4),
+  confidence        text CHECK (confidence IS NULL OR confidence IN ('HIGH', 'MEDIUM', 'LOW')),
+  evidence          jsonb,
+  weather_context   jsonb,
+  event_key         text,
+  client_id         text,
+  recorded_by       uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_at        timestamptz NOT NULL DEFAULT now(),
+  updated_at        timestamptz NOT NULL DEFAULT now(),
+  -- One detected event per (plot, event_key): re-running the analysis updates
+  -- the existing suggestion instead of adding a duplicate.
+  CONSTRAINT plot_events_detected_key_unique UNIQUE (plot_id, event_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_plot_events_plot_date
+  ON plot_events (plot_id, event_date DESC);
+CREATE INDEX IF NOT EXISTS idx_plot_events_farmer
+  ON plot_events (farmer_id, created_at DESC);
+-- The offline queue replays the same client_id; this is what makes that safe.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_plot_events_client_unique
+  ON plot_events (plot_id, client_id) WHERE client_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS plot_alerts (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  plot_id      uuid NOT NULL REFERENCES farm_plots(id) ON DELETE CASCADE,
+  farmer_id    uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  -- Stable for the same ongoing event, e.g. 'NDVI_DECLINE:2026-03-11'. This is
+  -- what stops one ongoing drop from raising a new alert on every analysis run.
+  alert_key    text NOT NULL,
+  alert_type   text NOT NULL,
+  severity     text NOT NULL DEFAULT 'INFO'
+                 CHECK (severity IN ('INFO', 'WARNING', 'CRITICAL')),
+  title        text NOT NULL,
+  body         text NOT NULL,
+  status       text NOT NULL DEFAULT 'OPEN'
+                 CHECK (status IN ('OPEN', 'ACKNOWLEDGED', 'DISMISSED')),
+  raised_at    timestamptz NOT NULL DEFAULT now(),
+  resolved_at  timestamptz,
+  acknowledged_at timestamptz,
+  dismissed_at timestamptz,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT plot_alerts_key_unique UNIQUE (plot_id, alert_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_plot_alerts_plot_status
+  ON plot_alerts (plot_id, status, raised_at DESC);
+CREATE INDEX IF NOT EXISTS idx_plot_alerts_farmer
+  ON plot_alerts (farmer_id, status, raised_at DESC);
+
+-- Nothing is trained here. This view simply counts *confirmed* farmer events per
+-- plot so the API can report truthfully whether enough labels exist yet. An
+-- unconfirmed system suggestion is deliberately not counted: it would be
+-- training on the model's own guesses.
+CREATE OR REPLACE VIEW plot_event_label_counts AS
+  SELECT plot_id,
+         COUNT(*) FILTER (WHERE source = 'FARMER' AND confirmed
+                            AND kind IN ('HARVEST', 'CLEARING'))::int AS harvest_or_clearing_labels,
+         COUNT(*) FILTER (WHERE source = 'FARMER' AND confirmed)::int AS total_farmer_labels
+    FROM plot_events
+   GROUP BY plot_id;
+
+-- ---------------------------------------------------------------------------
+-- 4i. 008_livestock_units — allow livestock to be sold as a whole group
+--
+--     Farmers sell animals two ways: individually ("20 head of cattle") and as
+--     one lot ("the herd"). `head` already existed; this adds `herd` (cattle,
+--     goats, donkeys — any mixed/herd animal) and `flock` (sheep, goats, poultry
+--     — animals kept as a flock). The list must stay in step with LISTING_UNITS
+--     in src/modules/marketplace/marketplace.schemas.js.
+--
+--     The original constraint in 003_marketplace.sql was defined inline, so
+--     PostgreSQL generated its name. Find and drop it by whatever name it
+--     actually has, rather than assuming `produce_listings_unit_check`. It is
+--     re-added under a stable name, guarded so a re-run is a no-op.
+-- ---------------------------------------------------------------------------
+DO $$
+DECLARE
+  conname_to_drop text;
+BEGIN
+  FOR conname_to_drop IN
+    SELECT con.conname
+    FROM pg_constraint con
+    JOIN pg_class rel ON rel.oid = con.conrelid
+    WHERE rel.relname = 'produce_listings'
+      AND con.contype = 'c'
+      AND pg_get_constraintdef(con.oid) ILIKE '%unit%'
+      AND pg_get_constraintdef(con.oid) ILIKE '%crate%'
+  LOOP
+    EXECUTE format('ALTER TABLE produce_listings DROP CONSTRAINT %I', conname_to_drop);
+  END LOOP;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conname = 'produce_listings_unit_check'
+       AND conrelid = 'produce_listings'::regclass
+  ) THEN
+    ALTER TABLE produce_listings
+      ADD CONSTRAINT produce_listings_unit_check
+      CHECK (unit IN ('kg','tonne','bag','crate','bunch','head','herd','flock','litre'));
+  END IF;
+END $$;
+
+-- ---------------------------------------------------------------------------
+-- 4j. 009_herd_register — herd register (CR1) and per-animal listing
+--     attributes (CR2)
+--
+--     `herd_events` records births, deaths, weighings, sales and dipping /
+--     veterinary dates per animal type, with the offline-first `client_id` key
+--     every other farm table uses. `herd_register_summary` computes the
+--     automatic totals so no code has to keep the sums in step by hand.
+--
+--     `produce_listings` gains `animal_class`, `age_months`, `weight_kg` and
+--     `tag_number`. All four are nullable: a sack of maize has none of them, and
+--     a listing must never force a farmer to invent data. ADD COLUMN IF NOT
+--     EXISTS skips the whole column definition (including its inline CHECK)
+--     when the column already exists, so a re-run adds nothing.
+-- ---------------------------------------------------------------------------
+ALTER TABLE produce_listings
+  ADD COLUMN IF NOT EXISTS animal_class text
+    CHECK (animal_class IS NULL OR char_length(btrim(animal_class)) BETWEEN 1 AND 60),
+  ADD COLUMN IF NOT EXISTS age_months integer
+    CHECK (age_months IS NULL OR age_months BETWEEN 0 AND 600),
+  ADD COLUMN IF NOT EXISTS weight_kg numeric(10,2)
+    CHECK (weight_kg IS NULL OR weight_kg >= 0),
+  ADD COLUMN IF NOT EXISTS tag_number text
+    CHECK (tag_number IS NULL OR char_length(btrim(tag_number)) BETWEEN 1 AND 60);
+
+-- A tag is how a keeper looks up one animal, so support "show me everything
+-- about ear tag BW0123" without a scan of every listing the farmer ever made.
+CREATE INDEX IF NOT EXISTS listings_tag_idx
+  ON produce_listings (farmer_id, tag_number) WHERE deleted_at IS NULL AND tag_number IS NOT NULL;
+
+-- One row is one register entry. `head_count` is how many animals the entry
+-- concerns (3 calves born; 1 tagged animal weighed), so the summary view can
+-- add births and deaths without a second table. The money columns follow
+-- `sale_transactions`: `unit_price` is per animal, `amount` the entry total.
+-- Both are nullable — a dipping date has neither.
+CREATE TABLE IF NOT EXISTS herd_events (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  farmer_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  animal_type   text NOT NULL CHECK (char_length(btrim(animal_type)) BETWEEN 1 AND 80),
+  event_type    text NOT NULL
+                  CHECK (event_type IN ('BIRTH', 'DEATH', 'SALE', 'WEIGHING', 'DIPPING', 'VETERINARY', 'OTHER')),
+  event_date    date NOT NULL,
+  head_count    integer NOT NULL DEFAULT 1 CHECK (head_count >= 1),
+  weight_kg     numeric(10,2) CHECK (weight_kg IS NULL OR weight_kg >= 0),
+  unit_price    numeric(14,2) CHECK (unit_price IS NULL OR unit_price >= 0),
+  amount        numeric(14,2) CHECK (amount IS NULL OR amount >= 0),
+  tag_number    text CHECK (tag_number IS NULL OR char_length(btrim(tag_number)) BETWEEN 1 AND 60),
+  notes         text,
+  client_id     text,
+  created_by    uuid REFERENCES users(id) ON DELETE SET NULL,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+  deleted_at    timestamptz
+);
+
+-- The offline queue replays the same client_id; this is what makes that safe.
+-- Partial index: NULL client_id (an online create) must stay unlimited.
+CREATE UNIQUE INDEX IF NOT EXISTS herd_client_unique
+  ON herd_events (farmer_id, client_id) WHERE client_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS herd_farmer_date_idx
+  ON herd_events (farmer_id, event_date DESC) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS herd_tag_idx
+  ON herd_events (farmer_id, tag_number) WHERE deleted_at IS NULL AND tag_number IS NOT NULL;
+
+-- The register's headline numbers, per animal type, computed rather than stored
+-- so they can never disagree with the entries. Soft-deleted rows are excluded:
+-- a corrected entry disappears from the totals the moment it is deleted. Animal
+-- types with no surviving entries are simply absent.
+CREATE OR REPLACE VIEW herd_register_summary AS
+  SELECT farmer_id,
+         animal_type,
+         COALESCE(SUM(head_count) FILTER (WHERE event_type = 'BIRTH'), 0)::int AS births,
+         COALESCE(SUM(head_count) FILTER (WHERE event_type = 'DEATH'), 0)::int AS deaths,
+         COALESCE(SUM(head_count) FILTER (WHERE event_type = 'SALE'), 0)::int AS head_sold,
+         COALESCE(SUM(amount) FILTER (WHERE event_type = 'SALE'), 0)::numeric AS sale_proceeds,
+         COUNT(*) FILTER (WHERE event_type = 'WEIGHING')::int AS weighing_entries,
+         MAX(event_date) FILTER (WHERE event_type = 'WEIGHING') AS last_weighed_on,
+         MAX(event_date) FILTER (WHERE event_type = 'DIPPING') AS last_dipped_on,
+         MAX(event_date) FILTER (WHERE event_type = 'VETERINARY') AS last_veterinary_on,
+         MAX(event_date) AS last_event_on,
+         COUNT(*)::int AS entries
+    FROM herd_events
+   WHERE deleted_at IS NULL
+   GROUP BY farmer_id, animal_type;
+
+-- ---------------------------------------------------------------------------
 -- 5. Triggers (CREATE TRIGGER has no IF NOT EXISTS → drop then recreate)
 -- ---------------------------------------------------------------------------
 DROP TRIGGER IF EXISTS users_set_updated_at ON users;
@@ -497,6 +756,23 @@ DROP TRIGGER IF EXISTS orders_set_updated_at ON orders;
 CREATE TRIGGER orders_set_updated_at BEFORE UPDATE ON orders
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
+-- 007 / 009 tables (their migration files define the same triggers inline)
+DROP TRIGGER IF EXISTS plot_observations_set_updated_at ON plot_observations;
+CREATE TRIGGER plot_observations_set_updated_at BEFORE UPDATE ON plot_observations
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS plot_events_set_updated_at ON plot_events;
+CREATE TRIGGER plot_events_set_updated_at BEFORE UPDATE ON plot_events
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS plot_alerts_set_updated_at ON plot_alerts;
+CREATE TRIGGER plot_alerts_set_updated_at BEFORE UPDATE ON plot_alerts
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS herd_events_set_updated_at ON herd_events;
+CREATE TRIGGER herd_events_set_updated_at BEFORE UPDATE ON herd_events
+  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
 DROP TRIGGER IF EXISTS users_enforce_employer ON users;
 CREATE TRIGGER users_enforce_employer BEFORE INSERT OR UPDATE OF employer_farmer_id ON users
   FOR EACH ROW EXECUTE FUNCTION enforce_employer_link();
@@ -518,7 +794,10 @@ INSERT INTO schema_migrations (filename) VALUES
   ('003_marketplace.sql'),
   ('004_sync_notifications_retention.sql'),
   ('005_employee_link.sql'),
-  ('006_role_rename.sql')
+  ('006_role_rename.sql'),
+  ('007_satellite_monitoring.sql'),
+  ('008_livestock_units.sql'),
+  ('009_herd_register.sql')
 ON CONFLICT (filename) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
@@ -539,6 +818,7 @@ BEGIN
     'users','refresh_tokens','verification_tokens','idempotency_keys',
     'farm_plots','harvest_records','livestock_counts','sale_transactions',
     'expenses','satellite_ndvi','produce_listings','orders',
+    'plot_observations','plot_events','plot_alerts','herd_events',
     'notifications','device_tokens','sync_queue_items',
     'account_deletion_requests','retention_ledger','audit_log','message_outbox',
     'schema_migrations'
@@ -562,6 +842,7 @@ FROM (
     'users','refresh_tokens','verification_tokens','idempotency_keys',
     'farm_plots','harvest_records','livestock_counts','sale_transactions',
     'expenses','satellite_ndvi','produce_listings','orders',
+    'plot_observations','plot_events','plot_alerts','herd_events',
     'notifications','device_tokens','sync_queue_items',
     'account_deletion_requests','retention_ledger','audit_log','message_outbox',
     'schema_migrations'
@@ -573,7 +854,7 @@ LEFT JOIN information_schema.tables actual
   AND actual.table_type = 'BASE TABLE'
 ORDER BY exists_now, table_name;
 
--- Migration bookkeeping should list all six files:
+-- Migration bookkeeping should list all nine files:
 SELECT filename, applied_at FROM schema_migrations ORDER BY filename;
 
 -- The role labels should read FARM_OWNER, FARMER, BUYER — in that order.
@@ -584,3 +865,45 @@ SELECT enumlabel FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
 SELECT column_name, data_type
 FROM information_schema.columns
 WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'employer_farmer_id';
+
+-- 007: the observation series, farmer event log, alerts and label-count view.
+-- Expect four rows ('r' = table, 'v' = view).
+SELECT c.relname AS object_name, c.relkind
+FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public'
+  AND c.relname IN ('plot_observations', 'plot_events', 'plot_alerts', 'plot_event_label_counts')
+ORDER BY c.relkind, c.relname;
+
+-- 007/009: the updated_at triggers on the new tables. Expect four rows.
+SELECT event_object_table AS table_name, trigger_name
+FROM information_schema.triggers
+WHERE trigger_schema = 'public'
+  AND trigger_name IN ('plot_observations_set_updated_at', 'plot_events_set_updated_at',
+                       'plot_alerts_set_updated_at', 'herd_events_set_updated_at')
+ORDER BY table_name;
+
+-- 008: the widened unit rule must list herd and flock. Expect one row.
+SELECT conname, pg_get_constraintdef(oid) AS definition
+FROM pg_constraint
+WHERE conrelid = 'produce_listings'::regclass
+  AND conname = 'produce_listings_unit_check';
+
+-- 009: the herd register table and its summary view. Expect two rows.
+SELECT table_name, table_type
+FROM information_schema.tables
+WHERE table_schema = 'public'
+  AND table_name IN ('herd_events', 'herd_register_summary')
+ORDER BY table_name;
+
+-- 009: the per-animal listing attributes. Expect exactly four rows.
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_schema = 'public' AND table_name = 'produce_listings'
+  AND column_name IN ('animal_class', 'age_months', 'weight_kg', 'tag_number')
+ORDER BY column_name;
+
+-- 009: the herd register columns, in table order.
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_schema = 'public' AND table_name = 'herd_events'
+ORDER BY ordinal_position;

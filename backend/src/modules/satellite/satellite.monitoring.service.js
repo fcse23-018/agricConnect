@@ -26,6 +26,7 @@ import { fetchObservations, boundaryCorners, MOCK_SOURCE } from '../../services/
 import { fetchWeather } from '../../services/weather.js';
 import {
   analyseSeries,
+  evaluateDetections,
   CLASSIFICATION_LABELS,
   DEFAULT_THRESHOLDS,
 } from '../../services/satelliteAnalysis.js';
@@ -1075,6 +1076,65 @@ export async function latestObservationByPlot(farmerId, plotIds) {
   return new Map(rows.map((row) => [row.plot_id, row]));
 }
 
+/**
+ * The ground-truth evaluation report (DEF-4): how the detected drops compare
+ * with the farmer's own confirmed events, as precision and recall.
+ *
+ * Ground truth is, by definition, only what the farmer confirmed — an
+ * unconfirmed system suggestion is the model grading its own homework and is
+ * never counted here. Only the farmer event kinds that plausibly manifest as a
+ * vegetation drop count (a harvest removes biomass, clearing removes it
+ * entirely, heat and water stress suppress it); an OBSERVATION or OTHER entry
+ * says nothing about vegetation and is excluded rather than counted as a miss.
+ *
+ * A farm with no confirmed events reports `evaluated: false` and no metrics:
+ * the honest answer to "how accurate are the alerts?" is "there is nothing to
+ * compare them against yet", never a fabricated 100%.
+ */
+export async function getValidationReport(farmerId, { windowDays = 10 } = {}) {
+  const DROP_LIKE_KINDS = ['HARVEST', 'CLEARING', 'HEAT_STRESS', 'WATER_STRESS'];
+
+  const detections = await many(
+    `SELECT event_date, plot_id, classification
+       FROM plot_events
+      WHERE farmer_id = $1 AND source = 'SYSTEM' AND kind = 'DETECTED_DROP'
+      ORDER BY event_date ASC`,
+    [farmerId],
+  );
+
+  const groundTruth = await many(
+    `SELECT event_date, kind, plot_id
+       FROM plot_events
+      WHERE farmer_id = $1 AND source = 'FARMER' AND confirmed
+        AND kind = ANY($2::text[])
+      ORDER BY event_date ASC`,
+    [farmerId, DROP_LIKE_KINDS],
+  );
+
+  const metrics = evaluateDetections({
+    detections: detections.map((row) => ({ date: dateOnly(row.event_date) })),
+    groundTruth: groundTruth.map((row) => ({ date: dateOnly(row.event_date) })),
+    windowDays,
+  });
+
+  const round4 = (value) => (value === null ? null : Number(value.toFixed(4)));
+
+  return {
+    ...metrics,
+    precision: round4(metrics.precision),
+    recall: round4(metrics.recall),
+    f1: round4(metrics.f1),
+    groundTruthKinds: DROP_LIKE_KINDS,
+    evaluated: metrics.evaluated,
+    note: metrics.evaluated
+      ? `A detection counts as correct when it falls within ${metrics.windowDays} days of a confirmed farmer event. Precision and recall are computed from the farmer's own confirmed events only.`
+      : 'There are not yet enough confirmed farmer events to compare the detections against. Precision and recall are reported as null, not as perfect scores. No model has been trained or validated in this release.',
+    disclaimer:
+      'These metrics grade the rule-based drop detection against farmer-confirmed events. They are not a validation of a trained model, and vegetation indices remain observations, not proof of a cause.',
+    generatedAt: new Date().toISOString(),
+  };
+}
+
 export const MONITORING_SOURCE_LABEL = {
   [MOCK_SOURCE]: 'Demonstration data (not real observations)',
 };
@@ -1090,4 +1150,5 @@ export default {
   resolveBoundary,
   activeThresholds,
   latestObservationByPlot,
+  getValidationReport,
 };

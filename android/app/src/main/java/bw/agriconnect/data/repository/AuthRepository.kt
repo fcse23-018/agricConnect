@@ -16,6 +16,7 @@ import bw.agriconnect.data.remote.dto.RegisterRequest
 import bw.agriconnect.data.remote.dto.ResetPasswordRequest
 import bw.agriconnect.data.remote.dto.UpdateProfileRequest
 import bw.agriconnect.data.remote.dto.VerifyCodeRequest
+import bw.agriconnect.data.remote.dto.VerifyResponse
 import bw.agriconnect.data.remote.dto.toAuthTokens
 import bw.agriconnect.data.remote.dto.toDomain
 import bw.agriconnect.data.session.AuthTokens
@@ -73,7 +74,9 @@ interface AuthRepository {
     suspend fun resetPassword(resetToken: String, newPassword: String): AppResult<Unit>
 
     suspend fun requestVerificationCode(identifier: String): AppResult<CodeDispatch>
-    suspend fun confirmVerification(identifier: String, code: String): AppResult<Unit>
+
+    /** Confirms a code and returns the freshly verified user. */
+    suspend fun confirmVerification(identifier: String, code: String): AppResult<User>
 }
 
 @Singleton
@@ -246,14 +249,34 @@ internal class DefaultAuthRepository @Inject constructor(
     override suspend fun requestVerificationCode(identifier: String): AppResult<CodeDispatch> {
         return runCatchingApi(errorParser::parse) {
             val resp = api.verificationRequest(IdentifierRequest(identifier.trim()))
-            CodeDispatch(message = resp.message, devCode = resp.devCode)
+            CodeDispatch(
+                message = resp.message,
+                devCode = resp.devCode,
+                // Null stays null: "the server did not say" is a third state and
+                // must not be collapsed into "delivered" or "failed".
+                delivered = resp.delivery?.delivered,
+                channel = resp.delivery?.channel,
+                undeliveredReason = resp.delivery?.reason,
+                expiresInMinutes = resp.expiresInMinutes ?: 10,
+            )
         }
     }
 
-    override suspend fun confirmVerification(identifier: String, code: String): AppResult<Unit> {
-        return runCatchingApi(errorParser::parse) {
-            api.verificationConfirm(VerifyCodeRequest(identifier.trim(), code.trim()))
-            Unit
+    override suspend fun confirmVerification(identifier: String, code: String): AppResult<User> {
+        val confirmed = runCatchingApi(errorParser::parse) {
+            val response = api.verificationConfirm(VerifyCodeRequest(identifier.trim(), code.trim()))
+            response.user
+        }
+        return when (confirmed) {
+            is AppResult.Failure -> confirmed
+            is AppResult.Success -> {
+                val userDto = confirmed.data
+                if (userDto != null) {
+                    AppResult.Success(userDto.toDomain())
+                } else {
+                    getCurrentUser()
+                }
+            }
         }
     }
 }

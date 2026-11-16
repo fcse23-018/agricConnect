@@ -18,7 +18,7 @@ export async function authenticate(req, _res, next) {
     if (payload.typ !== 'access') throw unauthorized();
 
     const user = await one(
-      `SELECT id, role, account_status, deleted_at
+      `SELECT id, full_name, role, account_status, deleted_at
          FROM users WHERE id = $1`,
       [payload.sub],
     );
@@ -31,7 +31,14 @@ export async function authenticate(req, _res, next) {
     }
 
     // Role from the database wins over the role embedded in the token.
-    req.user = { id: user.id, role: user.role, accountStatus: user.account_status };
+    // fullName is carried here (not from the token) so routes that render a
+    // human-readable owner, such as the herd summary, never read a stale name.
+    req.user = {
+      id: user.id,
+      fullName: user.full_name ?? null,
+      role: user.role,
+      accountStatus: user.account_status,
+    };
     next();
   } catch (err) {
     next(err);

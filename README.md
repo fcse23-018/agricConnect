@@ -92,7 +92,7 @@ npm test                      # unit + API tests
 
 ```bash
 cd android
-./gradlew :app:assembleDebug          # debug APK  (points at http://10.0.2.2:4000)
+./gradlew :app:assembleDebug          # debug APK (defaults to the deployed Render API; see below)
 ./gradlew :app:testDebugUnitTest      # unit tests
 ./gradlew :app:connectedDebugAndroidTest  # instrumented tests (needs a device/emulator)
 ./gradlew :app:bundleRelease          # release bundle (needs keystore.properties)

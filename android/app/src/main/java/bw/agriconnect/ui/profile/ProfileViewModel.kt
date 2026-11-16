@@ -6,6 +6,7 @@ import bw.agriconnect.core.result.AppResult
 import bw.agriconnect.core.util.ImageFiles
 import bw.agriconnect.data.repository.AccountRepository
 import bw.agriconnect.data.repository.AuthRepository
+import bw.agriconnect.domain.model.AccountStatus
 import bw.agriconnect.domain.model.Session
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,6 +20,9 @@ data class ProfileUiState(
     val session: Session? = null,
     val fullName: String = "",
     val email: String = "",
+    val phoneNumber: String = "",
+    /** Null until `/auth/me` answers; never guessed from the session. */
+    val accountStatus: AccountStatus? = null,
     val avatarUrl: String? = null,
     val isLoading: Boolean = false,
     val isSaving: Boolean = false,
@@ -38,15 +42,21 @@ class ProfileViewModel @Inject constructor(
     private val _state = MutableStateFlow(ProfileUiState(session = authRepository.session.value))
     val state: StateFlow<ProfileUiState> = _state.asStateFlow()
 
-    init {
-        refresh()
-    }
-
     fun refresh() {
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
             when (val r = authRepository.getCurrentUser()) {
-                is AppResult.Success -> _state.update { it.copy(isLoading = false, session = authRepository.session.value, fullName = r.data.fullName, email = r.data.email.orEmpty(), avatarUrl = r.data.avatarUrl) }
+                is AppResult.Success -> _state.update {
+                    it.copy(
+                        isLoading = false,
+                        session = authRepository.session.value,
+                        fullName = r.data.fullName,
+                        email = r.data.email.orEmpty(),
+                        phoneNumber = r.data.phoneNumber,
+                        accountStatus = r.data.accountStatus,
+                        avatarUrl = r.data.avatarUrl,
+                    )
+                }
                 is AppResult.Failure -> _state.update { it.copy(isLoading = false, error = r.error.message) }
             }
         }

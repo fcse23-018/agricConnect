@@ -3,7 +3,7 @@
 > **Purpose.** An honest record of what was executed, what passed, what failed, and what
 > could **not** be run — and why. Nothing here is claimed as passing unless it actually ran.
 >
-> **Last updated:** 2026-10-19
+> **Last updated:** 2026-11-16
 > **Environment:** Windows 11 (amd64) · Temurin JDK 17.0.20 · Android SDK (compileSdk 35)
 > · Gradle 8.9 (wrapper) · AGP 8.7.3 · Node 24.21.0 · Python 3.12.10
 
@@ -13,22 +13,20 @@
 
 | Suite | Tests | Result | Executed here? |
 |-------|------:|--------|:--------------:|
-| Backend — unit (`backend/tests/unit`, 8 suites) | 139 | ✅ **Pass — re-run 2026-10-22** | ✅ Yes (bundled Node) |
-| Backend — API (`backend/tests/api`, 2 suites) | 13 | ✅ **Pass — re-run 2026-10-22** (`uploads.supabase` needs the network) | ✅ Yes (bundled Node) |
-| Backend — full Jest suite | **434** (26 suites) | ✅ **Pass — re-run 2026-10-23** | ✅ Yes |
-| Backend — ESLint (`npm run lint`) | — | ✅ 0 errors (24 pre-existing warnings) | ✅ Yes |
-| Crop API — `crop-api` (`pytest`) | 34 | ✅ **Pass — re-run 2026-10-18** | ✅ Yes |
-| Android — unit (`app/src/test`, 17 classes) | **131** | ✅ **Pass — re-run 2026-10-23** | ✅ Yes |
+| Backend — full Jest suite (`backend/tests/unit` 29 suites + `tests/api` 3 suites = 32) | **539** | ✅ **Pass — measured 2026-11-16** | ✅ Yes |
+| Backend — ESLint (`npm run lint`) | — | ✅ 0 errors (41 warnings) | ✅ Yes |
+| Crop API — `crop-api` (`pytest`) | 34 | ✅ **Pass — measured 2026-11-16** | ✅ Yes |
+| Android — unit (`app/src/test`, 21 classes) | **164** | ✅ **Pass — measured 2026-11-16** | ✅ Yes |
+| Android — lint (`:app:lintDebug`) | — | ✅ 0 errors (109 warnings) | ✅ Yes |
 | Android — instrumented (`app/src/androidTest`) | 0 authored | ⏭️ Not run | ❌ No emulator/device |
 | Android — `:app:assembleDebug` | — | ✅ **BUILD SUCCESSFUL** | ✅ Yes |
 | Manual on-device walkthrough | — | ⏭️ Not run | ❌ No emulator/device |
 
 Legend: ✅ executed and passed · ❌ could not be executed here · ⏭️ deliberately not run.
 
-On 2026-10-23 the backend and Android suites were re-executed on this machine (Node 24.21.0
-and JDK 17 are installed under `C:\Users\src.president\agri-tooling\`, just not on `PATH`);
-the crop-API figure is from 2026-10-18. The backend suites are also run by CI
-(`.github/workflows/ci.yml`).
+The figures above were measured on 2026-11-16 on this machine (Node 24.21.0 and
+JDK 17 are installed under `C:\Users\src.president\agri-tooling\`, just not on `PATH`).
+The backend suites are also run by CI (`.github/workflows/ci.yml`).
 
 ---
 
@@ -58,22 +56,25 @@ run here (it requires `android/keystore.properties`).
 
 ## 3. Android unit tests (`:app:testDebugUnitTest`)
 
-Executed 2026-10-23 with `./gradlew :app:testDebugUnitTest`.
-**131 tests · 0 failures · 0 errors · 0 skipped (17 classes).**
+Executed 2026-11-16 with `./gradlew :app:testDebugUnitTest`.
+**164 tests · 0 failures · 0 errors · 0 skipped (21 classes).**
 
 | Class | Tests | Focus |
 |-------|------:|-------|
 | `data.local.AgriDatabaseTest` | 9 | Room persistence, enum converters, sync-queue enqueue on write/delete, plot `imageUrl` round-trip, and the **satellite overview cache** (round-trip with the observation date kept separate from the cache write time, upsert replacing one plot's row, `observeForPlot` emitting on write, `deleteForFarmer` clearing one owner without touching another) |
 | `data.local.SatelliteCacheMigrationTest` | 2 | The **v2 → v3 migration**: runs the production `MIGRATION_2_3` against a real v2 file that already contains a plot, asserts the plot survives untouched and the new table accepts a row; plus idempotency, so a retried upgrade cannot fail |
 | `data.remote.AuthApiTest` | 6 | Wire contract: `POST /auth/login`, `POST /auth/register` (path + idempotency key + body), 400 error-envelope → field errors, the generic "highlighted fields" copy replaced by the joined field messages, a specific server message kept verbatim even when details exist, 5xx never leaks server text. The register fixture uses `FARM_OWNER`, the role that owns the farm |
+| `data.remote.VerificationApiTest` | 5 | Account-verification wire contract: `delivery.delivered` / `delivery.reason` decode so "no SMS was sent" is never shown as "code sent", an absent `delivery` block stays null, and `confirm` returns the verified user |
 | `data.remote.MediaApiTest` | 3 | Wire contract: `POST /uploads` (path + `image` multipart field + `{url}` parse), repository success path, 5xx never leaks server text |
 | `data.remote.SyncApiTest` | 1 | `sync/push` parses `synced` / `conflict` / `failed` results |
 | `data.remote.TokenAuthenticatorTest` | 2 | 401 → single refresh + retry + rotated token persisted; refresh failure → session cleared |
 | `data.remote.dto.NdviAdviceMappingTest` | 9 | NDVI advice wire contract → domain: full block, trend/context/confidence, a missing `advice`, an advice block with no `assessment`, unknown enum values, a blank action title, a simulated source, and a partial block |
 | `data.remote.dto.ColourMapAndFarmAlertsMappingTest` | 10 | Colour-map and farm-wide alert wire contracts → domain |
+| `data.remote.dto.SatelliteOverviewContractTest` | 7 | Satellite-overview wire contract, using a payload copied from the real `getOverview` response: the boundary centroid (`latitude`/`longitude`) and the vertices (`lat`/`lon`) decode from the same geometry |
 | `data.update.UpdateDecisionTest` / `UpdateStateRulesTest` / `UpdateVersionApiTest` | 16 / 22 / 6 | APK update manifest: version comparison, never locking a user out when the manifest host is unavailable, and the wire shape |
 | `ui.satellite.InsightsRecommendationsTest` | 8 | The insights report's on-device inspection advice: it never names a pest, disease, deficiency or drought for any reading; it gives boundary advice instead of crop advice when the geometry is unusable; it waits rather than guessing when there is no reading; and every path ends by asking the farmer to record what they found |
 | `ui.satellite.ObservationStateLabelTest` | 8 | The status word on the latest-observation card: only a successful network payload with a reading is ever **Updated**; a restored device cache is **Cached** even when its refresh failed; a connectivity failure with nothing stored is **Offline**; an in-flight refresh never reads as settled |
+| `ui.auth.VerificationRulesTest` | 13 | Verification screen honesty rules: an unknown status is loading (never a guess), and an absent delivery outcome says nothing about whether a code was sent |
 | `ui.components.ColourMapViewTest` | 7 | Colour-map legend stops and null-cell handling (a null cell is outside the boundary; `0.0` is a real reading) |
 | `core.util.ImageUrlsTest` | 7 | Origin-relative `/uploads/…` → absolute API-origin URL, absolute/`content://` untouched, blank → null |
 | `core.util.BaseUrlTest` | 6 | Server-override validation: trailing `/` added, whitespace trimmed, host-only accepted, and null/blank/relative/non-`http(s)` values rejected |
@@ -169,7 +170,9 @@ cd backend
 cp .env.example .env          # fill in DB + secrets
 npm install
 npm run migrate
-npm test                      # 152 tests — unit + HTTP smoke
+npm test                      # 539 tests — unit + HTTP smoke
+npm run lint                  # ESLint: 0 errors, 41 warnings
+npm run openapi:lint          # OpenAPI: 70 paths, 96 operations, 79 schemas
 
 # Crop monitoring API (Python 3.12)
 cd crop-api
@@ -187,7 +190,7 @@ cd android
 ## 8. Honesty statement
 
 Numbers throughout this file were produced on the dates shown by the commands shown and are
-reproducible. The backend, crop-API and Android figures were all re-executed on 2026-10-19 and
+reproducible. The backend, crop-API and Android figures were all re-executed on 2026-11-16 and
 are green. Any item marked "not executed" should be treated as unverified until someone runs
 it — in particular, **no run of the app on a device/emulator has happened**, so the image
 upload/display flow is verified only at the unit and wire-contract level, not visually. See

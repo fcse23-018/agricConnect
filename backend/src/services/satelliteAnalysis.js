@@ -844,9 +844,83 @@ export function analyseSeries({
       note: modelReady
         ? 'Enough verified farmer events exist to evaluate a model. No model has been trained or validated in this release.'
         : `Rule-based classifications are in use. ${labelledEventCount} of 30 verified farmer events are available; model training is pending.`,
+      validation: 'GET /satellite/validation compares detected drops with confirmed farmer events and reports precision and recall.',
     },
     disclaimer:
       'Vegetation indices indicate vegetation condition. They are not direct proof of yield, disease or the cause of a change.',
+  };
+}
+
+/* --------------------- ground-truth evaluation (DEF-4) --------------------- */
+
+/**
+ * Compare detected drops with the farmer's own confirmed events and report
+ * precision and recall — honestly, which includes reporting *that it cannot be
+ * evaluated yet* when no ground truth exists.
+ *
+ * Matching is temporal, not exact: a harvest is recorded on the day it happened
+ * but the satellite only sees it on the next clear pass, so a detection counts
+ * as a true positive when it falls within `windowDays` of a confirmed event.
+ * Each confirmed event can absorb at most one detection (one harvest must not
+ * be "matched" by three separate dips), and each detection matches at most one
+ * event; both lists are walked in date order so the greedy match is stable and
+ * reproducible.
+ *
+ * Precision is null when nothing was detected (it is undefined, not 100%), and
+ * recall is null when there is no ground truth at all — an empty farm must not
+ * be reported as a perfect detector.
+ *
+ * @param {{detections: Array<{date: string}>, groundTruth: Array<{date: string}>, windowDays?: number}} params
+ */
+export function evaluateDetections({ detections = [], groundTruth = [], windowDays = 10 } = {}) {
+  const window = Number.isFinite(windowDays) ? Math.abs(windowDays) : 10;
+
+  const sortedDetections = [...detections].sort((a, b) => toEpoch(a.date) - toEpoch(b.date));
+  const sortedTruth = [...groundTruth].sort((a, b) => toEpoch(a.date) - toEpoch(b.date));
+
+  const matchedDetections = new Set();
+  const matchedTruth = new Set();
+
+  for (const detection of sortedDetections) {
+    // The earliest unmatched confirmed event within the window. Walking truth
+    // in date order keeps the pairing deterministic and one-to-one. An
+    // unparseable date can never match (`daysBetween` is null, not 0).
+    const matchIndex = sortedTruth.findIndex((truth, index) => {
+      if (matchedTruth.has(index)) return false;
+      const gap = daysBetween(truth.date, detection.date);
+      return gap !== null && Math.abs(gap) <= window;
+    });
+    if (matchIndex !== -1) {
+      matchedDetections.add(detection);
+      matchedTruth.add(matchIndex);
+    }
+  }
+
+  const truePositives = matchedDetections.size;
+  const falsePositives = sortedDetections.length - truePositives;
+  const falseNegatives = sortedTruth.length - matchedTruth.size;
+
+  const divide = (numerator, denominator) => (denominator > 0 ? numerator / denominator : null);
+
+  const precision = divide(truePositives, sortedDetections.length);
+  const recall = divide(truePositives, sortedTruth.length);
+  const f1 =
+    precision !== null && recall !== null && precision + recall > 0
+      ? (2 * precision * recall) / (precision + recall)
+      : null;
+
+  return {
+    windowDays: window,
+    detections: sortedDetections.length,
+    groundTruthEvents: sortedTruth.length,
+    truePositives,
+    falsePositives,
+    falseNegatives,
+    precision,
+    recall,
+    f1,
+    // The only honest answer when there is nothing to compare against.
+    evaluated: sortedTruth.length > 0 && sortedDetections.length > 0,
   };
 }
 
@@ -865,6 +939,7 @@ export default {
   explainDrop,
   buildAlerts,
   analyseSeries,
+  evaluateDetections,
   daysBetween,
   addDays,
   toEpoch,

@@ -79,8 +79,8 @@ All money fields are **BWP**, `NUMERIC(14,2)`, serialised as a JSON number with 
 | POST | `/auth/password/forgot` | public | `{identifier}` | `202 {message:"If that account exists, a code has been sent."}` |
 | POST | `/auth/password/verify` | public | `{identifier, code}` | `200 {resetToken}` |
 | POST | `/auth/password/reset` | public | `{resetToken, newPassword}` | `200 {message}` |
-| POST | `/auth/verification/request` | public | `{identifier}` | `202 {message}` |
-| POST | `/auth/verification/confirm` | public | `{identifier, code}` | `200 {message}` |
+| POST | `/auth/verification/request` | public (optional bearer) | `{identifier}` | `202 {message, expiresInMinutes, delivery?, devCode?}` |
+| POST | `/auth/verification/confirm` | public | `{identifier, code}` | `200 {message, user?}` |
 
 Rules:
 - Registration **never** trusts a client-supplied role beyond the three allowed values, and rejects
@@ -90,6 +90,15 @@ Rules:
 - Reset tokens: random 32 bytes, stored **hashed**, **single-use**, TTL **15 min**; on success all
   refresh tokens for that user are revoked.
 - Verification codes: 6 digits, stored hashed, TTL 10 min, max 5 attempts.
+- Verification delivery is reported honestly **only to the signed-in owner**: the `delivery` block
+  (`{channel, delivered, reason}`) is present when the bearer token belongs to the account being
+  verified, and omitted for anonymous callers or a different account, so the endpoint cannot be
+  used to discover whether a phone number is registered. `reason` is a fixed code
+  (`TRIAL_UNVERIFIED_NUMBER` for Twilio 21608, `NO_PROVIDER`, `PROVIDER_TIMEOUT`,
+  `PROVIDER_UNREACHABLE`, `RECIPIENT_OPTED_OUT`, `INVALID_DESTINATION`, `NOT_A_MOBILE_NUMBER`,
+  `PROVIDER_REJECTED`) — never provider text. A code that the transport refused is never reported as sent.
+- `confirm` returns the verified `user` when available so the client badge updates in one round trip
+  (an already-verified account returns it too).
 
 ### 2.2 Profile — `/users/me`
 
@@ -143,11 +152,27 @@ apply the same rule, so the same edit has the same effect whichever screen made 
 |--------|------|-------|
 | GET/POST | `/farm/harvests` · `/farm/harvests/{id}` | farm owner, farmer |
 | GET/POST | `/farm/livestock` · `/farm/livestock/{id}` | farm owner, farmer |
+| GET/POST | `/farm/herd` · `/farm/herd/{id}` | farm owner, farmer |
+| GET | `/farm/herd/summary?from&to` | **farm owner only** |
 | GET/POST | `/finance/sales` · `/finance/sales/{id}` | **farm owner only** |
 | GET/POST | `/finance/expenses` · `/finance/expenses/{id}` | **farm owner only** |
 | GET | `/finance/summary?from&to` | **farm owner only** → `{totalSales,totalExpenses,netBalance,series:[{period,sales,expenses}]}` |
 
 A farmer who works the land requesting `/finance/*` → **`403`** (explicitly tested).
+
+**Herd register (`/farm/herd`, report CR1).** One entry per birth, death, weighing, sale or
+dipping/veterinary date: `{animalType, eventType ∈ BIRTH|DEATH|SALE|WEIGHING|DIPPING|VETERINARY|OTHER,
+eventDate, headCount ≥ 1 (default 1), weightKg?, unitPrice?, amount?, tagNumber?, notes?, clientId?}`.
+All POSTs on `/farm/*` are offline-first: a replayed `clientId` updates the row in place (200)
+instead of duplicating it (201). `GET /farm/herd?from&to&animalType&eventType` filters the register.
+
+**`GET /farm/herd/summary` (report CR3)** is the shareable page for a bank or the Land Board:
+current counts (latest snapshot per animal type), automatic register totals per type
+(`births, deaths, headSold, saleProceeds, lastWeighedOn, lastDippedOn, lastVeterinaryOn`), and the
+financial totals for the same window. Register sale proceeds and the finance totals are separate
+records, reported **side by side, never added together**, and the response says the summary is
+self-declared — it is not verified by BAITS, a bank or the Land Board. A farmer who works the land
+requesting it → **`403`** (it merges the owner's private financial totals).
 
 ### 2.6 Satellite — `/satellite`
 

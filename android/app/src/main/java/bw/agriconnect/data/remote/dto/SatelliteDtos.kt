@@ -49,6 +49,23 @@ data class NdviDto(
 data class LatLonDto(val lat: Double, val lon: Double)
 
 /**
+ * A boundary centroid. The server spells this one differently from a vertex:
+ * `services/geometry.js#ringCentroid` returns `{"latitude":…,"longitude":…}` while
+ * `vertices[]` use `{lat,lon}`.
+ *
+ * Both fields are optional with a default **on purpose**. Getting this wrong once
+ * meant every overview for a plot with a saved boundary failed to decode, and the
+ * farmer saw "We couldn't read the server response" instead of their farm. A
+ * centroid only seeds the map camera, so an unreadable one must cost that alone,
+ * never the whole payload.
+ */
+@Serializable
+data class CentroidDto(
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+)
+
+/**
  * The compact plot reference the monitoring endpoints return (`plotId`,
  * `plotName`, area, centroid, boundary, photo). It deliberately carries no
  * ownership or timestamp fields - those live on the farms endpoints.
@@ -98,7 +115,7 @@ data class PlotGeometryDto(
     val areaM2: Double? = null,
     val areaHectares: Double? = null,
     val perimeterM: Double? = null,
-    val centroid: LatLonDto? = null,
+    val centroid: CentroidDto? = null,
     val sideLengthsM: List<Double>? = null,
     val valid: Boolean = true,
     val reason: String? = null,

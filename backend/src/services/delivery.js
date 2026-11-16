@@ -82,16 +82,44 @@ async function sendViaTwilio({ destination, body }) {
     // the number is unverified, the sender is invalid, or the account is out of
     // credit — all problems the operator must see rather than guess at.
     const detail = parsed?.message || text.slice(0, 300) || 'no response body';
-    throw new Error(`Twilio rejected the message (HTTP ${res.status}): ${detail}`);
+    const error = new Error(`Twilio rejected the message (HTTP ${res.status}): ${detail}`);
+    // Kept so the caller can translate the refusal into a fixed, user-safe code
+    // instead of echoing provider text to the app.
+    error.providerCode = parsed?.code ?? null;
+    throw error;
   }
 
   return { sid: parsed?.sid ?? null, status: parsed?.status ?? null };
 }
 
 /**
- * Send a message. Returns { delivered, provider, devCode? }.
- * `devCode` is only populated when EXPOSE_DEV_CODES is enabled in development,
- * so the recovery journey is testable end-to-end without a provider.
+ * Translate a delivery failure into a fixed code the app can act on.
+ *
+ * The app must be able to tell the farmer *why* no SMS arrived — the commonest
+ * case on a Twilio trial is error 21608, "the number is unverified" — without the
+ * server ever echoing provider text (which can contain account metadata) or
+ * inventing a success. Unknown failures collapse to one generic code.
+ */
+export function deliveryFailureReason(err) {
+  if (!err) return 'PROVIDER_REJECTED';
+  const code = Number(err.providerCode);
+  if (code === 21608) return 'TRIAL_UNVERIFIED_NUMBER';
+  if (code === 21610) return 'RECIPIENT_OPTED_OUT';
+  if (code === 21211) return 'INVALID_DESTINATION';
+  if (code === 21614) return 'NOT_A_MOBILE_NUMBER';
+
+  const message = String(err.message ?? '');
+  if (/not configured|incomplete/i.test(message)) return 'NO_PROVIDER';
+  if (/timed out/i.test(message)) return 'PROVIDER_TIMEOUT';
+  if (/request failed/i.test(message)) return 'PROVIDER_UNREACHABLE';
+  return 'PROVIDER_REJECTED';
+}
+
+/**
+ * Send a message. Returns { delivered, provider, reason?, devCode? }.
+ * `reason` is present only when `delivered` is false, and is one of the fixed
+ * codes above. `devCode` is only populated when EXPOSE_DEV_CODES is enabled in
+ * development, so the recovery journey is testable end-to-end without a provider.
  */
 export async function deliver({ channel, destination, subject, body, devCode }) {
   const provider = config.delivery.provider;
@@ -111,9 +139,11 @@ export async function deliver({ channel, destination, subject, body, devCode }) 
       // NONE / OUTBOX — persisted only. Explicitly not delivered.
       result.provider = 'OUTBOX';
       result.delivered = false;
+      result.reason = 'NO_PROVIDER';
     }
   } catch (err) {
     result.error = err.message;
+    result.reason = deliveryFailureReason(err);
   }
 
   await record({

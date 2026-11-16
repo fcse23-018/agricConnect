@@ -62,6 +62,18 @@ Legend — Evidence: `BE` = backend, `APP` = Android.
 | F6 | Records filtered by date range / crop | query params | BE | I |
 | F7 | Plot on a map (Android-compatible) | `ui/screens/plots` (OSMDroid behind an interface) | app | M |
 
+### 3.1 Livestock change requests (CR1-CR3)
+
+The backend for all three change requests exists and is tested. The Android app has **no UI
+or repository** for any of them yet, so they are traced as backend-only and are not claimed
+as app features.
+
+| ID | Requirement | Implementation | Evidence | Verified |
+|----|-------------|----------------|----------|----------|
+| CR1 | Herd register: births, deaths, weighings, sales, dipping/veterinary dates, with automatic totals | Backend `GET/POST /farm/herd` and `GET/PATCH/DELETE /farm/herd/{id}` (`records.routes.js`); zod schemas `createHerdEventSchema` / `updateHerdEventSchema` / `listHerdEventQuerySchema` (`records.schemas.js`); `herd_events` table and `herd_register_summary` view (`migrations/009_herd_register.sql`); offline replay descriptor in `sync.entities.js` | BE | U/I - backend only; **no Android UI or repository** |
+| CR2 | Per-animal listing attributes: class, age (months), weight, tag number | Market listings accept and return `animalClass`, `ageMonths`, `weightKg`, `tagNumber` (validation in `marketplace.schemas.js`, serialisation in `src/utils/serialize.js`); columns added in `migrations/009_herd_register.sql`; `herd`/`flock` units in `migrations/008_livestock_units.sql` | BE | U/I - backend only; the Android listing screen has **no CR2 fields or repository support** |
+| CR3 | Shareable herd + financial summary for a bank or the Land Board | Backend `GET /farm/herd/summary` (`records.routes.js`, farm owner only); computed in `records.service.js` from current counts, register totals and finance totals | BE | U/I - backend only; **no Android UI or repository** |
+
 ## 4. Finance (§5, Farmer only)
 
 | ID | Requirement | Implementation | Evidence | Verified |
@@ -137,8 +149,8 @@ Legend — Evidence: `BE` = backend, `APP` = Android.
 
 | Verified by | Count |
 |-------------|-------|
-| Unit test (U) | 22 |
-| API/integration test (I) | 26 |
+| Unit test (U) | 25 |
+| API/integration test (I) | 29 |
 | Manual review / design (M) | 30 |
 | **Not executed (N)** | 4 |
 

@@ -151,8 +151,9 @@ router.post(
     const b = req.body;
     const row = await one(
       `INSERT INTO produce_listings
-         (farmer_id, produce, description, quantity, unit, price, image_url, location_text, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'DRAFT')
+         (farmer_id, produce, description, quantity, unit, price, image_url, location_text,
+          animal_class, age_months, weight_kg, tag_number, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'DRAFT')
        RETURNING *`,
       [
         req.user.id,
@@ -163,6 +164,10 @@ router.post(
         b.price,
         b.imageUrl ?? null,
         b.locationText ?? null,
+        b.animalClass ?? null,
+        b.ageMonths ?? null,
+        b.weightKg ?? null,
+        b.tagNumber ?? null,
       ],
     );
 
@@ -204,6 +209,10 @@ router.patch(
       price: 'price',
       imageUrl: 'image_url',
       locationText: 'location_text',
+      animalClass: 'animal_class',
+      ageMonths: 'age_months',
+      weightKg: 'weight_kg',
+      tagNumber: 'tag_number',
     };
 
     const sets = [];

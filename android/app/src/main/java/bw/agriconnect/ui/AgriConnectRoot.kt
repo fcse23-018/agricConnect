@@ -18,6 +18,7 @@ import bw.agriconnect.domain.model.Session
 import bw.agriconnect.ui.auth.ForgotPasswordScreen
 import bw.agriconnect.ui.auth.LoginScreen
 import bw.agriconnect.ui.auth.RegisterScreen
+import bw.agriconnect.ui.auth.VerifyAccountScreen
 import bw.agriconnect.ui.chrome.LocalMainChrome
 import bw.agriconnect.ui.chrome.MainChrome
 import bw.agriconnect.ui.dashboard.DashboardScreen
@@ -130,7 +131,11 @@ fun AgriConnectRoot(
             }
             composable(Routes.REGISTER) {
                 RegisterScreen(
-                    onRegistered = { clearTo(AgriNavItems.homeRouteFor(rootViewModel.session.value?.role)) },
+                    // Registration signs the user in but leaves the account
+                    // UNVERIFIED and sends a code. Land on the verification screen
+                    // so that code can be used immediately; "later" still reaches
+                    // the app.
+                    onRegistered = { clearTo(Routes.VERIFY_ACCOUNT) },
                     onBackToLogin = { navController.popBackStack() },
                     // Sign-up can be reached from onboarding as well as from sign-in, so go
                     // straight to the main screen rather than relying on the back stack.
@@ -143,6 +148,18 @@ fun AgriConnectRoot(
                     onDone = { clearTo(Routes.LOGIN) },
                 )
             }
+            composable(Routes.VERIFY_ACCOUNT) {
+                VerifyAccountScreen(
+                    // Reached from Profile (pop back to it) and straight after
+                    // registration (nothing to pop, so go to the main screen).
+                    onBack = {
+                        if (!navController.popBackStack()) {
+                            clearTo(AgriNavItems.homeRouteFor(rootViewModel.session.value?.role))
+                        }
+                    },
+                    onDone = { clearTo(AgriNavItems.homeRouteFor(rootViewModel.session.value?.role)) },
+                )
+            }
 
             /* ------------------------------ tab destinations ----------------------------- */
 
@@ -152,24 +169,21 @@ fun AgriConnectRoot(
                     onNavigate = { route -> navController.navigate(route) { launchSingleTop = true } },
                 )
             }
+            // One Farm tab: the plot list and every satellite analysis of those
+            // plots live in the same screen, with advice attached to each reading.
             composable(Routes.FARMS) {
-                FarmScreen(
-                    onPlotClick = { id -> navController.navigate(Routes.farmDetail(id)) },
-                    onOpenHarvests = { navController.navigate(Routes.HARVESTS) },
-                    onOpenLivestock = { navController.navigate(Routes.LIVESTOCK) },
-                )
-            }
-            composable(Routes.FINANCE) {
-                FinanceScreen(onBack = null)
-            }
-            composable(Routes.SATELLITE_TAB) {
                 bw.agriconnect.ui.satellite.SatelliteScreen(
                     plotId = null,
                     onBack = null,
                     onOpenPlot = { id -> if (id.isNotBlank()) navController.navigate(Routes.farmDetail(id)) },
-                    onAddPlot = { navController.navigate(Routes.FARMS) },
+                    onOpenHarvests = { navController.navigate(Routes.HARVESTS) },
+                    onOpenLivestock = { navController.navigate(Routes.LIVESTOCK) },
                     onOpenInsights = { id -> navController.navigate(Routes.satelliteInsights(id)) },
+                    showPlotsTab = true,
                 )
+            }
+            composable(Routes.FINANCE) {
+                FinanceScreen(onBack = null)
             }
             composable(Routes.MARKETPLACE) {
                 MarketplaceScreen(
@@ -195,6 +209,7 @@ fun AgriConnectRoot(
                     onNotifications = { navController.navigate(Routes.NOTIFICATION_PREFS) },
                     onPrivacy = { navController.navigate(Routes.PRIVACY) },
                     onDeleteAccount = { navController.navigate(Routes.ACCOUNT_DELETION) },
+                    onVerifyAccount = { navController.navigate(Routes.VERIFY_ACCOUNT) },
                     onLogout = { clearTo(Routes.LOGIN) },
                 )
             }
@@ -205,6 +220,7 @@ fun AgriConnectRoot(
                     onNotifications = { navController.navigate(Routes.NOTIFICATION_PREFS) },
                     onPrivacy = { navController.navigate(Routes.PRIVACY) },
                     onDeleteAccount = { navController.navigate(Routes.ACCOUNT_DELETION) },
+                    onVerifyAccount = { navController.navigate(Routes.VERIFY_ACCOUNT) },
                     onLogout = { clearTo(Routes.LOGIN) },
                 )
             }
@@ -240,6 +256,7 @@ fun AgriConnectRoot(
                     onOpenPlot = { id -> if (id.isNotBlank()) navController.navigate(Routes.farmDetail(id)) },
                     onAddPlot = { navController.navigate(Routes.FARMS) },
                     onOpenInsights = { id -> navController.navigate(Routes.satelliteInsights(id)) },
+                    showPlotsTab = false,
                 )
             }
             composable(

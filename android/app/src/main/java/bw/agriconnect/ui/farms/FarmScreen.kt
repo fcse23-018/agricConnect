@@ -4,6 +4,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -39,6 +40,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import bw.agriconnect.core.util.CurrentLocation
 import bw.agriconnect.core.util.ImageFiles
+import bw.agriconnect.domain.model.FarmPlot
 import bw.agriconnect.ui.chrome.MainScaffold
 import bw.agriconnect.ui.components.AgriCard
 import bw.agriconnect.ui.components.AgriPrimaryButton
@@ -65,6 +67,8 @@ fun FarmScreen(
     onPlotClick: (String) -> Unit,
     onOpenHarvests: () -> Unit,
     onOpenLivestock: () -> Unit,
+    /** The merged Farm tab embeds this list inside the analysis screen. */
+    embedded: Boolean = false,
     viewModel: FarmViewModel = hiltViewModel(),
 ) {
     val plots by viewModel.plots.collectAsStateWithLifecycle()
@@ -112,81 +116,33 @@ fun FarmScreen(
         }
     }
 
-    MainScaffold(
-        title = "Farms",
-        onBack = null,
-        floatingActionButton = {
-            FloatingActionButton(onClick = { viewModel.showForm(true) }, containerColor = AgriColors.ForestGreen) {
-                Icon(Icons.Filled.Add, contentDescription = "Add plot", tint = AgriColors.PureWhite)
-            }
-        },
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = AgriSpacing.lg),
-            verticalArrangement = Arrangement.spacedBy(AgriSpacing.md),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = AgriSpacing.lg),
-        ) {
-            item {
-                AgriCard {
-                    Column {
-                        AgriSettingsRow(title = "Harvest records", subtitle = "Crops collected per plot", icon = Icons.Filled.Grass, onClick = onOpenHarvests)
-                        AgriSettingsRow(title = "Livestock", subtitle = "Head counts over time", icon = Icons.Filled.Pets, onClick = onOpenLivestock)
-                    }
+    if (embedded) {
+        FarmPlotsList(
+            plots = plots,
+            onPlotClick = onPlotClick,
+            onOpenHarvests = onOpenHarvests,
+            onOpenLivestock = onOpenLivestock,
+            onAddPlot = { viewModel.showForm(true) },
+            modifier = Modifier.padding(horizontal = AgriSpacing.lg).height(560.dp),
+        )
+    } else {
+        MainScaffold(
+            title = "Farms",
+            onBack = null,
+            floatingActionButton = {
+                FloatingActionButton(onClick = { viewModel.showForm(true) }, containerColor = AgriColors.ForestGreen) {
+                    Icon(Icons.Filled.Add, contentDescription = "Add plot", tint = AgriColors.PureWhite)
                 }
-            }
-
-            if (plots.isEmpty()) {
-                item {
-                    AgriEmptyState(
-                        title = "No plots yet",
-                        message = "Add a plot to start tracking crops and satellite vegetation health.",
-                        actionLabel = "Add plot",
-                        onAction = { viewModel.showForm(true) },
-                    )
-                }
-            } else {
-                items(plots, key = { it.plotId }) { plot ->
-                    AgriCard(onClick = { onPlotClick(plot.plotId) }) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(AgriSpacing.md)) {
-                            AgriRemoteImage(
-                                url = plot.imageUrl,
-                                contentDescription = plot.plotName,
-                                modifier = Modifier
-                                    .size(72.dp)
-                                    .clip(RoundedCornerShape(AgriRadius.md)),
-                            )
-                            Column(Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        plot.plotName,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    SyncStatusBadge(status = plot.syncStatus)
-                                }
-                                Spacer(Modifier.height(AgriSpacing.xs))
-                                plot.areaHectares?.let {
-                                    Text(
-                                        "${NumberFormat.getInstance().format(it)} ha",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                if (plot.centroidLat != null && plot.centroidLng != null) {
-                                    Text(
-                                        "Location: ${plot.centroidLat}, ${plot.centroidLng}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                plot.notes?.takeIf { it.isNotBlank() }?.let {
-                                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            },
+        ) { padding ->
+            FarmPlotsList(
+                plots = plots,
+                onPlotClick = onPlotClick,
+                onOpenHarvests = onOpenHarvests,
+                onOpenLivestock = onOpenLivestock,
+                onAddPlot = { viewModel.showForm(true) },
+                modifier = Modifier.padding(padding).padding(horizontal = AgriSpacing.lg),
+            )
         }
     }
 
@@ -275,5 +231,88 @@ fun FarmScreen(
                 AgriSecondaryButton(text = "Cancel", onClick = { viewModel.showForm(false) }, fillWidth = false)
             },
         )
+    }
+}
+
+/** The plot list itself, shared by the standalone Farm screen and the merged tab. */
+@Composable
+private fun FarmPlotsList(
+    plots: List<FarmPlot>,
+    onPlotClick: (String) -> Unit,
+    onOpenHarvests: () -> Unit,
+    onOpenLivestock: () -> Unit,
+    onAddPlot: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(AgriSpacing.md),
+        contentPadding = PaddingValues(vertical = AgriSpacing.lg),
+    ) {
+        item {
+            AgriPrimaryButton(text = "Add plot", onClick = onAddPlot, fillWidth = true)
+        }
+
+        item {
+            AgriCard {
+                Column {
+                    AgriSettingsRow(title = "Harvest records", subtitle = "Crops collected per plot", icon = Icons.Filled.Grass, onClick = onOpenHarvests)
+                    AgriSettingsRow(title = "Livestock", subtitle = "Head counts over time", icon = Icons.Filled.Pets, onClick = onOpenLivestock)
+                }
+            }
+        }
+
+        if (plots.isEmpty()) {
+            item {
+                AgriEmptyState(
+                    title = "No plots yet",
+                    message = "Add a plot to start tracking crops and satellite vegetation health.",
+                    actionLabel = "Add plot",
+                    onAction = onAddPlot,
+                )
+            }
+        } else {
+            items(plots, key = { it.plotId }) { plot ->
+                AgriCard(onClick = { onPlotClick(plot.plotId) }) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(AgriSpacing.md)) {
+                        AgriRemoteImage(
+                            url = plot.imageUrl,
+                            contentDescription = plot.plotName,
+                            modifier = Modifier
+                                .size(72.dp)
+                                .clip(RoundedCornerShape(AgriRadius.md)),
+                        )
+                        Column(Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    plot.plotName,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                SyncStatusBadge(status = plot.syncStatus)
+                            }
+                            Spacer(Modifier.height(AgriSpacing.xs))
+                            plot.areaHectares?.let {
+                                Text(
+                                    "${NumberFormat.getInstance().format(it)} ha",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            if (plot.centroidLat != null && plot.centroidLng != null) {
+                                Text(
+                                    "Location: ${plot.centroidLat}, ${plot.centroidLng}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            plot.notes?.takeIf { it.isNotBlank() }?.let {
+                                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

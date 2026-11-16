@@ -81,8 +81,8 @@ android {
         targetSdk = 35
         // Bump on every build you hand out. Settings → footer shows this, so "which
         // build is on the phone?" is answerable without inspecting the APK.
-        versionCode = 3
-        versionName = "1.1.1"
+        versionCode = 4
+        versionName = "1.2.0"
 
         testInstrumentationRunner = "bw.agriconnect.HiltTestRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -167,7 +167,7 @@ android {
     }
 
     lint {
-        abortOnError = false
+        abortOnError = true
         warningsAsErrors = false
         disable += setOf("MissingTranslation", "ExtraTranslation")
     }

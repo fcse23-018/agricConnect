@@ -6,6 +6,7 @@ import { LISTING_UNITS } from '../marketplace/marketplace.schemas.js';
 import {
   toExpense,
   toHarvest,
+  toHerdEvent,
   toListing,
   toLivestock,
   toPlot,
@@ -135,7 +136,15 @@ const expensePayload = z.object({
  * ProduceListing has no `client_id` column, so it is keyed by the server-side
  * uuid. Status is deliberately not accepted: a listing only becomes PUBLISHED /
  * SOLD through the marketplace publish/confirm endpoints, never through sync.
+ * The per-animal attributes (CR2) are all nullable, so a produce listing syncs
+ * unchanged.
  */
+const optionalTrimmed = (max) =>
+  z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? null : v),
+    z.string().trim().min(1).max(max).nullish(),
+  );
+
 const produceListingPayload = z.object({
   produce: z.string().trim().min(2).max(120),
   description: z.string().trim().max(2000).nullish(),
@@ -144,6 +153,24 @@ const produceListingPayload = z.object({
   price: z.coerce.number().min(0).max(MAX_MONEY),
   imageUrl: z.string().trim().max(500).nullish(),
   locationText: z.string().trim().max(200).nullish(),
+  animalClass: optionalTrimmed(60),
+  ageMonths: z.coerce.number().int().min(0).max(600).nullish(),
+  weightKg: z.coerce.number().min(0).max(1_000_000).nullish(),
+  tagNumber: optionalTrimmed(60),
+});
+
+/** One herd-register entry (CR1). Mirrors createHerdEventSchema. */
+const herdEventPayload = z.object({
+  clientId: z.string().trim().max(128).nullish(),
+  animalType: z.string().trim().min(1).max(80),
+  eventType: z.enum(['BIRTH', 'DEATH', 'SALE', 'WEIGHING', 'DIPPING', 'VETERINARY', 'OTHER']),
+  eventDate: calendarDateSchema,
+  headCount: z.coerce.number().int().min(1).max(1_000_000).default(1),
+  weightKg: z.coerce.number().min(0).max(1_000_000).nullish(),
+  unitPrice: z.coerce.number().min(0).max(MAX_MONEY).nullish(),
+  amount: z.coerce.number().min(0).max(MAX_MONEY).nullish(),
+  tagNumber: optionalTrimmed(60),
+  notes: z.string().max(4000).nullish(),
 });
 
 // --- descriptors -----------------------------------------------------------
@@ -377,8 +404,9 @@ const ProduceListing = {
   validate: (payload) => produceListingPayload.parse(payload),
   buildInsert: ({ payload, ownerFarmerId, id }) => ({
     sql: `INSERT INTO produce_listings
-            (id, farmer_id, produce, description, quantity, unit, price, image_url, location_text)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+            (id, farmer_id, produce, description, quantity, unit, price, image_url, location_text,
+             animal_class, age_months, weight_kg, tag_number)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
           RETURNING *`,
     params: [
       id,
@@ -390,13 +418,18 @@ const ProduceListing = {
       payload.price,
       payload.imageUrl ?? null,
       payload.locationText ?? null,
+      payload.animalClass ?? null,
+      payload.ageMonths ?? null,
+      payload.weightKg ?? null,
+      payload.tagNumber ?? null,
     ],
   }),
   buildUpdate: ({ payload, existingId }) => ({
     sql: `UPDATE produce_listings
              SET produce = $1, description = $2, quantity = $3, unit = $4, price = $5,
-                 image_url = $6, location_text = $7, deleted_at = NULL
-           WHERE id = $8
+                 image_url = $6, location_text = $7, animal_class = $8, age_months = $9,
+                 weight_kg = $10, tag_number = $11, deleted_at = NULL
+           WHERE id = $12
            RETURNING *`,
     params: [
       payload.produce,
@@ -406,6 +439,61 @@ const ProduceListing = {
       payload.price,
       payload.imageUrl ?? null,
       payload.locationText ?? null,
+      payload.animalClass ?? null,
+      payload.ageMonths ?? null,
+      payload.weightKg ?? null,
+      payload.tagNumber ?? null,
+      existingId,
+    ],
+  }),
+};
+
+/** The herd register (CR1) — same roles as LivestockCount, same offline rules. */
+const HerdEvent = {
+  table: 'herd_events',
+  clientIdBased: true,
+  softDelete: true,
+  roles: [ROLES.FARM_OWNER, ROLES.FARMER],
+  serialize: toHerdEvent,
+  validate: (payload) => herdEventPayload.parse(payload),
+  buildInsert: ({ payload, ownerFarmerId, userId, clientId }) => ({
+    sql: `INSERT INTO herd_events
+            (farmer_id, animal_type, event_type, event_date, head_count, weight_kg,
+             unit_price, amount, tag_number, notes, client_id, created_by)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+          RETURNING *`,
+    params: [
+      ownerFarmerId,
+      payload.animalType,
+      payload.eventType,
+      payload.eventDate,
+      payload.headCount,
+      payload.weightKg ?? null,
+      payload.unitPrice ?? null,
+      payload.amount ?? null,
+      payload.tagNumber ?? null,
+      payload.notes ?? null,
+      clientId,
+      userId,
+    ],
+  }),
+  buildUpdate: ({ payload, existingId }) => ({
+    sql: `UPDATE herd_events
+             SET animal_type = $1, event_type = $2, event_date = $3, head_count = $4,
+                 weight_kg = $5, unit_price = $6, amount = $7, tag_number = $8,
+                 notes = $9, deleted_at = NULL
+           WHERE id = $10
+           RETURNING *`,
+    params: [
+      payload.animalType,
+      payload.eventType,
+      payload.eventDate,
+      payload.headCount,
+      payload.weightKg ?? null,
+      payload.unitPrice ?? null,
+      payload.amount ?? null,
+      payload.tagNumber ?? null,
+      payload.notes ?? null,
       existingId,
     ],
   }),
@@ -415,6 +503,7 @@ export const ENTITIES = Object.freeze({
   FarmPlot,
   HarvestRecord,
   LivestockCount,
+  HerdEvent,
   SaleTransaction,
   Expense,
   ProduceListing,

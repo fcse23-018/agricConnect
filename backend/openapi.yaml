@@ -46,6 +46,8 @@ tags:
   - name: Orders
   - name: Notifications
   - name: Sync
+  - name: Uploads
+  - name: App
 
 security:
   - bearerAuth: []
@@ -66,6 +68,48 @@ paths:
                 properties:
                   version: { type: string, example: 1.0.0 }
                   apiVersion: { type: string, example: v1 }
+
+  /app/version:
+    get:
+      tags: [App]
+      summary: APK update manifest
+      description: |
+        Public and unauthenticated on purpose: a device must be able to check for
+        an update before login, and must keep working when the check is
+        unavailable. The manifest itself is a file served from the server
+        (`version-manifest.json`); uploading an APK does not change it, and a
+        release is only live once its version code and HTTPS download URL are
+        bumped and deployed.
+
+        A required update is decided by the **client**, comparing its own version
+        code with `minSupportedVersionCode`; the server never tells a device it
+        may not run.
+
+        The endpoint never returns an error. If update checking is disabled
+        (`available: false`, `reason` only), no release is published
+        (`available: false` plus the latest name/code and package name), or the
+        manifest on disk is unusable (`available: false`, `reason`), the app
+        simply shows no update prompt.
+
+        The response is cacheable for 5 minutes
+        (`Cache-Control: public, max-age=300`): a release reaches devices
+        promptly, while a fleet waking at once does not hammer the filesystem.
+      security: []
+      responses:
+        '200':
+          description: |
+            The update manifest. On `available: false` the download fields are
+            absent; only `reason` and, when known, the latest version name/code
+            and package name are returned.
+          headers:
+            Cache-Control:
+              description: |
+                Short-lived cache; `public, max-age=300`. Set once the manifest
+                has been read — absent when update checking is disabled.
+              schema: { type: string, example: 'public, max-age=300' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AppVersion' }
 
   /auth/register:
     post:
@@ -184,7 +228,11 @@ paths:
     post:
       tags: [Auth]
       summary: Request a password-reset code
-      description: Always generic so it cannot disclose whether an account exists.
+      description: |
+        Always generic so it cannot disclose whether an account exists: the
+        `message` is identical whether or not the identifier matches a live
+        account. When a delivery channel is configured the code is sent to the
+        identifier itself; the response never echoes the destination.
       security: []
       requestBody:
         required: true
@@ -196,7 +244,18 @@ paths:
           description: Accepted (generic)
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Message' }
+              schema:
+                type: object
+                required: [message]
+                properties:
+                  message: { type: string }
+                  devCode:
+                    type: string
+                    description: |
+                      Development-only. The numeric recovery code, returned only
+                      when EXPOSE_DEV_CODES is set (dev/test), so the flow can be
+                      exercised without a mail or SMS provider. Omitted entirely
+                      otherwise — never read this in production.
         '429': { $ref: '#/components/responses/RateLimited' }
 
   /auth/password/verify:
@@ -249,6 +308,16 @@ paths:
     post:
       tags: [Auth]
       summary: Request an account-verification code
+      description: |
+        Sends a numeric code to the identifier (email → `EMAIL`, otherwise
+        `SMS`). The `message` is always the same, so the endpoint cannot be used
+        to discover whether a phone number or email is registered.
+
+        `expiresInMinutes` is always returned. `delivery` is returned **only to
+        the signed-in owner of that account** (an optional bearer token may be
+        sent): it reports what the transport actually did, so the app can explain
+        a provider refusal without the server leaking provider internals. An
+        anonymous caller gets the uniform acknowledgement and no `delivery` key.
       security: []
       requestBody:
         required: true
@@ -260,12 +329,37 @@ paths:
           description: Accepted
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Message' }
+              schema:
+                type: object
+                required: [message, expiresInMinutes]
+                properties:
+                  message: { type: string }
+                  expiresInMinutes:
+                    type: integer
+                    description: How long the code is valid for, in minutes.
+                  devCode:
+                    type: string
+                    description: |
+                      Development-only. The numeric code, returned only when
+                      EXPOSE_DEV_CODES is set (dev/test). Omitted otherwise.
+                  delivery:
+                    nullable: true
+                    description: |
+                      The transport's verdict. Present only when the bearer token
+                      belongs to the account being verified — including `null`
+                      when no send was attempted (e.g. already verified).
+                    allOf:
+                      - $ref: '#/components/schemas/VerificationDelivery'
 
   /auth/verification/confirm:
     post:
       tags: [Auth]
       summary: Confirm an account-verification code
+      description: |
+        Marks the account `VERIFIED`. The updated user is returned so the client
+        can show the badge immediately, without a second round trip that could
+        fail and leave it stale. Confirming an already-verified account succeeds
+        and returns the same user.
       security: []
       requestBody:
         required: true
@@ -274,10 +368,17 @@ paths:
             schema: { $ref: '#/components/schemas/VerifyCodeRequest' }
       responses:
         '200':
-          description: Verified
+          description: Verified (or already verified)
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Message' }
+              schema:
+                type: object
+                required: [message]
+                properties:
+                  message: { type: string }
+                  user:
+                    allOf: [{ $ref: '#/components/schemas/User' }]
+                    description: The verified user; omitted only if it could not be re-read.
         '400': { $ref: '#/components/responses/ValidationError' }
 
   /users/me:
@@ -793,6 +894,123 @@ paths:
         '204': { description: Deleted }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /farm/herd:
+    get:
+      tags: [Farm records]
+      summary: List herd register entries (CR1)
+      description: >
+        The herd register: births, deaths, weighings, sales and dipping /
+        veterinary dates, newest first. Offline-first — a replayed clientId
+        updates in place rather than duplicating.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+        - name: animalType
+          in: query
+          schema: { type: string }
+        - name: eventType
+          in: query
+          schema: { $ref: '#/components/schemas/HerdEventType' }
+      responses:
+        '200':
+          description: Paginated herd register entries
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PageMeta'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/HerdEvent' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Farm records]
+      summary: Create (or replay) a herd register entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HerdEventCreate' }
+      responses:
+        '200':
+          description: Replayed update
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HerdEvent' }
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HerdEvent' }
+
+  /farm/herd/summary:
+    get:
+      tags: [Farm records]
+      summary: Shareable herd and financial summary (CR3, farm owner only)
+      description: >
+        The one-page summary a keeper can show a bank or the Land Board:
+        current counts per animal type, births/deaths/sales with proceeds, the
+        dipping and veterinary dates, and the farm's financial totals for the
+        same window. Register sale proceeds and the finance totals are separate
+        records and are reported side by side, never added together.
+      parameters:
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Herd and financial summary
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HerdSummary' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /farm/herd/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    get:
+      tags: [Farm records]
+      summary: Get one herd register entry
+      responses:
+        '200':
+          description: Herd register entry
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HerdEvent' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Farm records]
+      summary: Update a herd register entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HerdEventCreate' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HerdEvent' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Farm records]
+      summary: Delete a herd register entry
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /finance/sales:
     get:
       tags: [Finance]
@@ -1134,8 +1352,7 @@ paths:
 
   /satellite/plots/{plotId}/boundary:
     parameters:
-      - $ref: '#/components/parameters/ResourceId'
-        name: plotId
+      - $ref: '#/components/parameters/PlotId'
     put:
       tags: [Satellite]
       summary: Set or replace a plot boundary (farm owner only)
@@ -1305,8 +1522,7 @@ paths:
 
   /satellite/events/{eventId}:
     parameters:
-      - $ref: '#/components/parameters/ResourceId'
-        name: eventId
+      - $ref: '#/components/parameters/EventId'
     patch:
       tags: [Satellite]
       summary: Confirm or correct an event (farm owner only)
@@ -1412,8 +1628,7 @@ paths:
 
   /satellite/alerts/{alertId}/status:
     parameters:
-      - $ref: '#/components/parameters/ResourceId'
-        name: alertId
+      - $ref: '#/components/parameters/AlertId'
     post:
       tags: [Satellite]
       summary: Acknowledge, dismiss or reopen an alert (farm owner only)
@@ -1434,6 +1649,45 @@ paths:
         '400': { $ref: '#/components/responses/ValidationError' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  /satellite/validation:
+    get:
+      tags: [Satellite]
+      summary: Ground-truth evaluation report (DEF-4)
+      description: >
+        How the detected drops compare with the farmer's own confirmed events,
+        as precision and recall. Ground truth is only a confirmed farmer event;
+        an unconfirmed system suggestion is never counted. A farm with no
+        confirmed events reports `evaluated: false` and null metrics — never a
+        fabricated perfect score.
+      parameters:
+        - name: windowDays
+          in: query
+          description: A detection counts as correct within this many days of a confirmed event.
+          schema: { type: integer, minimum: 1, maximum: 90, default: 10 }
+      responses:
+        '200':
+          description: Precision and recall against confirmed farmer events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  windowDays: { type: integer }
+                  detections: { type: integer }
+                  groundTruthEvents: { type: integer }
+                  truePositives: { type: integer }
+                  falsePositives: { type: integer }
+                  falseNegatives: { type: integer }
+                  precision: { type: number, nullable: true }
+                  recall: { type: number, nullable: true }
+                  f1: { type: number, nullable: true }
+                  evaluated: { type: boolean }
+                  groundTruthKinds: { type: array, items: { type: string } }
+                  note: { type: string }
+                  disclaimer: { type: string }
+                  generatedAt: { type: string, format: date-time }
+        '403': { $ref: '#/components/responses/Forbidden' }
 
   /satellite/plots/latest:
     get:
@@ -1869,6 +2123,64 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/SyncPullResponse' }
 
+  /uploads:
+    post:
+      tags: [Uploads]
+      summary: Store one image and return its path
+      description: |
+        The generic counterpart to `POST /users/me/avatar`. It uses the same
+        storage pipeline (accepted types, size cap, UUID filenames) but leaves
+        the caller to attach the returned URL to whatever it is editing — the
+        `imageUrl` of a produce listing, a farm plot, and so on.
+
+        The image must be sent as `multipart/form-data` in a field named
+        **`image`**. Only JPEG, PNG and WebP are accepted; the cap is 2 MB
+        (`MAX_UPLOAD_BYTES`). Multer aborts an over-size upload mid-stream, and
+        the client-supplied filename is never used: the stored name is a UUID, so
+        a file cannot be guessed, overwritten or traversed into.
+
+        The response `url` is a **relative path**, `/uploads/<uuid>.<ext>`, not an
+        absolute URL, so the storage backend can change (disk ↔ Supabase Storage)
+        without a data migration. It is served from the host root — `/uploads/…`,
+        not under `/api/v1`.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: JPEG, PNG or WebP image, at most 2 MB.
+      responses:
+        '201':
+          description: Stored
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url]
+                properties:
+                  url:
+                    type: string
+                    example: /uploads/image-9f1c2b6e-4a52-4d1e-8f3a-1b2c3d4e5f60.jpg
+                    description: Origin-relative path (`/uploads/<uuid>.<ext>`), not an absolute URL.
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '415':
+          description: Unsupported image type (only JPEG, PNG and WebP are allowed)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '500':
+          description: The image could not be stored
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
   /health:
     servers:
       - url: /
@@ -1916,6 +2228,21 @@ components:
       required: false
       schema: { type: string }
       description: Repeated calls with the same key return the original result.
+    PlotId:
+      name: plotId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    EventId:
+      name: eventId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    AlertId:
+      name: alertId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
 
   responses:
     Unauthorized:
@@ -1943,6 +2270,11 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+    Conflict:
+      description: The request conflicts with the current state of the resource
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorEnvelope' }
 
   schemas:
     Health:
@@ -1951,6 +2283,70 @@ components:
         status: { type: string, enum: [ok, degraded] }
         version: { type: string, example: 1.0.0 }
         time: { type: string, format: date-time }
+
+    AppVersion:
+      type: object
+      description: |
+        APK update manifest (`GET /app/version`). Never an error: a disabled
+        checker, an unpublished release or an unusable manifest is reported as
+        `available: false` with a human-readable `reason`.
+      required: [available]
+      properties:
+        available:
+          type: boolean
+          description: True only when a release is published and the manifest is usable.
+        reason:
+          type: string
+          nullable: true
+          description: Why no update is offered. Present when `available` is false.
+        published:
+          type: boolean
+          description: |
+            Present on a readable manifest (true for a published release). Omitted
+            when update checking is disabled or the manifest is unusable.
+        latestVersionName:
+          type: string
+          nullable: true
+          example: '1.2.0'
+        latestVersionCode:
+          type: integer
+          nullable: true
+          example: 12
+        minSupportedVersionCode:
+          type: integer
+          nullable: true
+          description: |
+            Lowest version code the published release supports. The client — not
+            the server — decides that an update is required.
+        packageName: { type: string, example: bw.agriconnect }
+        downloadUrl:
+          type: string
+          nullable: true
+          description: HTTPS APK URL. Plain HTTP is refused by the server.
+        releaseNotes:
+          type: array
+          description: Bullet points for the update dialog; empty when none are published.
+          items: { type: string }
+        releasedAt:
+          type: string
+          format: date
+          nullable: true
+          description: Release date shown in the update dialog (`YYYY-MM-DD`).
+        requiredMessage:
+          type: string
+          description: Shown when the client decides the update is required.
+        optionalMessage:
+          type: string
+          description: Shown when the client decides the update is optional.
+        checksumSha256:
+          type: string
+          nullable: true
+          description: SHA-256 of the APK, when published.
+        sizeBytes: { type: integer, nullable: true }
+        releaseNotesUrl:
+          type: string
+          nullable: true
+          description: Hosted release-notes page, when the server is configured with one.
 
     ErrorEnvelope:
       type: object
@@ -2037,6 +2433,27 @@ components:
       properties:
         identifier: { type: string }
         code: { type: string }
+
+    # What the delivery transport actually did with a verification code. Returned
+    # to the account owner only (see POST /auth/verification/request).
+    VerificationDelivery:
+      type: object
+      required: [channel, delivered, reason]
+      properties:
+        channel:
+          type: string
+          enum: [EMAIL, SMS]
+          description: The channel chosen from the identifier (email vs phone).
+        delivered:
+          type: boolean
+          description: The transport's own verdict, not an assumption.
+        reason:
+          type: string
+          nullable: true
+          description: |
+            Fixed, non-sensitive code when delivery failed — `NO_PROVIDER`,
+            `PROVIDER_ERROR`, or a provider refusal code such as Twilio's
+            `21608`. `null` when delivered.
 
     TokenPair:
       type: object
@@ -2152,6 +2569,103 @@ components:
         recordDate: { type: string, format: date }
         notes: { type: string, nullable: true }
         clientId: { type: string, nullable: true }
+
+    # --- Herd register (CR1) --------------------------------------------------
+    # One register entry: a birth, death, weighing, sale, dipping or veterinary
+    # date. Mirrors migrations/009_herd_register.sql and
+    # src/modules/farm/records.schemas.js.
+    HerdEvent:
+      type: object
+      properties:
+        eventId: { type: string, format: uuid }
+        clientId: { type: string, nullable: true }
+        farmerId: { type: string, format: uuid }
+        animalType: { type: string, example: 'Cattle' }
+        eventType: { $ref: '#/components/schemas/HerdEventType' }
+        eventDate: { type: string, format: date }
+        headCount: { type: integer, minimum: 1 }
+        weightKg: { type: number, nullable: true }
+        unitPrice: { type: number, nullable: true }
+        amount: { type: number, nullable: true }
+        tagNumber: { type: string, nullable: true, example: 'BW0123' }
+        notes: { type: string, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    HerdEventCreate:
+      type: object
+      required: [animalType, eventType, eventDate]
+      properties:
+        animalType: { type: string }
+        eventType: { $ref: '#/components/schemas/HerdEventType' }
+        eventDate: { type: string, format: date }
+        headCount: { type: integer, minimum: 1, default: 1 }
+        weightKg: { type: number, nullable: true, minimum: 0 }
+        unitPrice: { type: number, nullable: true, minimum: 0 }
+        amount: { type: number, nullable: true, minimum: 0 }
+        tagNumber: { type: string, nullable: true, maxLength: 60 }
+        notes: { type: string, nullable: true }
+        clientId: { type: string, nullable: true }
+
+    # The kinds the field study named; OTHER is the safety valve.
+    HerdEventType:
+      type: string
+      enum: [BIRTH, DEATH, SALE, WEIGHING, DIPPING, VETERINARY, OTHER]
+
+    # One animal-type row of the automatic totals (the herd_register_summary
+    # view / GET /farm/herd/summary).
+    HerdSummaryEntry:
+      type: object
+      properties:
+        farmerId: { type: string, format: uuid }
+        animalType: { type: string }
+        births: { type: integer }
+        deaths: { type: integer }
+        headSold: { type: integer }
+        saleProceeds: { type: number }
+        weighingEntries: { type: integer }
+        lastWeighedOn: { type: string, format: date, nullable: true }
+        lastDippedOn: { type: string, format: date, nullable: true }
+        lastVeterinaryOn: { type: string, format: date, nullable: true }
+        lastEventOn: { type: string, format: date, nullable: true }
+        entries: { type: integer }
+
+    # The shareable herd + financial summary (CR3) returned by
+    # GET /farm/herd/summary. Register sale proceeds and finance totals are
+    # reported side by side, never added together.
+    HerdSummary:
+      type: object
+      properties:
+        generatedAt: { type: string, format: date-time }
+        farmer:
+          type: object
+          properties:
+            userId: { type: string, format: uuid }
+            fullName: { type: string }
+        range:
+          type: object
+          properties:
+            from: { type: string, format: date }
+            to: { type: string, format: date }
+        counts:
+          type: array
+          items:
+            type: object
+            properties:
+              animalType: { type: string }
+              headCount: { type: integer }
+              recordDate: { type: string, format: date, nullable: true }
+        register:
+          type: array
+          items: { $ref: '#/components/schemas/HerdSummaryEntry' }
+        finance:
+          type: object
+          properties:
+            totalSales: { type: number }
+            totalExpenses: { type: number }
+            netBalance: { type: number }
+            currency: { type: string, example: BWP }
+        note: { type: string }
 
     SaleTransaction:
       type: object
@@ -2366,6 +2880,11 @@ components:
           enum: [DRAFT, PENDING_PUBLISH, SYNCING, RETRY, PUBLISHED, SOLD]
         imageUrl: { type: string, nullable: true }
         locationText: { type: string, nullable: true }
+        # Per-animal attributes (CR2). Nullable: a produce listing carries none.
+        animalClass: { type: string, nullable: true, example: 'Bonsmara heifer' }
+        ageMonths: { type: integer, nullable: true, minimum: 0, maximum: 600 }
+        weightKg: { type: number, nullable: true }
+        tagNumber: { type: string, nullable: true, example: 'BW0123' }
         publishedAt: { type: string, format: date-time, nullable: true }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
@@ -2382,6 +2901,11 @@ components:
         price: { type: number }
         imageUrl: { type: string, nullable: true }
         locationText: { type: string, nullable: true }
+        # Per-animal attributes (CR2). All optional; empty strings become null.
+        animalClass: { type: string, nullable: true, maxLength: 60 }
+        ageMonths: { type: integer, nullable: true, minimum: 0, maximum: 600 }
+        weightKg: { type: number, nullable: true, minimum: 0 }
+        tagNumber: { type: string, nullable: true, maxLength: 60 }
 
     # What a listing is measured in. `head` is one animal ("20 head of cattle");
     # `herd` and `flock` sell a whole group as a single lot (quantity 1, one price).

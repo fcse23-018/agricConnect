@@ -14,6 +14,7 @@ object Routes {
     const val LOGIN = "login"
     const val REGISTER = "register"
     const val FORGOT_PASSWORD = "forgot_password"
+    const val VERIFY_ACCOUNT = "verify_account"
 
     // Core bottom-nav destinations (available per role — see [AgriNavItems])
     const val DASHBOARD = "dashboard"

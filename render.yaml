@@ -29,9 +29,9 @@ services:
       - key: PUBLIC_BASE_URL
         sync: false
 
-      # Native Android client
+      # Native Android client + the GitHub Pages download site (live release status).
       - key: CORS_ORIGINS
-        value: ""
+        value: "https://fcse23-018.github.io"
 
       # Supabase PostgreSQL
       - key: DATABASE_URL

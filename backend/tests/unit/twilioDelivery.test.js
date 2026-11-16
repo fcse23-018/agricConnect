@@ -131,6 +131,7 @@ describe('Twilio rejections are reported, never swallowed', () => {
     const res = await deliver({ channel: 'SMS', destination: '+26771234567', body: 'x' });
 
     expect(res.delivered).toBe(false);
+    expect(res.reason).toBe('TRIAL_UNVERIFIED_NUMBER');
     expect(res.error).toMatch(/HTTP 400/);
     expect(res.error).toMatch(/unverified/i);
   });
@@ -144,6 +145,7 @@ describe('Twilio rejections are reported, never swallowed', () => {
     const res = await deliver({ channel: 'SMS', destination: '+26771234567', body: 'x' });
 
     expect(res.delivered).toBe(false);
+    expect(res.reason).toBe('PROVIDER_UNREACHABLE');
     expect(res.error).toMatch(/Twilio request failed/i);
   });
 
@@ -154,6 +156,7 @@ describe('Twilio rejections are reported, never swallowed', () => {
     const res = await deliver({ channel: 'SMS', destination: '+26771234567', body: 'x' });
 
     expect(res.delivered).toBe(false);
+    expect(res.reason).toBe('PROVIDER_REJECTED');
     expect(res.error).toMatch(/HTTP 502/);
   });
 
@@ -168,6 +171,7 @@ describe('Twilio rejections are reported, never swallowed', () => {
     const res = await deliver({ channel: 'SMS', destination: '+26771234567', body: 'x' });
 
     expect(res.delivered).toBe(false);
+    expect(res.reason).toBe('PROVIDER_TIMEOUT');
     expect(res.error).toMatch(/timed out/i);
   });
 });
@@ -179,6 +183,7 @@ describe('non-Twilio providers are unaffected', () => {
 
     expect(res.delivered).toBe(false);
     expect(res.provider).toBe('OUTBOX');
+    expect(res.reason).toBe('NO_PROVIDER');
     expect(calls.length).toBe(0);
   });
 
@@ -187,6 +192,7 @@ describe('non-Twilio providers are unaffected', () => {
     const res = await deliver({ channel: 'EMAIL', destination: 'a@b.com', subject: 's', body: 'x' });
 
     expect(res.delivered).toBe(false);
+    expect(res.reason).toBe('NO_PROVIDER');
     expect(calls.length).toBe(0);
   });
 });

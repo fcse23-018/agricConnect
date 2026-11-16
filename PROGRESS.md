@@ -4,7 +4,7 @@
 > stubbed or mocked, and what is still missing — so a developer joining the project
 > can orient in minutes and know exactly where to start.
 >
-> **Last updated:** 2026-10-19 · **Baseline commit:** `005bdbf` (+ uncommitted work
+> **Last updated:** 2026-11-16 · **Baseline commit:** `923c2ff` (+ uncommitted work
 > described below) · **Platform:** Windows, JDK 17, Node 24, Python 3.12, PostgreSQL 17
 >
 > **How to read the status markers**
@@ -23,7 +23,7 @@
 | Area | State |
 |------|-------|
 | **Backend REST API** | 🟢 Every endpoint in the contract is implemented |
-| **Backend tests** | 🟢 152/152 pass — 139 unit + 13 API (re-run 2026-10-19) |
+| **Backend tests** | 🟢 539/539 pass — 32 suites (29 unit + 3 API) (re-run 2026-11-16) |
 | **Crop-monitoring API** | 🟢 `crop-api/` FastAPI service — 34/34 pytest pass (mock GEE by default) |
 | **Backend ↔ Supabase schema** | 🟢 `backend/supabase-update.sql` verified against PostgreSQL 17 (§6) |
 | **Live deployment** | 🟢 Render + Supabase: `/health` 200, `/version` 200, protected routes 401, upload round trip `201 → 302 → 200`, and the role rename confirmed on the live API (`05-TEST-REPORT.md` §6) |
@@ -32,9 +32,9 @@
 | **Android UI** | 🟢 26 Compose screens, role-based navigation, offline/sync affordances |
 | **Image upload / display** | 🟢 Listings, plots and avatars: pick → `POST /uploads` → store → render (unit/contract-tested; not yet device-verified) |
 | **Plot boundary (NDVI input)** | 🟢 Add/edit plot captures the polygon (GPS corners or manual lat/lng); stored in `farm_plots.geojson_boundary`, pushed via `/sync/push`, and required by `POST /satellite/ndvi` |
-| **Android build** | 🟢 `:app:assembleDebug` produces a 24.2 MB APK — `1.1.1` (build 3), re-run 2026-10-20 |
-| **Backend tests** | 🟢 372/372 pass, 23 suites, 0 failures (re-run 2026-10-21) |
-| **Android unit tests** | 🟢 114/114 pass, 15 suites, 0 failures (`:app:testDebugUnitTest`, re-run 2026-10-21) |
+| **Android build** | 🟢 `:app:assembleDebug` produces a 23.7 MB APK — `1.2.0` (build 4), re-run 2026-11-16 |
+| **Backend tests** | 🟢 539/539 pass, 32 suites, 0 failures (re-run 2026-11-16) |
+| **Android unit tests** | 🟢 164/164 pass, 21 test classes, 0 failures (`:app:testDebugUnitTest`, re-run 2026-11-16) |
 | **Release distribution** | 🟢 CI uploads a debug APK named `agriconnect-debug-v<version>-<sha>.apk` (§8) |
 | **Android runtime** | 🟡 Never launched on a device/emulator — no instrumented test run |
 | **External providers** | 🔴 SMS/email, Earth Engine and push are not configured |
@@ -71,7 +71,7 @@ JWT auth, Helmet/CORS/compression, Swagger UI, Jest.
 | App bootstrap, security headers, CORS, request IDs | `src/app.js` | Versioned at `/api/v1`; health at `/health` |
 | Config (env-driven) + production secret assertions | `src/config/index.js` | Refuses to boot in prod with dev secrets |
 | DB pool, transactions, healthcheck | `src/db/index.js` | |
-| Migrations (6, ordered) + runner + seed | `backend/migrations/`, `src/db/migrate.js`, `src/db/seed.js` | `001_init` … `006_role_rename` |
+| Migrations (9, ordered) + runner + seed | `backend/migrations/`, `src/db/migrate.js`, `src/db/seed.js` | `001_init` … `009_herd_register` |
 | Auth middleware (JWT bearer) + role guard (RBAC, 3 roles) | `src/middleware/auth.js`, `roles.js` | UI is never the enforcement point |
 | Validation + error envelope + rate limiting + idempotency | `src/middleware/` | Never leaks stack traces |
 | Auth module (register→login→refresh→reset→verify) | `src/modules/auth/` | Full token lifecycle |
@@ -82,7 +82,7 @@ JWT auth, Helmet/CORS/compression, Swagger UI, Jest.
 | Satellite NDVI (mock + real GEE path) | `src/modules/satellite/`, `services/gee.js`, `services/ndvi.js` | NDVI arithmetic unit-tested |
 | Marketplace listings + orders workflow | `src/modules/marketplace/`, `orders/` | Transactional stock, no payments |
 | Notifications feed + sync push/pull + audit log | `src/modules/notifications/`, `sync/`, `services/audit.js` | In-app only |
-| Tests | `tests/unit/*` (8 files), `tests/api/{smoke,uploads.supabase}.test.js` | **152 tests, all passing** |
+| Tests | `tests/unit/*` (29 suites), `tests/api/*` (3 suites) | **539 tests, all passing** (2026-11-16) |
 | OpenAPI 3 spec, Dockerfile, docker-compose | `backend/openapi.yaml`, `Dockerfile`, `docker-compose.yml` | |
 | ESLint config, lockfile | `eslint.config.js`, `package-lock.json` | |
 | Supabase schema update script | `backend/supabase-update.sql` | Idempotent; **verified** — see §6 |
@@ -121,9 +121,10 @@ optional `X-API-Key` when `API_KEY` is set.
 | Earth Engine path | 🟡 | Real GEE code written, but **not** enabled/verified here; default `GEE_ENABLED=false` returns deterministic synthetic values tagged `"source": "mock"` |
 | Packaging | ✅ | `requirements*.txt`, `pyproject.toml`, `Dockerfile`, `docker-compose.yml`, `.env.example`, `README.md`, `scripts/ndvi_plot.py` CLI |
 
-It is **not** wired into the Android app or the Node backend yet — the app still reads
-satellite data through the existing Express `/satellite` mock. Making the app call this
-service (base-URL config + DTO alignment) is future work.
+It is called by the Node backend from `src/services/observations.js` when
+`CROP_API_ENABLED=true` (and `CROP_API_URL` is set). With it disabled, the app still reads
+satellite data through Express `/satellite` (Earth Engine, or the labelled mock). The app
+never calls the crop-api service directly.
 
 ---
 
@@ -156,7 +157,7 @@ WorkManager, Retrofit + kotlinx.serialization, Coil, osmdroid. JDK 17,
 | Reusable components | `ui/components/` (16 files) | Scaffold, surfaces, buttons, dialogs, state views, chips, segmented control, chart, badges, settings rows, logo, remote image, boundary editor |
 | Navigation | `ui/AgriConnectRoot.kt`, `ui/navigation/` | Root `NavHost`, `MainScaffold` chrome, `AgriNavItems.forRole`, `homeRouteFor` |
 | Screens | `ui/**` (27 `*Screen.kt`) | See §3.2 |
-| Unit tests | `app/src/test/...` (9 files) | **50/50 passing** |
+| Unit tests | `app/src/test/...` (21 classes) | **164/164 passing** |
 | Instrumented test scaffold | `app/src/androidTest/.../HiltTestRunner.kt` | Runner exists; no test classes yet |
 
 ### 3.2 Implemented screens ✅
@@ -174,7 +175,7 @@ the Farm tab. A pushed `satellite/{plotId}` route opens the same screen with a b
 arrow and a fixed plot.
 
 Role-based bottom navigation (no tab a role cannot open):
-**FARM_OWNER** home/farms/satellite/market/more ·
+**FARM_OWNER** home/farms (plots + satellite analysis merged)/market/more·
 **FARMER** home/farms/market/orders/more · **BUYER** market/orders/alerts/more.
 `more` is in every role because it is the only route to profile, settings and sign-out.
 **Every role can buy** — the marketplace is open to all three, so no role has a dead
@@ -262,7 +263,7 @@ No dead links remain in the README deliverable index.
 | Item | Status | Notes |
 |------|--------|-------|
 | `README.md`, `LICENSE` (MIT), `CONTRIBUTING.md` | ✅ | Deliverable index fully resolves (no dead links) |
-| GitHub Actions CI | ✅ | `.github/workflows/ci.yml` — backend tests + Android build/test |
+| GitHub Actions CI | ✅ | `.github/workflows/ci.yml` — backend tests + ESLint, crop-api pytest, OpenAPI lint, Android build/test/lint |
 | Gradle wrapper | ✅ | `gradlew`, `gradlew.bat`, `gradle/wrapper/*` committed |
 | Room schema export | ✅ | `app/schemas/bw.agriconnect.data.local.AgriDatabase/{1,2}.json` (v2 adds `farm_plots.image_url`) |
 | `proguard-rules.pro`, `package-lock.json`, ESLint config | ✅ | |
@@ -273,8 +274,8 @@ No dead links remain in the README deliverable index.
 ## 6. Supabase schema update
 
 `backend/supabase-update.sql` is a single, **idempotent** script that brings a Supabase
-database to the state described by `migrations/001…006`. Run it in the Supabase SQL
-editor; it ends with verification queries. It also records the six migration filenames
+database to the state described by `migrations/001…009`. Run it in the Supabase SQL
+editor; it ends with verification queries. It also records the nine migration filenames
 in `schema_migrations`, so a later `npm run migrate` skips them rather than failing with
 "already exists".
 
@@ -286,7 +287,8 @@ labels and does nothing. That bookkeeping matters because 006 is *not* itself re
 a second `ALTER TYPE … RENAME VALUE 'FARMER' TO 'FARM_OWNER'` fails once `FARM_OWNER`
 exists, and that failure would stop the API from starting.
 
-**Verified** on a throwaway PostgreSQL 17 cluster in this environment:
+**Verified** on a throwaway PostgreSQL 17 cluster in this environment, for the 001–006
+bundle as it stood on 2026-10-19:
 
 | Check | Result |
 |-------|--------|
@@ -294,8 +296,14 @@ exists, and that failure would stop the API from starting.
 | Re-runnable (3 consecutive runs, no error) | ✅ |
 | Schema identical to the official migrations (columns, enums, indexes, constraints, triggers, functions) | ✅ (only expected extra: `schema_migrations`) |
 | Bookkeeping records all 6 migrations | ✅ |
-| RLS enabled on all 20 tables; `FORCE` never used | ✅ |
+| RLS enabled on all 20 tables in that bundle; `FORCE` never used | ✅ |
 | Functional: `set_updated_at` fires; self-employment is rejected | ✅ |
+
+Migrations **007–009** (satellite monitoring, livestock units, herd register) were merged
+into the same script on 2026-11-16. Those sections are written to the same idempotent
+pattern and were syntax-reviewed, but have **not** been re-executed against a cluster yet.
+Re-run the script once on a scratch database before relying on them; the bundle now covers
+9 migrations and 23 tables.
 
 It ends by enabling **Row Level Security** on every table with no policies. The Express
 API connects as the table owner (`postgres`), which is exempt from RLS, so the API is
@@ -312,7 +320,7 @@ cd backend
 cp .env.example .env          # fill in DB + secrets
 npm install
 npm run migrate               # or paste backend/supabase-update.sql into Supabase
-npm test                      # 152 tests — unit + HTTP smoke (no database needed)
+npm test                      # 539 tests — unit + HTTP smoke (no database needed)
 npm start                     # http://localhost:4000  ·  docs at /api-docs
 ```
 
@@ -331,9 +339,8 @@ cd android
 $env:JAVA_HOME="C:\Users\src.president\agri-tooling\jdk"
 .\gradlew.bat :app:assembleDebug :app:testDebugUnitTest --console=plain
 ```
-Verified in this environment (2026-10-18): **BUILD SUCCESSFUL**, 28/28 unit tests,
-`app/build/outputs/apk/debug/app-debug.apk` (`1.1.0`/build 2, 22.5 MB, with
-`auth_background.jpg` inside).
+Verified in this environment (2026-11-16): **BUILD SUCCESSFUL**, 173/173 unit tests,
+`app/build/outputs/apk/debug/app-debug.apk` (`1.2.0`/build 4).
 The API base URL defaults to the deployed service
 (`https://agriconnect-api-f55x.onrender.com/api/v1/`) for both build types, and can be
 overridden with `-PapiBaseUrl=…` or `local.properties`, or at runtime in a debug build
@@ -370,7 +377,7 @@ dead address that surfaced to users as an unexplained "session expired" 401.
 4. ~~Write `docs/05-TEST-REPORT.md`~~ — **done 2026-10-16**; the dead README link is fixed.
 5. **Wire real providers** (SMS/email, Earth Engine, push) per
    [`docs/07-EXTERNAL-CREDENTIALS.md`](docs/07-EXTERNAL-CREDENTIALS.md). For crop monitoring,
-   enable the `crop-api` service's real GEE path and point the app at it (§2·b).
+   enable the `crop-api` service's real GEE path and set `CROP_API_ENABLED=true` (§2·b).
 6. **Add instrumented UI tests** (`androidTest/`) for at least login and the offline
    sync queue; the Hilt runner is already in place. This pass added **no** device run, so the
    image upload/display flow (§3.4) still needs an on-device smoke test.
@@ -437,8 +444,8 @@ this pass implements the Android client half (Phase C).
 - `ui/satellite/SatelliteScreen.kt` was regenerated (ASCII-only, LF, braces balanced);
   the main source set compiles clean, so `:app:compileDebugUnitTestKotlin` and the unit
   suite are no longer blocked.
-- `:app:assembleDebug :app:testDebugUnitTest` - PASSED. **94 Android unit tests, 0 failures**;
-  APK at `android/app/build/outputs/apk/debug/app-debug.apk` (24.2 MB, `1.1.1`/build 3).
+- `:app:assembleDebug :app:testDebugUnitTest` - PASSED. **173 Android unit tests, 0 failures**;
+  APK at `android/app/build/outputs/apk/debug/app-debug.apk` (23.7 MB, `1.2.0`/build 4).
 - No on-device run: the actual download/verify/install path (unknown-sources grant,
   PackageInstaller session, FileProvider fallback) has NOT been exercised on a device
   or emulator and remains unverified.
@@ -510,8 +517,8 @@ shapes).
 
 **Tests:** backend suite **281 passed / 281, 17 suites** (added `eviSummary` unit tests
 and `daysBack` alias schema tests). Android `:app:assembleDebug :app:testDebugUnitTest`
-passes: **94 unit tests, 0 failures**, APK at
-`android/app/build/outputs/apk/debug/app-debug.apk` (24.2 MB, `1.1.1`/build 3).
+passes: **173 unit tests, 0 failures**, APK at
+`android/app/build/outputs/apk/debug/app-debug.apk` (23.7 MB, `1.2.0`/build 4).
 
 ---
 

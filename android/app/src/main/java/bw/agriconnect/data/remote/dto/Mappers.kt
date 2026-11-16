@@ -589,7 +589,11 @@ fun PlotGeometryDto.toDomain(): PlotGeometry = PlotGeometry(
     areaM2 = areaM2,
     areaHectares = areaHectares,
     perimeterM = perimeterM,
-    centroid = centroid?.let { GeoVertex(latitude = it.lat, longitude = it.lon) },
+    centroid = centroid?.let { centre ->
+        val latitude = centre.latitude ?: return@let null
+        val longitude = centre.longitude ?: return@let null
+        GeoVertex(latitude = latitude, longitude = longitude)
+    },
     sideLengthsM = sideLengthsM,
     valid = valid,
     reason = reason,

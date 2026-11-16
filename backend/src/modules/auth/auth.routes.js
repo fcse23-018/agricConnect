@@ -2,7 +2,7 @@ import { Router } from 'express';
 
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { validate } from '../../middleware/errorHandler.js';
-import { authenticate } from '../../middleware/auth.js';
+import { authenticate, optionalAuthenticate } from '../../middleware/auth.js';
 import { authLimiter } from '../../middleware/rateLimit.js';
 import { idempotency } from '../../middleware/idempotency.js';
 import {
@@ -139,10 +139,20 @@ router.post(
 router.post(
   '/verification/request',
   authLimiter,
+  // Optional, not required: the app is signed in when it verifies, and knowing
+  // the caller is the account owner is what lets the response report honestly
+  // whether the SMS actually left the server. Anonymous callers still get the
+  // uniform acknowledgement.
+  optionalAuthenticate,
   validate(verificationRequestSchema, 'body'),
   asyncHandler(async (req, res) => {
-    const { message, devCode } = await requestVerificationCode(req.body.identifier, req);
-    res.status(202).json({ message, ...(devCode ? { devCode } : {}) });
+    const { message, devCode, delivery, expiresInMinutes } = await requestVerificationCode(req.body.identifier, req);
+    res.status(202).json({
+      message,
+      expiresInMinutes,
+      ...(devCode ? { devCode } : {}),
+      ...(delivery !== undefined ? { delivery } : {}),
+    });
   }),
 );
 
@@ -151,8 +161,8 @@ router.post(
   authLimiter,
   validate(verificationConfirmSchema, 'body'),
   asyncHandler(async (req, res) => {
-    const { message } = await confirmVerification(req.body.identifier, req.body.code, req);
-    res.json({ message });
+    const { message, user } = await confirmVerification(req.body.identifier, req.body.code, req);
+    res.json({ message, ...(user ? { user } : {}) });
   }),
 );
 

@@ -12,6 +12,7 @@ import {
   explainDrop,
   buildAlerts,
   analyseSeries,
+  evaluateDetections,
   daysBetween,
   addDays,
   toEpoch,
@@ -545,5 +546,117 @@ describe('date helpers', () => {
     expect(addDays('2026-01-31', 1)).toBe('2026-02-01');
     expect(daysBetween('2026-01-01', '2026-01-31')).toBe(30);
     expect(toEpoch('nope')).toBeNull();
+  });
+});
+
+describe('evaluateDetections (DEF-4 ground-truth evaluation)', () => {
+  /** Ground truth is only a confirmed farmer event, by definition. */
+  const truth = (...dates) => dates.map((date) => ({ date }));
+  const detected = (...dates) => dates.map((date) => ({ date }));
+
+  it('counts a detection within the window as a true positive', () => {
+    // The satellite sees a harvest on the next clear pass, so matching is
+    // temporal, not exact.
+    const report = evaluateDetections({
+      detections: detected('2026-03-12'),
+      groundTruth: truth('2026-03-10'),
+      windowDays: 10,
+    });
+    expect(report.truePositives).toBe(1);
+    expect(report.falsePositives).toBe(0);
+    expect(report.falseNegatives).toBe(0);
+    expect(report.precision).toBe(1);
+    expect(report.recall).toBe(1);
+    expect(report.evaluated).toBe(true);
+  });
+
+  it('counts a detection outside the window as a false positive', () => {
+    const report = evaluateDetections({
+      detections: detected('2026-04-01'),
+      groundTruth: truth('2026-03-01'),
+      windowDays: 10,
+    });
+    expect(report.truePositives).toBe(0);
+    expect(report.falsePositives).toBe(1);
+    expect(report.falseNegatives).toBe(1);
+    expect(report.precision).toBe(0);
+    expect(report.recall).toBe(0);
+  });
+
+  it('matches one detection to one event, never one harvest to three dips', () => {
+    const report = evaluateDetections({
+      detections: detected('2026-03-10', '2026-03-11', '2026-03-12'),
+      groundTruth: truth('2026-03-10'),
+      windowDays: 10,
+    });
+    expect(report.truePositives).toBe(1);
+    expect(report.falsePositives).toBe(2);
+    expect(report.recall).toBe(1);
+    expect(report.precision).toBeCloseTo(1 / 3, 10);
+  });
+
+  it('computes partial precision and recall over mixed outcomes', () => {
+    const report = evaluateDetections({
+      detections: detected('2026-03-10', '2026-05-01'),
+      groundTruth: truth('2026-03-10', '2026-06-01', '2026-07-01'),
+      windowDays: 10,
+    });
+    expect(report.truePositives).toBe(1);
+    expect(report.falsePositives).toBe(1);
+    expect(report.falseNegatives).toBe(2);
+    expect(report.precision).toBe(0.5);
+    expect(report.recall).toBeCloseTo(1 / 3, 10);
+    expect(report.f1).toBeCloseTo((2 * 0.5 * (1 / 3)) / (0.5 + 1 / 3), 10);
+  });
+
+  it('reports null metrics rather than a perfect score when there is nothing to compare', () => {
+    // The honest answer for a farm with no confirmed events yet. Reporting 1.0
+    // here would claim a perfect detector from zero evidence.
+    const empty = evaluateDetections({ detections: [], groundTruth: [] });
+    expect(empty.evaluated).toBe(false);
+    expect(empty.precision).toBeNull();
+    expect(empty.recall).toBeNull();
+    expect(empty.f1).toBeNull();
+  });
+
+  it('keeps recall null with no ground truth even when detections exist', () => {
+    const report = evaluateDetections({ detections: detected('2026-03-10'), groundTruth: [] });
+    expect(report.evaluated).toBe(false);
+    // Nothing confirms the detection, so it counts as a false positive: precision
+    // is 0, arithmetically true. Recall, though, is undefined — reported null,
+    // never a perfect score.
+    expect(report.precision).toBe(0);
+    expect(report.recall).toBeNull();
+  });
+
+  it('keeps precision null when nothing was detected', () => {
+    const report = evaluateDetections({ detections: [], groundTruth: truth('2026-03-10') });
+    expect(report.evaluated).toBe(false);
+    expect(report.precision).toBeNull();
+    expect(report.recall).toBe(0); // the confirmed event was missed
+  });
+
+  it('is deterministic regardless of input order', () => {
+    const ordered = evaluateDetections({
+      detections: detected('2026-03-10', '2026-04-10'),
+      groundTruth: truth('2026-03-10', '2026-04-10'),
+    });
+    const shuffled = evaluateDetections({
+      detections: detected('2026-04-10', '2026-03-10'),
+      groundTruth: truth('2026-04-10', '2026-03-10'),
+    });
+    expect(shuffled).toEqual(ordered);
+  });
+
+  it('never matches on an unparseable date', () => {
+    // daysBetween returns null for garbage; Math.abs(null) is 0 in JavaScript,
+    // so this pins that a null gap is treated as "cannot match", not "same day".
+    const report = evaluateDetections({
+      detections: detected('not-a-date'),
+      groundTruth: truth('2026-03-10'),
+    });
+    expect(report.truePositives).toBe(0);
+    expect(report.falsePositives).toBe(1);
+    expect(report.falseNegatives).toBe(1);
   });
 });

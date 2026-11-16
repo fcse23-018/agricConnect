@@ -34,6 +34,23 @@ const MAX_MONEY = 999_999_999_999;
 const quantitySchema = z.coerce.number().min(0).max(MAX_MONEY);
 const moneySchema = z.coerce.number().min(0).max(MAX_MONEY);
 
+/**
+ * Per-animal listing attributes (report CR2). An empty or whitespace-only
+ * string is normalised to null rather than rejected, so a form that clears the
+ * field can save without inventing an error. Everything is optional: these
+ * describe livestock, and a sack of maize must not be forced to carry them.
+ */
+const optionalTrimmed = (max) =>
+  z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? null : v),
+    z.string().trim().min(1).max(max).nullish(),
+  );
+
+const animalClass = optionalTrimmed(60);
+const tagNumber = optionalTrimmed(60);
+const ageMonths = z.coerce.number().int().min(0).max(600).nullish();
+const weightKg = z.coerce.number().min(0).max(1_000_000).nullish();
+
 export const createListingSchema = z
   .object({
     produce: z.string().trim().min(2).max(120),
@@ -43,6 +60,10 @@ export const createListingSchema = z
     price: moneySchema,
     imageUrl: z.string().trim().max(500).nullish(),
     locationText: z.string().trim().max(200).nullish(),
+    animalClass,
+    ageMonths,
+    weightKg,
+    tagNumber,
   })
   // Strict: a brand-new listing can never be created already PUBLISHED/SOLD.
   .strict();
@@ -62,6 +83,10 @@ export const updateListingSchema = z
     price: moneySchema.optional(),
     imageUrl: z.string().trim().max(500).nullish(),
     locationText: z.string().trim().max(200).nullish(),
+    animalClass,
+    ageMonths,
+    weightKg,
+    tagNumber,
   })
   .partial()
   .passthrough()

@@ -163,10 +163,62 @@ export function toListing(row) {
     status: row.status,
     imageUrl: row.image_url ?? null,
     locationText: row.location_text ?? null,
+    // Per-animal attributes (CR2, migration 009). All nullable: a produce
+    // listing has none of them, and the client must never require them.
+    animalClass: row.animal_class ?? null,
+    ageMonths: row.age_months ?? null,
+    weightKg: row.weight_kg === null || row.weight_kg === undefined ? null : num(row.weight_kg),
+    tagNumber: row.tag_number ?? null,
     publishedAt: iso(row.published_at),
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
     ...(row.farmer_name ? { farmerName: row.farmer_name } : {}),
+  };
+}
+
+/**
+ * One herd-register entry (CR1, migration 009 `herd_events`). `headCount` is how
+ * many animals the entry concerns, `unitPrice`/`amount` the money a sale entry
+ * carries, and `tagNumber` the ear tag when the entry is about one animal.
+ */
+export function toHerdEvent(row) {
+  return {
+    eventId: row.id,
+    clientId: row.client_id ?? null,
+    farmerId: row.farmer_id,
+    animalType: row.animal_type,
+    eventType: row.event_type,
+    eventDate: dateOnly(row.event_date),
+    headCount: row.head_count,
+    weightKg: row.weight_kg === null || row.weight_kg === undefined ? null : num(row.weight_kg),
+    unitPrice: row.unit_price === null || row.unit_price === undefined ? null : num(row.unit_price),
+    amount: row.amount === null || row.amount === undefined ? null : num(row.amount),
+    tagNumber: row.tag_number ?? null,
+    notes: row.notes ?? null,
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at),
+  };
+}
+
+/**
+ * One row of the `herd_register_summary` view: the automatic totals per animal
+ * type. Dates are nullable (a type with no dipping entry has no last dipped
+ * date) and are emitted as plain YYYY-MM-DD.
+ */
+export function toHerdSummary(row) {
+  return {
+    farmerId: row.farmer_id,
+    animalType: row.animal_type,
+    births: row.births ?? 0,
+    deaths: row.deaths ?? 0,
+    headSold: row.head_sold ?? 0,
+    saleProceeds: num(row.sale_proceeds ?? 0),
+    weighingEntries: row.weighing_entries ?? 0,
+    lastWeighedOn: dateOnly(row.last_weighed_on),
+    lastDippedOn: dateOnly(row.last_dipped_on),
+    lastVeterinaryOn: dateOnly(row.last_veterinary_on),
+    lastEventOn: dateOnly(row.last_event_on),
+    entries: row.entries ?? 0,
   };
 }
 
@@ -288,5 +340,5 @@ export function paginated(items, { page, pageSize, total }) {
 export default {
   num, iso, dateOnly, toPublicUser, toPlot, toHarvest, toLivestock, toSale, toExpense,
   toNdvi, toPlotObservation, toPlotEvent, toPlotAlert, toListing, toOrder, toNotification,
-  paginated,
+  toHerdEvent, toHerdSummary, paginated,
 };

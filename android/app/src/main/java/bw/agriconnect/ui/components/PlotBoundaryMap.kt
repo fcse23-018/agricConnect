@@ -116,7 +116,7 @@ fun PlotBoundaryMap(
     // re-seeds its pin, while a pin the user is dragging keeps its identity.
     val markerStates: List<MarkerState> = vertices.mapIndexed { index, vertex ->
         key(index, vertex.latitude, vertex.longitude) {
-            MarkerState(position = LatLng(vertex.latitude, vertex.longitude))
+            remember { MarkerState(position = LatLng(vertex.latitude, vertex.longitude)) }
         }
     }
 
@@ -124,8 +124,12 @@ fun PlotBoundaryMap(
     // expose an `onDragEnd` callback, and `MarkerState.dragState` is internal, so the
     // settled position is read from the marker's own state instead. `distinctUntilChanged`
     // means the parent is rebuilt once per completed drag, not once per pixel.
-    LaunchedEffect(markerStates.size) {
-        markerStates.forEachIndexed { index, state ->
+    //
+    // One collector per marker, keyed to its state: re-seeding a corner's coordinates
+    // replaces that `MarkerState`, so the collector must follow the new object rather
+    // than keep observing the old one.
+    markerStates.forEachIndexed { index, state ->
+        LaunchedEffect(index, state) {
             snapshotFlow { state.position }
                 .distinctUntilChanged()
                 .collect { position ->

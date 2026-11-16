@@ -34,6 +34,7 @@ import {
   resolveBoundary,
   latestObservationByPlot,
   activeThresholds,
+  getValidationReport,
 } from './satellite.monitoring.service.js';
 import { one } from '../../db/index.js';
 import { z } from 'zod';
@@ -359,6 +360,28 @@ router.post(
       action: req.body.action,
     });
     res.json(toPlotAlert(row));
+  }),
+);
+
+/**
+ * GET /satellite/validation
+ *
+ * The DEF-4 answer: how the detected drops compare with the farmer's own
+ * confirmed events, reported as precision and recall. Read-only, scoped to the
+ * caller's farm like every other view here. When no confirmed events exist yet
+ * the report says so — it never substitutes a perfect score for missing ground
+ * truth.
+ */
+router.get(
+  '/validation',
+  validate(
+    z.object({ windowDays: z.coerce.number().int().min(1).max(90).optional() }),
+    'query',
+  ),
+  asyncHandler(async (req, res) => {
+    res.json(await getValidationReport(await resolveOwnerFarmerId(req.user), {
+      windowDays: req.query.windowDays ?? 10,
+    }));
   }),
 );
 
