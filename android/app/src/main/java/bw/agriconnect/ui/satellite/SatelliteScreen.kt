@@ -206,18 +206,13 @@ fun SatelliteScreen(
                     .weight(1f),
             ) {
                 Column(
+                    // Bounded height is essential. Each tab scrolls inside its own
+                    // weight(1f) child; a second verticalScroll here used to give
+                    // that child infinite height and crash the app (Chart, Weather,
+                    // Growth, Events, Alerts and the retry state all died on open).
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(AgriSpacing.md)
-                        .let { base ->
-                            // Plots and Overview are lazy lists and scroll on
-                            // their own; the other tabs use a regular Column.
-                            if ((showPlotsTab && selectedTab == 0) || analysisTab == 0) {
-                                base
-                            } else {
-                                base.verticalScroll(rememberScrollState())
-                            }
-                        },
+                        .fillMaxSize()
+                        .padding(AgriSpacing.md),
                     verticalArrangement = Arrangement.spacedBy(AgriSpacing.lg),
                 ) {
                     // The plot list is local data. It works with no network and
@@ -241,6 +236,7 @@ fun SatelliteScreen(
                             // failure on this tab only, with actions that work
                             // offline (retry, generate, add a plot).
                             AnalysisUnavailable(
+                                modifier = Modifier.weight(1f),
                                 state = state,
                                 hasPlots = plots.isNotEmpty(),
                                 canGenerate = canGenerate,
@@ -350,11 +346,11 @@ fun SatelliteScreen(
                                             if (onOpenInsights != null && id != null) onOpenInsights(id)
                                         },
                                     )
-                                    1 -> ChartTab(overview)
-                                    2 -> WeatherTab(overview)
-                                    3 -> GrowthCycleTab(overview)
-                                    4 -> EventsTab(state, currentPlotId, viewModel)
-                                    5 -> AlertsTab(state, overview, viewModel)
+                                    1 -> ChartTab(overview, modifier = Modifier.weight(1f))
+                                    2 -> WeatherTab(overview, modifier = Modifier.weight(1f))
+                                    3 -> GrowthCycleTab(overview, modifier = Modifier.weight(1f))
+                                    4 -> EventsTab(state, currentPlotId, viewModel, modifier = Modifier.weight(1f))
+                                    5 -> AlertsTab(state, overview, viewModel, modifier = Modifier.weight(1f))
                                 }
                         }
                     }
@@ -381,6 +377,7 @@ private fun AnalysisUnavailable(
     onRetry: () -> Unit,
     onGenerate: () -> Unit,
     onAddPlot: (() -> Unit)?,
+    modifier: Modifier = Modifier,
 ) {
     val failed = state.error != null || state.offline
     val message = when {
@@ -393,7 +390,7 @@ private fun AnalysisUnavailable(
     }
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(AgriSpacing.md),
@@ -719,7 +716,7 @@ private fun OverviewTab(
 }
 
 @Composable
-private fun ChartTab(overview: SatelliteOverview) {
+private fun ChartTab(overview: SatelliteOverview, modifier: Modifier = Modifier) {
     val observations = overview.observations
 
     if (observations.isEmpty()) {
@@ -735,7 +732,7 @@ private fun ChartTab(overview: SatelliteOverview) {
     val advice = trendAdvice(overview.summary?.ndvi)
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(AgriSpacing.lg),
@@ -1104,7 +1101,7 @@ private const val MIN_POLYGON_VERTICES = 3
 private fun Double.format5(): String = "%.5f".format(this)
 
 @Composable
-private fun WeatherTab(overview: SatelliteOverview) {
+private fun WeatherTab(overview: SatelliteOverview, modifier: Modifier = Modifier) {
     val weather = overview.weather
     val advice = weatherAdvice(weather)
 
@@ -1118,7 +1115,7 @@ private fun WeatherTab(overview: SatelliteOverview) {
     }
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(AgriSpacing.lg),
@@ -1183,7 +1180,7 @@ private fun WeatherTab(overview: SatelliteOverview) {
 }
 
 @Composable
-private fun GrowthCycleTab(overview: SatelliteOverview) {
+private fun GrowthCycleTab(overview: SatelliteOverview, modifier: Modifier = Modifier) {
     val cycle = overview.growthCycle
     val advice = growthAdvice(cycle)
 
@@ -1197,7 +1194,7 @@ private fun GrowthCycleTab(overview: SatelliteOverview) {
     }
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(AgriSpacing.lg),
@@ -1266,13 +1263,14 @@ private fun EventsTab(
     state: SatelliteUiState,
     plotId: String?,
     viewModel: SatelliteViewModel,
+    modifier: Modifier = Modifier,
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<PlotEvent?>(null) }
     var pendingDelete by remember { mutableStateOf<PlotEvent?>(null) }
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(AgriSpacing.lg),
@@ -1634,6 +1632,7 @@ private fun AlertsTab(
     state: SatelliteUiState,
     overview: SatelliteOverview,
     viewModel: SatelliteViewModel,
+    modifier: Modifier = Modifier,
 ) {
     val alerts = overview.alerts
     val farmSummary = state.alertsByFarm
@@ -1643,7 +1642,7 @@ private fun AlertsTab(
     LaunchedEffect(Unit) { viewModel.loadAlertsByFarm() }
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(AgriSpacing.lg),

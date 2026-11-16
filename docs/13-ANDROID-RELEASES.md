@@ -323,8 +323,8 @@ app:
 ## 7. Version history (example)
 
 `Forced` means `minSupportedVersionCode` was set above that build, so devices on it
-received the blocking required-update dialog. The current build is `1.2.1` /
-versionCode `5`.
+received the blocking required-update dialog. The current build is `1.2.2` /
+versionCode `6`.
 
 | Version | Code | Date | Forced | Notes |
 |---------|------|------|--------|-------|
@@ -333,6 +333,7 @@ versionCode `5`.
 | 1.1.1 | 3 | 2026-07-20 | no | Boundary editor fixes, weather history |
 | 1.2.0 | 4 | 2026-11-16 | no | Farm and Satellite merged; actionable advice for every analysis |
 | 1.2.1 | 5 | 2026-11-16 | no | Farm & Crop Health fix: Plots and all buttons work without a satellite read; screens scroll and fit |
+| 1.2.2 | 6 | 2026-11-17 | no | Crash fix: removed nested scrolling that killed Chart, Weather, Growth, Events, Alerts and the retry state |
 
 ---
 

@@ -81,8 +81,8 @@ android {
         targetSdk = 35
         // Bump on every build you hand out. Settings → footer shows this, so "which
         // build is on the phone?" is answerable without inspecting the APK.
-        versionCode = 5
-        versionName = "1.2.1"
+        versionCode = 6
+        versionName = "1.2.2"
 
         testInstrumentationRunner = "bw.agriconnect.HiltTestRunner"
         vectorDrawables { useSupportLibrary = true }
