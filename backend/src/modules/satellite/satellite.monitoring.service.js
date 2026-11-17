@@ -228,14 +228,33 @@ async function persistAlerts({ plotId, farmerId, alerts }) {
 
 /** Turn a freshly raised alert into an in-app notification. */
 async function notifyCreatedAlerts({ farmerId, alerts }) {
+  // A generic "Vegetation index declined" tells the farmer nothing about WHERE
+  // to look. Resolve the plot and the owner's holding once (there is no separate
+  // farm entity — the owner's account *is* the farm, see alertsByFarm) and put
+  // both names in the notification so it is actionable from the feed.
+  const owner = await one('SELECT full_name FROM users WHERE id = $1', [farmerId]);
+  const farmName = owner?.full_name ?? 'My farm';
+
   for (const alert of alerts) {
     // Only WARNING and CRITICAL interrupts the farmer; INFO stays in the feed.
     if (alert.severity === 'INFO') continue;
+
+    let plotName = null;
+    if (alert.plot_id) {
+      const plot = await one(
+        'SELECT plot_name FROM farm_plots WHERE id = $1 AND farmer_id = $2',
+        [alert.plot_id, farmerId],
+      );
+      plotName = plot?.plot_name ?? null;
+    }
+
+    const title = plotName ? `${plotName}: ${alert.title}` : alert.title;
+    const where = `Plot: ${plotName ?? 'unknown plot'} · Farm: ${farmName}`;
     await notify({
       userId: farmerId,
       type: 'NDVI_READY',
-      title: alert.title,
-      body: alert.body,
+      title,
+      body: `${alert.body}\n${where}`,
       relatedEntityType: 'PlotAlert',
       relatedEntityId: alert.id,
     });

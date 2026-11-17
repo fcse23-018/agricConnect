@@ -140,6 +140,9 @@ fun SatelliteScreen(
 
     // Tab state
     var selectedTab by remember { mutableStateOf(0) }
+    // The many "honesty" notices (cached, MOCK, observation age, disclaimer)
+    // start collapsed so the plot chips and map are visible on a phone screen.
+    var showNotices by remember { mutableStateOf(false) }
     val tabs = listOf(
         "Plots",
         "Overview",
@@ -253,47 +256,60 @@ fun SatelliteScreen(
                         else -> {
                             val overview = state.overview!!
 
-                            // Error/Info banners
+                            // Errors stay prominent; the long list of data-quality
+                            // notices is collapsed so the plot chips and map below
+                            // are actually visible on a phone.
                             if (state.error != null) {
                                 ErrorBanner(message = state.error.orEmpty(), onRetry = { viewModel.start(currentPlotId) })
                             }
                             if (state.infoMessage != null) {
                                 InfoBanner(message = state.infoMessage.orEmpty())
                             }
+
+                            val notices = mutableListOf<String>()
                             if (state.overviewFromCache) {
-                                // The device-side mirror — distinct from the server's own
-                                // `isCached`. The reading keeps its original observation
-                                // date; only the "saved on this device" time is local.
-                                InfoBanner(
-                                    message = "You are offline, so this is the last reading saved " +
-                                        "on this device. It keeps its original observation date — " +
-                                        "nothing has been re-dated. Tap Try for a fresh pass to check again.",
-                                )
+                                notices += "Offline: last reading saved on this device. It keeps its original observation date — nothing has been re-dated. Tap Try for a fresh pass."
                             }
                             if (overview.observationStatus.isCached) {
-                                InfoBanner(message = "Showing cached data. Reconnect to fetch the latest satellite pass.")
+                                notices += "Showing cached data. Reconnect to fetch the latest satellite pass."
                             }
                             if (overview.observationStatus.isSimulated) {
-                                InfoBanner(
-                                    message = "Showing simulated data (MOCK). Real Sentinel-2 observations require Earth Engine configuration.",
-                                    icon = { Icon(Icons.Filled.Info, contentDescription = null, tint = AgriColors.DarkBrown) },
-                                )
+                                notices += "Showing simulated data (MOCK). Real Sentinel-2 observations require Earth Engine configuration."
                             }
-                            // Never let an old clear image read as "live": say when the
-                            // newest usable observation actually is.
                             overview.observationStatus.newestObservation?.let { newest ->
                                 val age = overview.observationStatus.newestObservationAgeDays
-                                InfoBanner(
-                                    message = "Newest clear satellite image: " +
-                                        DateFormatters.formatDate(newest) +
-                                        (age?.let { " ($it days old)" } ?: ""),
-                                )
+                                notices += "Newest clear satellite image: " +
+                                    DateFormatters.formatDate(newest) +
+                                    (age?.let { " ($it days old)" } ?: "")
                             }
-                            overview.observationStatus.note?.let { note ->
-                                InfoBanner(message = note)
-                            }
-                            overview.disclaimer?.let { disclaimer ->
-                                InfoBanner(message = disclaimer)
+                            overview.observationStatus.note?.let { notices += it }
+                            overview.disclaimer?.let { notices += it }
+
+                            if (notices.isNotEmpty()) {
+                                AgriCard(onClick = { showNotices = !showNotices }) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(AgriSpacing.sm),
+                                    ) {
+                                        Icon(Icons.Filled.Info, contentDescription = null, tint = AgriColors.DarkBrown)
+                                        Text(
+                                            text = "${notices.size} data notice${if (notices.size == 1) "" else "s"} — " +
+                                                if (showNotices) "tap to hide" else "tap to read",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        Icon(
+                                            imageVector = if (showNotices) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward,
+                                            contentDescription = if (showNotices) "Collapse notices" else "Expand notices",
+                                            tint = AgriColors.DarkBrown,
+                                        )
+                                    }
+                                    if (showNotices) {
+                                        Spacer(Modifier.height(AgriSpacing.sm))
+                                        notices.forEach { InfoBanner(message = it) }
+                                    }
+                                }
                             }
 
                             // Plot selector (if multiple plots)
